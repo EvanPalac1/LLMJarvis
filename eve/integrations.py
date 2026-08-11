@@ -31,9 +31,18 @@ from eve import plataforma, store  # noqa: E402
 
 
 def cli() -> str:
-    """Como llamar a esta CLI desde PowerShell, con cualquier directorio actual."""
-    exe = sys.executable.replace("pythonw.exe", "python.exe")
-    return f'& "{exe}" "{os.path.abspath(__file__)}"'
+    """Como llamar a esta CLI desde el shell, con cualquier directorio actual.
+
+    Congelado no hay `python` ni archivos `.py` sueltos: el propio binario se
+    relanza con `--cli`. Desde el codigo se invoca el script.
+    """
+    if plataforma.congelado():
+        prefijo = f'"{sys.executable}" --cli'
+    else:
+        exe = sys.executable.replace("pythonw.exe", "python.exe")
+        prefijo = f'"{exe}" "{os.path.abspath(__file__)}"'
+    # PowerShell necesita el operador de llamada para rutas entrecomilladas.
+    return ("& " if plataforma.WINDOWS else "") + prefijo
 
 
 MAX_CONTACTOS_PROMPT = 40

@@ -1,18 +1,21 @@
-"""Arma el ejecutable de Eve para el sistema donde se corre.
+"""Arma la aplicacion para el sistema donde se corre.
 
-    python build.py
+    python build.py            solo los binarios
+    python build.py --paquete  ademas el instalador del sistema
 
-PyInstaller no cross-compila: el binario de cada sistema se arma en ese sistema.
+PyInstaller no cross-compila: cada sistema y arquitectura se arma en su propia
+maquina. Para los 5 objetivos esta .github/workflows/release.yml.
 
-Modo one-dir a proposito, no one-file: arranca al instante en vez de descomprimir
-todo en un temporal cada vez, y `keyboard` empaquetado en un solo .exe dispara
-alertas de antivirus mucho mas seguido.
+One-dir y no one-file: arranca al instante en vez de descomprimir todo en un
+temporal cada vez, y `keyboard` en un solo .exe dispara alertas de antivirus
+mucho mas seguido.
 
-El modelo de voz NO se empaqueta: son ~460 MB que se bajan solos al cache la
-primera vez que hablas. Meterlos adentro hace el build inmanejable.
+El modelo de voz NO se empaqueta: son ~460 MB que se bajan al cache del usuario
+la primera vez. El instalador ofrece bajarlos durante la instalacion.
 """
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -20,64 +23,129 @@ import sys
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 WINDOWS = sys.platform == "win32"
 MACOS = sys.platform == "darwin"
+VERSION = "1.0.0"
 
-# Modulos que PyInstaller no descubre solo porque se importan de forma dinamica.
+# amd64/x86_64 -> x64, aarch64/arm64 -> arm64
+_M = platform.machine().lower()
+ARCH = "arm64" if _M in ("arm64", "aarch64") else "x64"
+
 OCULTOS = [
     "pystray._win32" if WINDOWS else "pystray._darwin" if MACOS else "pystray._appindicator",
-    "comtypes",
-    "piper",
-    "onnxruntime",
-    "eve.ollama_engine",
-    "eve.voices",
-    "eve.brain",
-    "eve.cc_engine",
+    "comtypes", "piper", "onnxruntime",
+    "eve.brain", "eve.cc_engine", "eve.ollama_engine", "eve.voices",
+    "eve.integrations", "eve.hook_gate", "eve.gui",
 ]
 if WINDOWS:
     OCULTOS += [
-        "win32com.client",
+        "win32com.client", "win32clipboard", "keyboard",
         "winrt.windows.ui.notifications",
         "winrt.windows.ui.notifications.management",
         "winrt.windows.foundation",
     ]
+else:
+    OCULTOS += ["pynput"]
 
 
 def _icono() -> list[str]:
-    ico = os.path.join(RAIZ, "assets", "eve.ico")
-    png = os.path.join(RAIZ, "assets", "eve.png")
-    if not os.path.exists(ico):
-        subprocess.run([sys.executable, "-m", "eve.icon"], cwd=RAIZ, check=False)
-    if WINDOWS and os.path.exists(ico):
-        return ["--icon", ico]
-    if MACOS and os.path.exists(png):
-        return ["--icon", png]
+    """Los iconos se generan en la carpeta de datos; se copian al build."""
+    subprocess.run([sys.executable, "-m", "eve.icon"], cwd=RAIZ, check=False,
+                   capture_output=True)
+    from eve import icon as icon_mod
+
+    if WINDOWS and os.path.exists(icon_mod.ICO_PATH):
+        return ["--icon", icon_mod.ICO_PATH]
+    if MACOS and os.path.exists(icon_mod.PNG_PATH):
+        return ["--icon", icon_mod.PNG_PATH]
     return []
 
 
-def _construir(nombre: str, entrada: str, ventana: bool) -> None:
+def _construir(nombre: str, ventana: bool, extra: list[str]) -> None:
+    sep = ";" if WINDOWS else ":"
     cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--noconfirm",
-        "--onedir",
+        sys.executable, "-m", "PyInstaller", "--noconfirm", "--onedir",
         "--name", nombre,
         "--distpath", os.path.join(RAIZ, "dist"),
         "--workpath", os.path.join(RAIZ, "build"),
         "--specpath", os.path.join(RAIZ, "build"),
         "--noconsole" if ventana else "--console",
+        # EVE.md se lee en cada llamada al modelo: tiene que viajar con el binario.
+        "--add-data", f"{os.path.join(RAIZ, 'EVE.md')}{sep}.",
     ]
     for m in OCULTOS:
         cmd += ["--hidden-import", m]
-    # EVE.md se lee en cada llamada: tiene que viajar con el binario.
-    sep = ";" if WINDOWS else ":"
-    cmd += ["--add-data", f"{os.path.join(RAIZ, 'EVE.md')}{sep}."]
-    if MACOS:
-        cmd += ["--windowed"]  # produce el .app
-    cmd += _icono()
-    cmd.append(os.path.join(RAIZ, entrada))
+    cmd += _icono() + extra + [os.path.join(RAIZ, "main.py")]
 
     print(f"\n=== {nombre} ===")
-    r = subprocess.run(cmd, cwd=RAIZ)
-    if r.returncode != 0:
+    if subprocess.run(cmd, cwd=RAIZ).returncode != 0:
         sys.exit(f"PyInstaller fallo armando {nombre}")
+
+
+def _fusionar(principal: str, extras: list[str]) -> None:
+    """Deja los binarios secundarios dentro de la carpeta del principal.
+
+    Sin esto cada uno arrastra su copia completa de Python y las librerias, que
+    son casi todo el peso.
+    """
+    dist = os.path.join(RAIZ, "dist")
+    for extra in extras:
+        origen = os.path.join(dist, extra)
+        binario = os.path.join(origen, extra + (".exe" if WINDOWS else ""))
+        if os.path.exists(binario):
+            shutil.copy2(binario, os.path.join(dist, principal, os.path.basename(binario)))
+        shutil.rmtree(origen, ignore_errors=True)
+
+
+def _app_macos() -> None:
+    """Info.plist: sin esto macOS niega el microfono en silencio."""
+    plist = os.path.join(RAIZ, "dist", "Eve.app", "Contents", "Info.plist")
+    if not os.path.exists(plist):
+        return
+    plantilla = os.path.join(RAIZ, "packaging", "macos", "Info.plist")
+    if os.path.exists(plantilla):
+        with open(plantilla, encoding="utf-8") as f:
+            contenido = f.read().replace("@VERSION@", VERSION)
+        with open(plist, "w", encoding="utf-8") as f:
+            f.write(contenido)
+        print("    Info.plist aplicado (LSUIElement, permiso de microfono)")
+
+
+def _paquete() -> None:
+    """Instalador nativo del sistema."""
+    pkg = os.path.join(RAIZ, "packaging")
+    if WINDOWS:
+        # winget lo instala por usuario en LOCALAPPDATA, no en Program Files.
+        candidatos = [
+            os.path.join(base, "Inno Setup 6", "ISCC.exe")
+            for base in (
+                os.environ.get("LOCALAPPDATA", "") and
+                os.path.join(os.environ["LOCALAPPDATA"], "Programs"),
+                os.environ.get("ProgramFiles(x86)", ""),
+                os.environ.get("ProgramFiles", ""),
+            )
+            if base
+        ]
+        iscc = next((p for p in candidatos if os.path.exists(p)), shutil.which("iscc"))
+        if not iscc:
+            print("\nFalta Inno Setup. Instalalo con:  winget install JRSoftware.InnoSetup")
+            return
+        # El .iss espera el icono en dist/: se genera en la carpeta de datos.
+        from eve import icon as icon_mod
+
+        if os.path.exists(icon_mod.ICO_PATH):
+            shutil.copy2(icon_mod.ICO_PATH, os.path.join(RAIZ, "dist", "eve.ico"))
+        subprocess.run(
+            [iscc, f"/DMiVersion={VERSION}", f"/DMiArch={ARCH}",
+             os.path.join(pkg, "windows", "eve.iss")],
+            cwd=RAIZ, check=True,
+        )
+    elif MACOS:
+        subprocess.run(["bash", os.path.join(pkg, "macos", "dmg.sh"), VERSION, ARCH],
+                       cwd=RAIZ, check=True)
+    else:
+        for guion in ("build_deb.sh", "build_rpm.sh"):
+            ruta = os.path.join(pkg, "linux", guion)
+            if os.path.exists(ruta):
+                subprocess.run(["bash", ruta, VERSION, ARCH], cwd=RAIZ, check=False)
 
 
 def main() -> int:
@@ -87,27 +155,30 @@ def main() -> int:
         print("Falta PyInstaller. Corre:  pip install pyinstaller")
         return 1
 
-    _construir("Eve", "main.py", ventana=True)
-    _construir("Eve-config", os.path.join("eve", "gui.py"), ventana=True)
-    _construir("Eve-debug", "main.py", ventana=False)
+    shutil.rmtree(os.path.join(RAIZ, "dist"), ignore_errors=True)
+
+    if MACOS:
+        _construir("Eve", ventana=True, extra=["--windowed"])
+        _app_macos()
+    else:
+        _construir("Eve", ventana=True, extra=[])
+        # El panel es un binario propio: la bandeja lo lanza como proceso aparte
+        # para no mezclar el mainloop de tkinter con el de pystray.
+        _construir("Eve-config", ventana=True, extra=[])
+        _construir("Eve-debug", ventana=False, extra=[])
+        _fusionar("Eve", ["Eve-config", "Eve-debug"])
 
     salida = os.path.join(RAIZ, "dist")
-    # El panel y el modo debug viven dentro de la carpeta de Eve para no repetir
-    # las dependencias, que son casi todo el peso.
-    for extra in ("Eve-config", "Eve-debug"):
-        origen = os.path.join(salida, extra)
-        binario = os.path.join(origen, extra + (".exe" if WINDOWS else ""))
-        destino = os.path.join(salida, "Eve", os.path.basename(binario))
-        if os.path.exists(binario):
-            shutil.copy2(binario, destino)
-            shutil.rmtree(origen, ignore_errors=True)
+    print(f"\nListo: {salida}  ({sys.platform} {ARCH})")
 
-    print(f"\nListo: {os.path.join(salida, 'Eve')}")
-    print("El modelo de voz se baja solo la primera vez que hables (~460 MB).")
+    if "--paquete" in sys.argv:
+        _paquete()
+
+    print("El modelo de voz se baja la primera vez que hables (~460 MB).")
     if WINDOWS:
         print(
-            "\nSi el antivirus marca el .exe: es por `keyboard`, que engancha el teclado\n"
-            "globalmente. Es inherente a lo que hace el programa, no un empaquetado raro."
+            "Si el antivirus marca el binario: es por `keyboard`, que engancha el teclado\n"
+            "globalmente. Es inherente a lo que hace el programa."
         )
     return 0
 

@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Eve
+GenericName=Asistente de voz
+Comment=Manten una tecla, habla, y la IA lo hace en tu PC
+Exec=/opt/LLMJarvis/Eve
+Icon=eve
+Terminal=false
+Categories=Utility;Accessibility;
+Keywords=voz;asistente;ia;jarvis;llm;
+StartupNotify=false
+X-GNOME-UsesNotifications=true
+
+[Desktop Action Config]
+Name=Configuracion
+Exec=/opt/LLMJarvis/Eve --panel

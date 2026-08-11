@@ -4,6 +4,7 @@ seguridad y la ventana de contexto. Sin dependencias externas.
     python test_eve.py
 """
 
+import json
 import os
 import tempfile
 
@@ -454,6 +455,50 @@ def test_plataforma():
         assert integrations.outlook_cuentas() == []
     finally:
         plataforma.WINDOWS = real
+
+
+def test_rutas_instalacion():
+    """Datos y programa separados: instalado en Program Files, el directorio del
+    programa es de solo lectura y ahi no se puede escribir nada."""
+    from eve import plataforma
+
+    datos, recursos = plataforma.datos_usuario(), plataforma.recursos()
+    assert os.path.isdir(datos)
+    assert os.path.abspath(datos) != os.path.abspath(recursos)
+    assert plataforma.APP in datos
+    if plataforma.WINDOWS:
+        assert "AppData" in datos
+    elif plataforma.MACOS:
+        assert "Application Support" in datos
+    else:
+        assert ".config" in datos or "XDG" in datos or datos.startswith("/")
+
+    # Lo que se escribe va a datos; el manual viaja con el programa.
+    for ruta in (store.CONFIG_PATH, store.DB_PATH, store.CONTACTS_PATH, store.MEMORIA_PATH):
+        assert os.path.dirname(ruta) == datos, ruta
+    assert os.path.dirname(store.BRIEF_PATH) == recursos
+
+
+def test_invocacion_congelada():
+    """Empaquetado no hay `python` ni `.py` sueltos: el binario se relanza solo."""
+    from eve import cc_engine, integrations, plataforma
+
+    normal = integrations.cli()
+    assert ".py" in normal, "desde el codigo se invoca el script"
+
+    real = plataforma.congelado
+    plataforma.congelado = lambda: True
+    try:
+        congelado = integrations.cli()
+        assert ".py" not in congelado, "congelado no hay archivos .py que invocar"
+        assert "--cli" in congelado
+        # El hook del motor claude-code tiene el mismo problema y la misma solucion.
+        with open(cc_engine.write_settings(), encoding="utf-8") as f:
+            hook = json.load(f)["hooks"]["PreToolUse"][0]["hooks"][0]
+        assert hook["args"] == ["--hook"]
+    finally:
+        plataforma.congelado = real
+        cc_engine.write_settings()  # restaurar el settings de desarrollo
 
 
 def test_voces_piper():

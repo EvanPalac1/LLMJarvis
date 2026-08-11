@@ -1,5 +1,6 @@
 """Icono en la bandeja del sistema. Clic izquierdo abre el panel."""
 
+import os
 import subprocess
 import sys
 
@@ -10,13 +11,24 @@ from . import icon as icon_mod
 
 def open_panel() -> None:
     # Proceso aparte: tkinter y pystray no comparten mainloop sin dolor.
-    subprocess.Popen([sys.executable, "-m", "eve.gui"], cwd=_project_root())
+    from . import plataforma
+
+    if plataforma.congelado():
+        # Binario propio al lado del principal, no un modulo de Python.
+        exe = os.path.join(
+            os.path.dirname(sys.executable),
+            "Eve-config.exe" if plataforma.WINDOWS else "Eve-config",
+        )
+        if os.path.exists(exe):
+            subprocess.Popen([exe])
+            return
+    subprocess.Popen(plataforma.comando_propio("--panel"), cwd=_project_root())
 
 
 def _project_root() -> str:
-    import os
+    from . import plataforma
 
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return plataforma.recursos()
 
 
 def _title(listener) -> str:

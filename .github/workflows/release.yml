@@ -1,0 +1,111 @@
+name: Release
+
+# PyInstaller no cross-compila: cada paquete se arma en su arquitectura nativa.
+# Por eso la matriz corre en runners distintos en vez de un solo job.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.nombre }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nombre: Windows x64
+            runner: windows-latest
+            arch: x64
+          - nombre: Windows ARM64
+            runner: windows-11-arm
+            arch: arm64
+          - nombre: macOS Intel
+            runner: macos-13
+            arch: x64
+          - nombre: macOS Apple Silicon
+            runner: macos-14
+            arch: arm64
+          - nombre: Linux x64
+            runner: ubuntu-latest
+            arch: x64
+          - nombre: Linux ARM64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # tkinter y las libs de audio no vienen en los runners de Linux.
+      - name: Dependencias del sistema (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            python3-tk libasound2-dev portaudio19-dev \
+            libgirepository1.0-dev libcairo2-dev rpm
+
+      - name: Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        run: choco install innosetup --no-progress -y
+
+      - name: Dependencias de Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Tests
+        run: python test_eve.py
+
+      - name: Build + paquete
+        run: python build.py --paquete
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eve-${{ runner.os }}-${{ matrix.arch }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.deb
+            dist/*.rpm
+          if-no-files-found: warn
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: paquetes
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: paquetes/*
+          generate_release_notes: true
+          body: |
+            ## Instalacion
+
+            | Sistema | Archivo |
+            |---|---|
+            | Windows | `Eve-Setup-x64.exe` o `Eve-Setup-arm64.exe` |
+            | macOS | `Eve-AppleSilicon.dmg` (M1 o posterior) / `Eve-Intel.dmg` |
+            | Debian, Ubuntu | `eve_*_amd64.deb` o `eve_*_arm64.deb` |
+            | Fedora, RHEL | `eve-*.x86_64.rpm` o `eve-*.aarch64.rpm` |
+
+            Los paquetes traen Python y todas las dependencias adentro. El modelo
+            de reconocimiento de voz (~460 MB) se baja aparte: el instalador de
+            Windows ofrece hacerlo, y en el resto se baja al primer uso.
+
+            **No estan firmados digitalmente.** Windows va a mostrar SmartScreen
+            (Mas informacion > Ejecutar de todas formas) y macOS pide abrirlo la
+            primera vez con boton derecho > Abrir.

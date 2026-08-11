@@ -30,57 +30,59 @@ correctos y los tests lo verifican simulando el sistema, pero nadie lo corrio ah
 
 ## Instalacion
 
-**Windows**
+Descarga el paquete de tu sistema desde
+[Releases](https://github.com/EvanPalac1/LLMJarvis/releases). **Traen Python y todas
+las dependencias adentro**: no hace falta instalar nada mas.
 
-1. Descarga o clona esta carpeta.
-2. Doble clic en **`INSTALAR.bat`**.
-3. Segui lo que dice al final.
+| Sistema | Archivo | Se desinstala desde |
+|---|---|---|
+| Windows | `Eve-Setup-x64.exe` / `-arm64.exe` | Agregar o quitar programas |
+| macOS | `Eve-AppleSilicon.dmg` / `Eve-Intel.dmg` | arrastrar a la Papelera |
+| Debian, Ubuntu | `eve_*_amd64.deb` / `_arm64.deb` | `apt remove eve` |
+| Fedora, RHEL | `eve-*.x86_64.rpm` / `.aarch64.rpm` | `dnf remove eve` |
 
-**macOS y Linux**
+El instalador de Windows pregunta por el motor de IA, la tecla para hablar, si arrancar
+con Windows, y si bajar el modelo de voz y una voz en espanol durante la instalacion o
+dejarlo para el primer uso. Al desinstalar **pregunta si borrar tambien tus datos**
+(agenda, memoria, historial y voces) en vez de decidir por vos.
 
-```bash
-chmod +x setup.sh && ./setup.sh
-```
+**No estan firmados digitalmente.** Windows muestra SmartScreen (*Mas informacion >
+Ejecutar de todas formas*) y macOS pide abrirlo la primera vez con boton derecho > Abrir.
+Firmar requiere un certificado pago.
 
-Eso es todo. El instalador:
+### Donde queda cada cosa
 
-- verifica que tengas Python 3.10+ (si falta, te dice como instalarlo y para);
-- arma un entorno aislado en `.venv` para no ensuciar tu Python del sistema;
-- instala las dependencias;
-- genera el icono;
-- indexa tus programas y juegos instalados;
-- descarga el modelo de reconocimiento de voz (~460 MB, una sola vez);
-- detecta si podes usar tu suscripcion de Claude o si necesitas una API key;
-- crea los accesos directos en el Escritorio;
-- corre un chequeo final y te dice si falta algo.
+| | Programa | Tus datos |
+|---|---|---|
+| Windows | donde lo instales | `%APPDATA%\LLMJarvis` |
+| macOS | `/Applications/Eve.app` | `~/Library/Application Support/LLMJarvis` |
+| Linux | `/opt/LLMJarvis` | `~/.config/LLMJarvis` |
 
-Es idempotente: si algo sale mal, arreglalo y volve a correrlo.
+Estan separados a proposito: desinstalar y reinstalar no borra la agenda ni la memoria.
+Si venias de una version que corria desde el codigo, los datos se migran solos.
 
-```powershell
-.\setup.ps1 -SkipModel   # sin predescargar el modelo de voz
-.\setup.ps1 -NoVenv      # usando el Python del sistema, sin entorno aislado
-```
-
-```bash
-./setup.sh --sin-modelo   # lo mismo en macOS y Linux
-./setup.sh --sin-venv
-```
-
-### Ejecutable
+### Desde el codigo
 
 ```bash
-pip install pyinstaller && python build.py
+pip install -r requirements.txt
+python main.py            # asistente
+python main.py --panel    # configuracion
+python main.py --check    # diagnostico
 ```
 
-Deja `dist/Eve/Eve.exe` (o `Eve.app` en macOS, `Eve` en Linux), con `Eve-config` y
-`Eve-debug` al lado. Es one-dir y no one-file a proposito: arranca al instante y da
-muchos menos falsos positivos de antivirus.
+### Armar los paquetes
 
-PyInstaller no cross-compila: el binario de cada sistema se arma en ese sistema. Y el
-modelo de voz no va empaquetado — son 460 MB que se bajan solos al primer uso.
+```bash
+pip install pyinstaller
+python build.py --paquete
+```
 
-Si el antivirus marca el `.exe`, es por `keyboard`, que engancha el teclado globalmente.
-Es inherente a lo que hace el programa.
+Arma lo del sistema donde lo corras: en Windows necesita
+[Inno Setup](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`),
+en Linux `dpkg-deb` y `rpmbuild`.
+
+**PyInstaller no cross-compila**: cada paquete se arma en su sistema y arquitectura.
+Los seis salen de `.github/workflows/release.yml`, que corre al empujar un tag `v*`.
 
 ### Que hace falta para hablarle
 
@@ -89,23 +91,19 @@ Una de estas tres:
 - **[Ollama](https://ollama.com)** corriendo con un modelo que soporte tools
   (`ollama pull qwen3:8b`). Gratis, offline, sin cuenta.
 - **Suscripcion de Claude (Pro/Max)** con [Claude Code](https://claude.com/claude-code)
-  instalado y logueado (`claude auth login`). Sin API key, sin tarjeta.
-- **API key de Anthropic**, que se carga en el panel (pestaña Claves).
-
-El instalador detecta cual tenes y configura el motor solo.
+  instalado y logueado. Sin API key, sin tarjeta.
+- **API key de Anthropic**, que se carga en el panel (pestana Claves).
 
 ### Los ultimos dos pasos
 
 ```bash
-python diagnostico.py --tecla
+python main.py --check --tecla
 ```
 
 Presiona el boton de tu keypad: te dice que manda. Copialo al campo **Tecla del keypad**
-del panel. El default es `f13` porque ningun otro programa lo usa, pero tu keypad puede
-mandar otra cosa.
+del panel. El default es `f13` porque ningun otro programa lo usa.
 
-Despues abri **Eve** desde el Escritorio. Aparece en la bandeja (la flechita, abajo a la
-derecha). Manten presionada la tecla, habla, solta.
+Despues abri Eve. Aparece en la bandeja del sistema. Manten presionada la tecla, habla, solta.
 
 ---
 
@@ -130,14 +128,10 @@ un pedido de voz en curso — reintenta cuando termina.
 
 **Reiniciar listener** sigue en el menu de la bandeja para forzarlo a mano.
 
-Arranque automatico con Windows:
-
-```powershell
-.\crear-accesos.ps1 -Autostart
-```
+El arranque automatico se elige durante la instalacion.
 
 Windows 11 manda los iconos nuevos al desbordamiento ocultos. Para fijarlo visible:
-arrastralo desde la flechita a la barra, o corre `.\fijar-icono.ps1`.
+arrastralo desde la flechita a la barra.
 
 ---
 
@@ -455,7 +449,8 @@ percibida es todo. Tampoco se envuelve el `/voice` de Claude Code: es un REPL, n
 | `eve/plataforma.py` | Lo unico que sabe en que sistema corre: shell, dialogos, teclado |
 | `eve/ollama_engine.py` | Motor `ollama`: modelo local, sin nube |
 | `eve/voices.py` | Catalogo y descarga de voces de la comunidad |
-| `build.py` | Arma el ejecutable del sistema donde se corre |
+| `build.py` | Arma los binarios y el instalador del sistema |
+| `packaging/` | Instaladores: Inno Setup, dmg, deb y rpm |
 | `eve/voice.py` | STT (faster-whisper / OpenAI) y TTS (SAPI / ElevenLabs) |
 | `eve/store.py` | config.json, keyring, SQLite, ventana de contexto |
 | `eve/gui.py` | Panel tkinter |
@@ -482,4 +477,6 @@ Sin frameworks: los tests son `assert` sueltos. Cubren lo que no puede fallar en
 | Guarde la config y no cambio nada | Dale ~4 segundos; si no, **clic derecho > Reiniciar listener** |
 | La primera frase tarda muchisimo | Esta descargando el modelo de voz. Pasa una sola vez |
 | No entiende nombres de juegos | Panel > Voz > *Reescanear programas* |
-| No aparece el icono | Esta en el desbordamiento (la flechita). `.\fijar-icono.ps1` |
+| No aparece el icono | Esta en el desbordamiento (la flechita); arrastralo a la barra |
+| Windows dice que es peligroso | Sin firma digital. *Mas informacion > Ejecutar de todas formas* |
+| macOS no lo deja abrir | Boton derecho sobre el `.app` > Abrir, solo la primera vez |

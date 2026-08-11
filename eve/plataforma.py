@@ -18,6 +18,61 @@ LINUX = sys.platform.startswith("linux")
 NOMBRE = "Windows" if WINDOWS else "macOS" if MACOS else "Linux" if LINUX else sys.platform
 
 
+APP = "LLMJarvis"
+
+
+def congelado() -> bool:
+    """True si corre desde un binario empaquetado y no desde el codigo."""
+    return getattr(sys, "frozen", False)
+
+
+def datos_usuario() -> str:
+    """Carpeta escribible para config, agenda, historial y voces.
+
+    Instalado en Program Files (o /opt) el directorio del programa es de solo
+    lectura: si los datos vivieran ahi, la app no arrancaria. Cada sistema tiene
+    su lugar para esto y hay que usarlo.
+    """
+    if WINDOWS:
+        raiz = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif MACOS:
+        raiz = os.path.expanduser("~/Library/Application Support")
+    else:
+        raiz = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    ruta = os.path.join(raiz, APP)
+    os.makedirs(ruta, exist_ok=True)
+    return ruta
+
+
+def recursos() -> str:
+    """Carpeta de solo lectura con lo que viaja junto al programa (EVE.md, iconos).
+
+    Congelado es el temporal que arma PyInstaller; desde el codigo, la raiz del
+    repositorio. Asi correr `python main.py` sigue funcionando igual.
+    """
+    if congelado():
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def ejecutable_app() -> str:
+    """Ruta del binario principal, para relanzarse a si mismo."""
+    return sys.executable
+
+
+def comando_propio(flag: str) -> list[str]:
+    """argv para invocar una sub-herramienta de Eve.
+
+    Congelado no hay `python` ni archivos `.py` sueltos: el propio binario
+    despacha por flag (ver main.py). Desde el codigo se llama al modulo.
+    """
+    if congelado():
+        return [sys.executable, flag]
+    modulo = {"--cli": "eve.integrations", "--hook": "eve.hook_gate", "--panel": "eve.gui"}[flag]
+    exe = sys.executable.replace("pythonw.exe", "python.exe")
+    return [exe, "-m", modulo]
+
+
 def solo_windows(func):
     """Devuelve un mensaje util en vez de fallar en macOS o Linux."""
     import functools

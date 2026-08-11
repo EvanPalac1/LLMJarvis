@@ -9,7 +9,9 @@ import os
 
 from PIL import Image, ImageDraw
 
-ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+from . import store
+
+ASSETS = os.path.join(store.BASE, "assets")
 ICO_PATH = os.path.join(ASSETS, "eve.ico")
 PNG_PATH = os.path.join(ASSETS, "eve.png")
 

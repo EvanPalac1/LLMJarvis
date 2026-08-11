@@ -6,12 +6,54 @@ recibe una ventana corta. El panel lee de aca, no de Anthropic.
 
 import json
 import os
+import shutil
 import sqlite3
 import time
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from . import plataforma
+
+# Datos del usuario: escribibles, sobreviven a desinstalar y reinstalar.
+BASE = plataforma.datos_usuario()
+# Archivos que viajan con el programa y no se tocan.
+RECURSOS = plataforma.recursos()
+
 CONFIG_PATH = os.path.join(BASE, "config.json")
 DB_PATH = os.path.join(BASE, "eve.db")
+
+
+def _migrar_desde_codigo() -> None:
+    """Mueve los datos de una instalacion vieja, cuando vivian junto al codigo.
+
+    Se corre una sola vez: si el archivo ya existe en la carpeta nueva, no se
+    pisa. Sin esto, actualizar a la version instalable perderia la agenda, la
+    memoria y el historial.
+    """
+    viejo = plataforma.recursos()
+    if os.path.abspath(viejo) == os.path.abspath(BASE):
+        return
+    for nombre in ("config.json", "contactos.json", "eve.db", "apps.json", "MEMORIA.md"):
+        origen, destino = os.path.join(viejo, nombre), os.path.join(BASE, nombre)
+        if os.path.exists(origen) and not os.path.exists(destino):
+            try:
+                shutil.copy2(origen, destino)
+            except OSError:
+                pass
+    # Las voces son descargas de decenas de MB: no hacerlas bajar de nuevo.
+    # Archivo por archivo, no copytree: la carpeta destino puede existir ya con
+    # el catalogo adentro y copytree se saltearia todo.
+    origen, destino = os.path.join(viejo, "voices"), os.path.join(BASE, "voices")
+    if os.path.isdir(origen):
+        os.makedirs(destino, exist_ok=True)
+        for nombre in os.listdir(origen):
+            src, dst = os.path.join(origen, nombre), os.path.join(destino, nombre)
+            if os.path.isfile(src) and not os.path.exists(dst):
+                try:
+                    shutil.copy2(src, dst)
+                except OSError:
+                    pass
+
+
+_migrar_desde_codigo()
 
 SERVICE = "LLMJarvis"
 KEY_NAMES = {
@@ -89,7 +131,8 @@ def save_config(cfg: dict) -> None:
 
 
 CONTACTS_PATH = os.path.join(BASE, "contactos.json")
-BRIEF_PATH = os.path.join(BASE, "EVE.md")
+# El manual viaja con el programa; la memoria es del usuario.
+BRIEF_PATH = os.path.join(RECURSOS, "EVE.md")
 
 
 def load_contacts() -> list[dict]:

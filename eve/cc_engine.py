@@ -12,6 +12,7 @@ tools las ejecuta Claude Code, no nosotros.
 import json
 import os
 import subprocess
+import sys
 import time
 
 from . import apps, integrations, store
@@ -36,19 +37,20 @@ lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps
 
 def write_settings() -> str:
     """Genera el settings JSON con el hook del freno. Idempotente."""
-    hook = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hook_gate.py")
+    from . import plataforma
+
+    if plataforma.congelado():
+        comando, args = sys.executable, ["--hook"]
+    else:
+        comando = sys.executable.replace("pythonw.exe", "python.exe")
+        args = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "hook_gate.py")]
     settings = {
         "hooks": {
             "PreToolUse": [
                 {
                     "matcher": "*",
                     "hooks": [
-                        {
-                            "type": "command",
-                            "command": "python",
-                            "args": [hook],
-                            "timeout": 300,
-                        }
+                        {"type": "command", "command": comando, "args": args, "timeout": 300}
                     ],
                 }
             ]

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Eve</string>
+    <key>CFBundleDisplayName</key>
+    <string>Eve</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.evanpalac1.llmjarvis</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>Eve</string>
+    <key>CFBundleIconFile</key>
+    <string>icon-windowed.icns</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+
+    <!-- App de barra de menu: sin icono en el Dock ni en el conmutador de apps.
+         Eve vive en la barra superior, como corresponde a algo siempre activo. -->
+    <key>LSUIElement</key>
+    <true/>
+
+    <!-- Sin estas descripciones macOS niega los permisos EN SILENCIO: el
+         microfono no graba y el atajo global no recibe teclas, sin ningun error. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Eve necesita el microfono para escuchar lo que le dictas.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Eve usa eventos del sistema para abrir programas y mostrar dialogos.</string>
+
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+</dict>
+</plist>
