@@ -115,12 +115,40 @@ def detect_key() -> None:
         print(f"  -> poné esto en el panel, campo 'Tecla del keypad': {combo}")
 
 
+def check_sistema() -> None:
+    from eve import plataforma
+
+    print(f"\n== Sistema: {plataforma.NOMBRE} ==")
+    print(f"{OK}{plataforma.resumen()}")
+    if plataforma.WINDOWS:
+        print(f"{OK}Todas las integraciones disponibles.")
+    else:
+        print(f"{WARN}Outlook, WhatsApp y Discord son solo Windows; avisan en vez de romper.")
+        print(f"{WARN}Para TTS usa Piper (panel > Voces): SAPI no existe fuera de Windows.")
+    notas = plataforma.notas_permisos()
+    if notas:
+        print(f"{WARN}{notas}")
+
+
+def check_voces() -> None:
+    from eve import voices
+
+    print("\n== Voces (Piper) ==")
+    puestas = voices.instaladas()
+    if puestas:
+        print(f"{OK}Instaladas: {', '.join(puestas)}")
+    else:
+        print(f"{WARN}Ninguna descargada. Panel > Voces (obligatorio fuera de Windows).")
+
+
 def main() -> int:
     cfg = store.load_config()
     print(f"Eve = '{cfg['assistant_name']}' | hotkey '{cfg['hotkey']}'")
+    check_sistema()
     missing = check_deps()
     check_engine(cfg)
     check_mic()
+    check_voces()
     check_workdirs(cfg)
 
     print("\n== Resumen ==")
