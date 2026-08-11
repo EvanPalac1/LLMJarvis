@@ -305,7 +305,7 @@ def test_discord_destino():
     assert d("@me") == "@me"
     assert d("@me/999") == "@me/999"
     # "Copiar ID del canal" da un numero suelto: es un mensaje directo.
-    assert d("1238268140555866264") == "@me/1238268140555866264"
+    assert d("1122334455667788990") == "@me/1122334455667788990"
 
     # Un nombre se resuelve contra la agenda en vez de pedirle el ID al usuario.
     orig = store.load_contacts
