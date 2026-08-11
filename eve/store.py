@@ -1,0 +1,288 @@
+"""Config (JSON), claves (keyring del SO) e historial (SQLite).
+
+Nada de esto vive en la API: el programa es dueño del historial, la API solo
+recibe una ventana corta. El panel lee de aca, no de Anthropic.
+"""
+
+import json
+import os
+import sqlite3
+import time
+
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_PATH = os.path.join(BASE, "config.json")
+DB_PATH = os.path.join(BASE, "eve.db")
+
+SERVICE = "LLMJarvis"
+KEY_NAMES = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "elevenlabs": "ELEVENLABS_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    # Conexiones con apps. Todas opcionales: sin ellas, Eve compone el mensaje y
+    # lo abre en la app para que lo mandes vos.
+    "gmail": "GMAIL_APP_PASSWORD",
+    "discord_webhook": "DISCORD_WEBHOOK_URL",
+    "steam": "STEAM_API_KEY",
+}
+
+DEFAULTS = {
+    "assistant_name": "Eve",
+    "language": "es",
+    # "api"         -> Messages API directa. Necesita ANTHROPIC_API_KEY.
+    # "claude-code" -> CLI de Claude Code headless. Usa tu suscripcion, sin key.
+    # "ollama"      -> modelo local. Sin key, sin nube, pero peor con tools.
+    "engine": "api",
+    "ollama_host": "http://localhost:11434",
+    "ollama_model": "qwen3:8b",
+    # Opus 5 por defecto. Cambialo a claude-sonnet-5 o claude-haiku-4-5 desde
+    # el panel si preferis latencia sobre capacidad.
+    "model": "claude-opus-5",
+    "cc_model": "sonnet",
+    "cc_permission_mode": "acceptEdits",
+    "effort": "medium",
+    "max_tokens": 8000,
+    "hotkey": "f13",
+    "workdirs": [os.path.join(os.path.expanduser("~"), "Documents")],
+    "stt_provider": "faster-whisper",  # faster-whisper | openai
+    # 'base' destroza los nombres propios en ingles ("rainbow six siege" ->
+    # "Haberé en Vox XC"). 'small' con vocabulario los acierta.
+    "stt_model": "small",
+    "stt_device": "cpu",
+    "stt_vocabulary": "",  # palabras extra que el STT suele errar
+    # piper es el unico que funciona igual en los tres sistemas; sapi es solo Windows.
+    "tts_provider": "sapi",  # sapi | piper | elevenlabs
+    "tts_voice": "",
+    "piper_voice": "",  # clave del catalogo, ej. es_ES-davefx-medium
+    "elevenlabs_voice_id": "",
+    "context_turns": 6,
+    "context_minutes": 10,
+    # False = "allow all": ni el freno propio ni el de Claude Code preguntan nada.
+    # Todo lo ejecutado sigue quedando en el log de auditoria (tabla `actions`),
+    # que pasa a ser el unico registro de lo que hizo Eve.
+    "confirm_destructive": True,
+    "speak_replies": True,
+    "gmail_address": "",
+    "steam_id": "",
+    # Simula el Enter final en WhatsApp. El destino lo garantiza la URI con el
+    # numero, no una busqueda por nombre.
+    "whatsapp_autosend": True,
+    # Escribe en Discord manejando tu cliente. Es la via fragil: depende del foco
+    # de la ventana. El webhook con `discord_username` es mas confiable.
+    "discord_autosend": True,
+    # Nombre y foto con los que aparecen los mensajes del webhook.
+    "discord_username": "",
+    "discord_avatar": "",
+}
+
+
+def load_config() -> dict:
+    cfg = dict(DEFAULTS)
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg.update(json.load(f))
+    return cfg
+
+
+def save_config(cfg: dict) -> None:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+
+CONTACTS_PATH = os.path.join(BASE, "contactos.json")
+BRIEF_PATH = os.path.join(BASE, "EVE.md")
+
+
+def load_contacts() -> list[dict]:
+    """Agenda propia: nombre, alias, mail, telefono y canal de Discord.
+
+    Aparte de config.json porque crece, se edita en su propia tabla, y no tiene
+    que perderse si alguien toca la config a mano.
+    """
+    if not os.path.exists(CONTACTS_PATH):
+        return []
+    try:
+        with open(CONTACTS_PATH, encoding="utf-8") as f:
+            datos = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(datos, list):
+        return []
+    for c in datos:
+        # Antes habia un solo campo `discord`; ahora estan separados. Se migra al
+        # vuelo para no perder lo ya cargado.
+        if c.get("discord") and not c.get("discord_dm"):
+            c["discord_dm"] = c.pop("discord")
+    return datos
+
+
+def save_contacts(contactos: list[dict]) -> None:
+    with open(CONTACTS_PATH, "w", encoding="utf-8") as f:
+        json.dump(contactos, f, indent=2, ensure_ascii=False)
+
+
+def _plano(texto: str) -> str:
+    """Minusculas sin tildes: la voz transcribe 'Nicolas' tanto como 'Nicolás'."""
+    import unicodedata
+
+    return "".join(
+        c for c in unicodedata.normalize("NFD", (texto or "").lower()) if not unicodedata.combining(c)
+    ).strip()
+
+
+def buscar_contacto(texto: str) -> list[dict]:
+    """Coincidencias por nombre o alias. Devuelve varias si son ambiguas."""
+    objetivo = _plano(texto)
+    if not objetivo:
+        return []
+    exactos, parciales = [], []
+    for c in load_contacts():
+        campos = [c.get("nombre", "")] + str(c.get("alias", "")).split(",")
+        campos = [_plano(x) for x in campos if x and x.strip()]
+        if objetivo in campos:
+            exactos.append(c)
+        elif any(objetivo in campo or campo in objetivo for campo in campos):
+            parciales.append(c)
+    return exactos or parciales
+
+
+MEMORIA_PATH = os.path.join(BASE, "MEMORIA.md")
+
+
+def load_brief() -> str:
+    """Manual de comportamiento + memoria. Va entero en cada system prompt, asi
+    que los archivos estan escritos telegraficos a proposito.
+
+    Son dos archivos separados a proposito: `EVE.md` es el manual, igual para
+    todos y versionado; `MEMORIA.md` son los datos del usuario, que no van al
+    repositorio.
+    """
+    partes = []
+    if os.path.exists(BRIEF_PATH):
+        with open(BRIEF_PATH, encoding="utf-8") as f:
+            texto = f.read()
+        # La primera linea es el titulo y la segunda una nota para quien lo
+        # edita: el modelo no las necesita.
+        cuerpo = texto.split("\n## ", 1)
+        partes.append("## " + cuerpo[1] if len(cuerpo) > 1 else texto)
+    if os.path.exists(MEMORIA_PATH):
+        with open(MEMORIA_PATH, encoding="utf-8") as f:
+            memoria = f.read().strip()
+        if memoria:
+            partes.append(memoria)
+    return "\n\n".join(partes)
+
+
+def get_key(provider: str) -> str:
+    """Clave desde el gestor de credenciales del SO; env var como fallback."""
+    env = os.environ.get(KEY_NAMES.get(provider, ""))
+    if env:
+        return env
+    import keyring  # import perezoso: los tests de logica no lo necesitan
+
+    return keyring.get_password(SERVICE, provider) or ""
+
+
+def set_key(provider: str, value: str) -> None:
+    import keyring
+
+    if value:
+        keyring.set_password(SERVICE, provider, value)
+    else:
+        try:
+            keyring.delete_password(SERVICE, provider)
+        except keyring.errors.PasswordDeleteError:
+            pass
+
+
+# --- historial -------------------------------------------------------------
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS turns (
+    id INTEGER PRIMARY KEY,
+    ts REAL NOT NULL,
+    role TEXT NOT NULL,
+    text TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS actions (
+    id INTEGER PRIMARY KEY,
+    ts REAL NOT NULL,
+    tool TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    outcome TEXT NOT NULL
+);
+"""
+
+
+def db() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.executescript(_SCHEMA)
+    return conn
+
+
+def log_turn(role: str, text: str) -> None:
+    with db() as conn:
+        conn.execute("INSERT INTO turns (ts, role, text) VALUES (?,?,?)", (time.time(), role, text))
+
+
+def log_action(tool: str, detail: str, outcome: str) -> None:
+    """Log de auditoria. Sin esto, 'se ejecuto algo mal' es indepurable."""
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO actions (ts, tool, detail, outcome) VALUES (?,?,?,?)",
+            (time.time(), tool, detail[:2000], outcome[:2000]),
+        )
+
+
+def recent_turns(limit: int = 200) -> list[tuple]:
+    with db() as conn:
+        return conn.execute(
+            "SELECT ts, role, text FROM turns ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+
+def recent_actions(limit: int = 200) -> list[tuple]:
+    with db() as conn:
+        return conn.execute(
+            "SELECT ts, tool, detail, outcome FROM actions ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+
+def clear_history(also_actions: bool = False) -> int:
+    """Borra la conversacion guardada. El log de auditoria se conserva salvo que
+    se pida lo contrario: es el registro de lo que Eve ejecuto en la PC."""
+    with db() as conn:
+        n = conn.execute("SELECT COUNT(*) FROM turns").fetchone()[0]
+        conn.execute("DELETE FROM turns")
+        if also_actions:
+            conn.execute("DELETE FROM actions")
+    return n
+
+
+def trim_history(history: list[dict], max_turns: int, max_minutes: float, now: float) -> list[dict]:
+    """Ventana rodante: ni stateless puro ni chat infinito.
+
+    Cada entrada es {"ts": float, "role": str, "content": ...}. Descarta lo
+    viejo por tiempo y por cantidad, y garantiza que el primer mensaje que
+    queda sea de rol `user` (la API rechaza historiales que arrancan en
+    assistant, y un tool_result huerfano tambien).
+    """
+    cutoff = now - max_minutes * 60
+    kept = [m for m in history if m["ts"] >= cutoff][-max_turns:]
+    while kept and kept[0]["role"] != "user":
+        kept.pop(0)
+    # Un turno user que arranca con tool_result quedo huerfano de su tool_use.
+    while kept and _starts_with_tool_result(kept[0]):
+        kept.pop(0)
+        while kept and kept[0]["role"] != "user":
+            kept.pop(0)
+    return kept
+
+
+def _starts_with_tool_result(msg: dict) -> bool:
+    content = msg.get("content")
+    if not isinstance(content, list) or not content:
+        return False
+    first = content[0]
+    if isinstance(first, dict):
+        return first.get("type") == "tool_result"
+    return getattr(first, "type", None) == "tool_result"

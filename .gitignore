@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Build del ejecutable
+build/
+dist/
+*.spec
+
+# Generados en tiempo de ejecucion, distintos en cada PC
+assets/
+apps.json
+config.json
+cc_settings.json
+eve.db
+*.bak
+eve.sh
+
+# Datos personales: agenda, memoria del usuario y voces descargadas
+contactos.json
+MEMORIA.md
+voices/

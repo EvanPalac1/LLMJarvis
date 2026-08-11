@@ -1,0 +1,32 @@
+# Nucleo, igual en los tres sistemas
+anthropic>=0.69
+sounddevice>=0.4.6
+numpy>=1.26
+faster-whisper>=1.0
+pystray>=0.19
+pillow>=10.0
+keyring>=25.0
+requests>=2.31
+
+# Voces de la comunidad (Piper). Wheels para Windows, macOS Intel/ARM y Linux x64/ARM.
+# Es el unico TTS que funciona igual en los tres: SAPI solo existe en Windows.
+piper-tts>=1.6
+
+# Atajo global: `keyboard` solo sirve en Windows; en macOS no anda y en Linux
+# exige root. Fuera de Windows va pynput.
+keyboard>=0.13.5; sys_platform == "win32"
+pynput>=1.7; sys_platform != "win32"
+
+# TTS del sistema (Windows). En macOS y Linux se usa Piper.
+pyttsx3>=2.90; sys_platform == "win32"
+
+# Outlook por COM y portapapeles nativo
+pywin32>=306; sys_platform == "win32"
+
+# Leer el centro de notificaciones (es como Eve "lee" WhatsApp)
+winrt-runtime>=3.0; sys_platform == "win32"
+winrt-Windows.UI.Notifications>=3.0; sys_platform == "win32"
+winrt-Windows.UI.Notifications.Management>=3.0; sys_platform == "win32"
+winrt-Windows.Foundation>=3.0; sys_platform == "win32"
+winrt-Windows.Foundation.Collections>=3.0; sys_platform == "win32"
+winrt-Windows.ApplicationModel>=3.0; sys_platform == "win32"
