@@ -160,16 +160,23 @@ def main() -> int:
     check_voces()
     check_workdirs(cfg)
 
+    # Instalado desde un paquete no hay pip ni requirements.txt, y el ejecutable
+    # no se llama python: mandar a correr eso es mandar a la nada.
+    yo = "eve --check" if plataforma.congelado() else "python diagnostico.py"
+
     print("\n== Resumen ==")
     if missing:
-        print(f"{FAIL} Instala lo que falta:  pip install -r requirements.txt")
+        if plataforma.congelado():
+            print(f"{FAIL} Falta parte del programa. Reinstala el paquete.")
+        else:
+            print(f"{FAIL} Instala lo que falta:  pip install -r requirements.txt")
     else:
         print(f"{OK}Todo lo necesario esta instalado.")
 
     if "--tecla" in sys.argv:
         detect_key()
     else:
-        print("\nCorre  python diagnostico.py --tecla  para saber que manda tu keypad.")
+        print(f"\nCorre  {yo} --tecla  para saber que manda tu keypad.")
     return 1 if missing else 0
 
 
