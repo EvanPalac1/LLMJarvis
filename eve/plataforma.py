@@ -121,10 +121,10 @@ def preguntar(mensaje: str, titulo: str = "LLMJarvis") -> bool:
     if WINDOWS:
         import ctypes
 
-        MB_YESNO, MB_ICONWARNING, MB_SYSTEMMODAL, IDYES = 0x04, 0x30, 0x1000, 6
+        MB_YESNO, MB_ICONWARNING, MB_TOPMOST, IDYES = 0x04, 0x30, 0x40000, 6
         return (
             ctypes.windll.user32.MessageBoxW(
-                0, mensaje, titulo, MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL
+                0, mensaje, titulo, MB_YESNO | MB_ICONWARNING | MB_TOPMOST
             )
             == IDYES
         )
@@ -142,8 +142,10 @@ def avisar(mensaje: str, titulo: str = "LLMJarvis", error: bool = False) -> None
     if WINDOWS:
         import ctypes
 
+        # Sin MB_SYSTEMMODAL: hacia que el dialogo quedara trabado cuando lo
+        # abria un hilo que ya estaba bombeando mensajes. MB_TOPMOST alcanza.
         icono = 0x10 if error else 0x40  # ICONERROR / ICONINFORMATION
-        ctypes.windll.user32.MessageBoxW(0, mensaje, titulo, icono | 0x1000)
+        ctypes.windll.user32.MessageBoxW(0, mensaje, titulo, icono | 0x40000)
         return
     if MACOS:
         guion = (

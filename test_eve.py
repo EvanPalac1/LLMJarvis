@@ -501,6 +501,71 @@ def test_invocacion_congelada():
         cc_engine.write_settings()  # restaurar el settings de desarrollo
 
 
+def test_flags_main():
+    """El instalador llamaba `--check --descargar-modelo` y nunca descargaba nada:
+    main.py despacha por el PRIMER argumento, asi que entraba en diagnostico."""
+    import re
+
+    fuente = open("main.py", encoding="utf-8").read()
+    flags = set(re.findall(r'flag == "(--[a-z-]+)"', fuente))
+    for esperado in ("--cli", "--hook", "--panel", "--check",
+                     "--descargar-modelo", "--descargar-voz"):
+        assert esperado in flags, f"main.py no despacha {esperado}"
+
+    # El .iss no puede anteponer otro flag: solo el primero se mira.
+    iss = open(os.path.join("packaging", "windows", "eve.iss"), encoding="utf-8").read()
+    for llamada in re.findall(r"Exec\(ExpandConstant\('\{app\}\\Eve\.exe'\), '([^']*)'", iss):
+        primero = llamada.split()[0]
+        assert primero in flags, f"el instalador llama {llamada!r}, y {primero} no se despacha"
+
+
+def test_compartir_contactos():
+    """Exportar e importar un contacto para mandarselo a alguien."""
+    from eve import integrations
+
+    agenda = [{"nombre": "Lucas Perez", "alias": "lucho", "email": "l@x.com",
+               "discord_dm": "123", "campo_raro": "se ignora"}]
+    guardado = []
+    orig_l, orig_s = store.load_contacts, store.save_contacts
+    store.load_contacts = lambda: [dict(c) for c in agenda]
+    store.save_contacts = lambda c: guardado.append(c)
+    try:
+        with tempfile.TemporaryDirectory() as raiz:
+            ruta = os.path.join(raiz, "lucas.evecontact")
+            assert "exportado" in store.exportar_contactos(["lucho"], ruta)
+
+            with open(ruta, encoding="utf-8") as f:
+                crudo = json.load(f)
+            assert crudo["formato"] == "evecontact" and crudo["version"] == 1
+            assert isinstance(crudo["contactos"], list)  # lista aunque sea uno solo
+            assert "campo_raro" not in crudo["contactos"][0]
+
+            leidos = store.leer_contactos_archivo(ruta)
+            assert leidos[0]["nombre"] == "Lucas Perez"
+            assert leidos[0]["discord_dm"] == "123"
+
+            # Agenda vacia: entra. Con el mismo nombre: no pisa sin permiso.
+            store.load_contacts = lambda: []
+            assert store.importar_contactos(leidos) == (1, 0, [])
+            store.load_contacts = lambda: [dict(c) for c in agenda]
+            assert store.importar_contactos(leidos) == (0, 0, ["Lucas Perez"])
+            assert store.importar_contactos(leidos, reemplazar={"Lucas Perez"}) == (0, 1, [])
+
+            # Un archivo que no es de Eve no se traga nada.
+            malo = os.path.join(raiz, "malo.json")
+            with open(malo, "w", encoding="utf-8") as f:
+                json.dump({"cualquier": "cosa"}, f)
+            try:
+                store.leer_contactos_archivo(malo)
+                raise AssertionError("deberia rechazar un archivo ajeno")
+            except ValueError:
+                pass
+
+            assert "No tengo" in integrations.exportar_contacto("nadie-zzz")
+    finally:
+        store.load_contacts, store.save_contacts = orig_l, orig_s
+
+
 def test_voces_piper():
     """Catalogo de voces de la comunidad: filtrado y rutas de descarga."""
     from eve import voices

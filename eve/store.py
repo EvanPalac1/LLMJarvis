@@ -188,6 +188,91 @@ def buscar_contacto(texto: str) -> list[dict]:
     return exactos or parciales
 
 
+FORMATO_CONTACTO = "evecontact"
+CAMPOS_CONTACTO = (
+    "nombre", "alias", "email", "telefono",
+    "discord_user", "discord_dm", "discord_canal",
+)
+
+
+def exportar_contactos(nombres: list[str], destino: str) -> str:
+    """Guarda contactos en un .evecontact para mandarselos a alguien.
+
+    Siempre una lista, aunque sea uno solo: el mismo archivo sirve para compartir
+    un contacto o la agenda entera, y quien lo recibe usa el mismo boton.
+    """
+    elegidos = []
+    for nombre in nombres:
+        hits = buscar_contacto(nombre)
+        if not hits:
+            return f"No encontre a {nombre!r} en la agenda."
+        elegidos.append({k: hits[0].get(k, "") for k in CAMPOS_CONTACTO if hits[0].get(k)})
+    if not elegidos:
+        return "No hay nada para exportar."
+
+    with open(destino, "w", encoding="utf-8") as f:
+        json.dump(
+            {"formato": FORMATO_CONTACTO, "version": 1, "contactos": elegidos},
+            f, indent=2, ensure_ascii=False,
+        )
+    cuantos = len(elegidos)
+    return f"{cuantos} contacto{'s' if cuantos > 1 else ''} exportado{'s' if cuantos > 1 else ''} a {destino}"
+
+
+def leer_contactos_archivo(ruta: str) -> list[dict]:
+    """Contactos de un .evecontact, validados. Lanza ValueError si no sirve."""
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            datos = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"No pude leer el archivo: {exc}") from exc
+
+    if not isinstance(datos, dict) or datos.get("formato") != FORMATO_CONTACTO:
+        raise ValueError("Eso no es un archivo de contactos de Eve.")
+
+    salida = []
+    for c in datos.get("contactos", []):
+        if not isinstance(c, dict) or not c.get("nombre"):
+            continue
+        # Solo campos conocidos: un archivo de una version futura no rompe nada
+        # ni mete claves raras en la agenda.
+        salida.append({k: str(c[k]) for k in CAMPOS_CONTACTO if c.get(k)})
+    if not salida:
+        raise ValueError("El archivo no tiene ningun contacto valido.")
+    return salida
+
+
+def importar_contactos(nuevos: list[dict], reemplazar: set[str] | None = None) -> tuple[int, int, list[str]]:
+    """Fusiona contactos en la agenda.
+
+    Devuelve (agregados, reemplazados, nombres_en_conflicto). Los que ya existen
+    y no estan en `reemplazar` se dejan como estan: pisar la agenda de alguien en
+    silencio no es aceptable.
+    """
+    reemplazar = reemplazar or set()
+    agenda = load_contacts()
+    por_nombre = {_plano(c.get("nombre", "")): i for i, c in enumerate(agenda)}
+
+    agregados = cambiados = 0
+    conflictos = []
+    for c in nuevos:
+        clave = _plano(c["nombre"])
+        if clave in por_nombre:
+            if c["nombre"] in reemplazar or clave in {_plano(x) for x in reemplazar}:
+                agenda[por_nombre[clave]] = c
+                cambiados += 1
+            else:
+                conflictos.append(c["nombre"])
+            continue
+        agenda.append(c)
+        por_nombre[clave] = len(agenda) - 1
+        agregados += 1
+
+    if agregados or cambiados:
+        save_contacts(agenda)
+    return agregados, cambiados, conflictos
+
+
 MEMORIA_PATH = os.path.join(BASE, "MEMORIA.md")
 
 

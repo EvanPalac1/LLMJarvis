@@ -67,7 +67,8 @@ Si venias de una version que corria desde el codigo, los datos se migran solos.
 pip install -r requirements.txt
 python main.py            # asistente
 python main.py --panel    # configuracion
-python main.py --check    # diagnostico
+python main.py --check       # diagnostico
+python main.py --probar-voz  # autotest: sintetiza una frase y la transcribe
 ```
 
 ### Armar los paquetes
@@ -378,6 +379,17 @@ copian con su link, y quien copia solo el ID casi siempre esta en una conversaci
 **Modo desarrollador de Discord:** Ajustes > Avanzado > Modo desarrollador. Sin eso no
 aparece la opcion "Copiar ID".
 
+### Compartir un contacto
+
+Pestaña **Contactos** > **Exportar**: deja un archivo `.evecontact` (JSON legible) que le
+mandas a alguien por WhatsApp o Discord. Del otro lado, **Importar** y le queda cargado.
+
+Si el nombre ya existe en su agenda, **pregunta** antes de reemplazar en vez de duplicar o
+pisar en silencio. Las claves que no conoce las ignora, asi que un archivo de una version
+futura no rompe nada.
+
+Eve tambien lo hace por voz: `exportar-contacto NOMBRE` deja el archivo en el Escritorio.
+
 ### Agenda
 
 Panel > **Contactos**. Nombre, alias, mail, telefono y canal de Discord. Con eso,
@@ -477,6 +489,7 @@ Sin frameworks: los tests son `assert` sueltos. Cubren lo que no puede fallar en
 | Guarde la config y no cambio nada | Dale ~4 segundos; si no, **clic derecho > Reiniciar listener** |
 | La primera frase tarda muchisimo | Esta descargando el modelo de voz. Pasa una sola vez |
 | No entiende nombres de juegos | Panel > Voz > *Reescanear programas* |
+| La voz no transcribe nada | `Eve.exe --probar-voz` para ver donde corta |
 | No aparece el icono | Esta en el desbordamiento (la flechita); arrastralo a la barra |
 | Windows dice que es peligroso | Sin firma digital. *Mas informacion > Ejecutar de todas formas* |
 | macOS no lo deja abrir | Boton derecho sobre el `.app` > Abrir, solo la primera vez |

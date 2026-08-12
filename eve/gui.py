@@ -12,9 +12,12 @@ import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from . import store, voice
+from . import plataforma, store, voice
 
 CREATE_NEW_CONSOLE = 0x00000010
+
+PAD = 12
+GRIS, ROJO, VERDE = "#666666", "#c0392b", "#1e8449"
 
 def _parece_app_password(valor: str) -> bool:
     """Google las emite como 16 letras minusculas en 4 grupos de 4."""
@@ -52,7 +55,9 @@ EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 class Panel(tk.Tk):
     def __init__(self):
         super().__init__()
+        self._vivo = True
         self.cfg = store.load_config()
+        self._estilo()
         self.title("LLMJarvis - configuracion")
         self.geometry("800x790")
         self.minsize(640, 420)
@@ -62,26 +67,194 @@ class Panel(tk.Tk):
         # ventana en cuanto una pestaña crece.
         footer = ttk.Frame(self)
         footer.pack(side="bottom", fill="x", pady=(0, 8))
-        ttk.Label(
-            footer,
-            text="Guardar aplica los cambios solo: el listener detecta el guardado y se\n"
-            "reinicia en unos segundos. No hace falta tocar nada mas.",
-            foreground="#666",
-        ).pack(side="bottom", pady=(4, 0))
-        ttk.Button(footer, text="Guardar", command=self.save).pack(side="bottom")
+        ttk.Separator(footer).pack(fill="x", pady=(0, 6))
+        fila = ttk.Frame(footer)
+        fila.pack(fill="x", padx=PAD)
+        # Barra de estado: hasta ahora no habia forma de saber desde el panel si
+        # el asistente estaba corriendo ni con que motor.
+        self.estado = ttk.Label(fila, text="", style="Ayuda.TLabel")
+        self.estado.pack(side="left")
+        ttk.Button(fila, text="Guardar", command=self.save).pack(side="right")
+        self.after(300, self._refrescar_estado)
 
         nb = ttk.Notebook(self)
-        nb.pack(side="top", fill="both", expand=True, padx=8, pady=8)
+        nb.pack(side="top", fill="both", expand=True, padx=10, pady=(10, 6))
         self.vars: dict[str, tk.Variable] = {}
         self.key_vars: dict[str, tk.Variable] = {}
-        nb.add(self._tab_general(nb), text="General")
-        nb.add(self._tab_keys(nb), text="Claves")
-        nb.add(self._tab_correo(nb), text="Correo")
-        nb.add(self._tab_contactos(nb), text="Contactos")
-        nb.add(self._tab_voice(nb), text="Voz")
-        nb.add(self._tab_voces(nb), text="Voces")
-        nb.add(self._tab_history(nb), text="Historial")
-        nb.add(self._tab_actions(nb), text="Acciones")
+        # Cinco pestañas agrupadas por lo que uno viene a hacer, no por modulo.
+        nb.add(self._tab_general(nb), text="  General  ")
+        nb.add(self._tab_cuentas(nb), text="  Cuentas  ")
+        nb.add(self._tab_voz(nb), text="  Voz  ")
+        nb.add(self._tab_contactos(nb), text="  Contactos  ")
+        nb.add(self._tab_actividad(nb), text="  Actividad  ")
+
+    # --- estilo y helpers de layout ----------------------------------------
+
+    def _estilo(self) -> None:
+        """Un solo lugar donde se define como se ve todo.
+
+        Antes cada widget traia su propio padx/pady y el resultado era desparejo.
+        """
+        s = ttk.Style(self)
+        for tema in ("vista", "clam", "default"):
+            if tema in s.theme_names():
+                s.theme_use(tema)
+                break
+        base = ("Segoe UI", 9) if plataforma.WINDOWS else ("Helvetica", 11)
+        self.option_add("*Font", base)
+        s.configure("Titulo.TLabel", font=(base[0], base[1] + 4, "bold"))
+        s.configure("Ayuda.TLabel", foreground=GRIS)
+        s.configure("Error.TLabel", foreground=ROJO)
+        s.configure("Ok.TLabel", foreground=VERDE)
+        s.configure("Seccion.TLabelframe.Label", font=(base[0], base[1], "bold"))
+        s.configure("TNotebook.Tab", padding=(14, 7))
+        s.configure("TButton", padding=(10, 4))
+
+    def _hoja(self, nb, titulo: str, subtitulo: str):
+        """Pestaña con encabezado y contenido con scroll.
+
+        El scroll evita el problema recurrente de que agregar una fila empuje el
+        boton Guardar fuera de la ventana.
+        """
+        marco = ttk.Frame(nb)
+        cab = ttk.Frame(marco)
+        cab.pack(fill="x", padx=PAD, pady=(PAD, 2))
+        ttk.Label(cab, text=titulo, style="Titulo.TLabel").pack(anchor="w")
+        ttk.Label(cab, text=subtitulo, style="Ayuda.TLabel").pack(anchor="w")
+        ttk.Separator(marco).pack(fill="x", padx=PAD, pady=(6, 0))
+
+        lienzo = tk.Canvas(marco, highlightthickness=0, borderwidth=0)
+        barra = ttk.Scrollbar(marco, orient="vertical", command=lienzo.yview)
+        dentro = ttk.Frame(lienzo)
+        ventana = lienzo.create_window((0, 0), window=dentro, anchor="nw")
+
+        def ajustar(_e=None):
+            lienzo.configure(scrollregion=lienzo.bbox("all"))
+            lienzo.itemconfigure(ventana, width=lienzo.winfo_width())
+
+        dentro.bind("<Configure>", ajustar)
+        lienzo.bind("<Configure>", ajustar)
+        lienzo.bind_all("<MouseWheel>", lambda e: lienzo.yview_scroll(-e.delta // 120, "units"))
+        lienzo.configure(yscrollcommand=barra.set)
+        lienzo.pack(side="left", fill="both", expand=True, padx=(PAD, 0), pady=PAD)
+        barra.pack(side="right", fill="y", pady=PAD)
+        return marco, dentro
+
+    def _ui(self, accion) -> None:
+        """Corre `accion` en el hilo de tkinter desde un worker.
+
+        Se consulta una bandera propia y no `winfo_exists()`: ese ya es una
+        llamada a tkinter, y hacerla desde otro hilo es justo lo que se quiere
+        evitar. Si la ventana se cerro, no hacer nada; tocar tkinter despues
+        tira "main thread is not in main loop".
+        """
+        if not getattr(self, "_vivo", False):
+            return
+        try:
+            self.after(0, accion)
+        except (tk.TclError, RuntimeError):
+            self._vivo = False
+
+    def destroy(self) -> None:
+        self._vivo = False
+        super().destroy()
+
+    def _refrescar_estado(self) -> None:
+        """Dice si el asistente esta corriendo, con que motor y con que tecla."""
+
+        def work():
+            corriendo = False
+            if plataforma.WINDOWS:
+                import subprocess as sp
+
+                try:
+                    r = sp.run(["tasklist", "/FI", "IMAGENAME eq Eve.exe"],
+                               capture_output=True, text=True, timeout=10)
+                    corriendo = "Eve.exe" in r.stdout
+                except (OSError, sp.TimeoutExpired):
+                    pass
+            else:
+                import subprocess as sp
+
+                try:
+                    corriendo = bool(sp.run(["pgrep", "-f", "Eve"], capture_output=True).stdout)
+                except OSError:
+                    pass
+
+            cfg = store.load_config()
+            # Sin caracteres fuera de ASCII: la consola de Windows es cp1252 y
+            # este proyecto ya rompio dos veces por eso.
+            punto = "[on] " if corriendo else "[off] "
+            texto = (
+                f"{punto}asistente {'corriendo' if corriendo else 'detenido'}   |   "
+                f"motor: {cfg['engine']}   |   tecla: {cfg['hotkey']}   |   {plataforma.NOMBRE}"
+            )
+            estilo = "Ok.TLabel" if corriendo else "Ayuda.TLabel"
+            # La ventana puede haberse cerrado mientras consultabamos: tocar
+            # tkinter despues de eso tira "main thread is not in main loop".
+            self._ui(lambda: self.estado.config(text=texto, style=estilo))
+
+        threading.Thread(target=work, daemon=True).start()
+        try:
+            self.after(5000, self._refrescar_estado)
+        except tk.TclError:
+            pass
+
+    def _seccion(self, padre, titulo: str):
+        caja = ttk.LabelFrame(padre, text=titulo, style="Seccion.TLabelframe")
+        caja.pack(fill="x", padx=(0, PAD), pady=(0, PAD))
+        return caja
+
+    def _ayuda(self, padre, texto: str) -> None:
+        ttk.Label(padre, text=texto, style="Ayuda.TLabel", justify="left").pack(
+            anchor="w", padx=PAD, pady=(2, 6)
+        )
+
+
+    # --- las cinco pestañas ------------------------------------------------
+    # Componen los bloques que ya existian; cada bloque sigue creando su frame,
+    # asi que se lo cuelga del contenedor con scroll y listo.
+
+    def _componer(self, nb, titulo, subtitulo, bloques):
+        marco, dentro = self._hoja(nb, titulo, subtitulo)
+        for bloque in bloques:
+            bloque(dentro).pack(fill="both", expand=True)
+        return marco
+
+    def _tab_general(self, nb):
+        return self._componer(
+            nb, "General",
+            "Quien es Eve, quien piensa por ella y hasta donde puede meterse.",
+            [self._bloque_general],
+        )
+
+    def _tab_cuentas(self, nb):
+        return self._componer(
+            nb, "Cuentas",
+            "Con que se conecta. Todo opcional salvo el motor que elegiste.",
+            [self._bloque_claves, self._bloque_correo],
+        )
+
+    def _tab_voz(self, nb):
+        return self._componer(
+            nb, "Voz",
+            "Como te escucha y como te responde.",
+            [self._bloque_voz, self._bloque_voces],
+        )
+
+    def _tab_contactos(self, nb):
+        return self._componer(
+            nb, "Contactos",
+            "La agenda que Eve usa cuando nombras a alguien.",
+            [self._bloque_contactos],
+        )
+
+    def _tab_actividad(self, nb):
+        return self._componer(
+            nb, "Actividad",
+            "Que se dijo y que se ejecuto en tu PC.",
+            [self._bloque_historial, self._bloque_acciones],
+        )
 
     # --- helpers -----------------------------------------------------------
 
@@ -123,7 +296,7 @@ class Panel(tk.Tk):
 
     # --- tabs --------------------------------------------------------------
 
-    def _tab_general(self, nb):
+    def _bloque_general(self, nb):
         t = ttk.Frame(nb)
         self._row(t, "Nombre de la IA", "assistant_name")
         self._row(t, "Idioma (es / en / ...)", "language")
@@ -170,7 +343,7 @@ class Panel(tk.Tk):
         ).pack(anchor="w", padx=12, pady=(2, 0))
         return t
 
-    def _tab_keys(self, nb):
+    def _bloque_claves(self, nb):
         t = ttk.Frame(nb)
 
         # --- sesion de Claude Code (motor 'claude-code', sin API key) ---
@@ -248,7 +421,7 @@ class Panel(tk.Tk):
         "discord_canal",
     )
 
-    def _tab_contactos(self, nb):
+    def _bloque_contactos(self, nb):
         """Agenda: 'mandale un correo a Lucas' necesita saber quien es Lucas."""
         t = ttk.Frame(nb)
         ttk.Label(
@@ -291,6 +464,19 @@ class Panel(tk.Tk):
         ttk.Button(botones, text="Borrar", command=self._contacto_borrar).pack(side="left", padx=6)
         ttk.Button(botones, text="Limpiar campos", command=self._contacto_limpiar).pack(side="left")
 
+        compartir = ttk.Frame(t)
+        compartir.pack(anchor="w", padx=12, pady=(0, 8))
+        ttk.Label(compartir, text="Compartir:").pack(side="left", padx=(0, 8))
+        ttk.Button(compartir, text="Exportar", command=self._contacto_exportar).pack(side="left")
+        ttk.Button(compartir, text="Importar", command=self._contacto_importar).pack(side="left", padx=6)
+        ttk.Label(
+            t,
+            text="Exportar genera un archivo .evecontact que podes mandarle a un amigo por\n"
+            "WhatsApp o Discord; el lo abre con Importar y le queda el contacto cargado.",
+            style="Ayuda.TLabel",
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
         self._contactos_refrescar()
         return t
 
@@ -328,6 +514,58 @@ class Panel(tk.Tk):
         self._contactos_refrescar()
         self._contacto_limpiar()
 
+    def _contacto_exportar(self):
+        from tkinter import filedialog
+
+        nombre = self.contacto_vars["nombre"].get().strip()
+        if not nombre:
+            messagebox.showinfo("Exportar", "Elegi un contacto de la lista primero.")
+            return
+        seguro = "".join(c if c.isalnum() or c in " -_" else "_" for c in nombre).strip()
+        destino = filedialog.asksaveasfilename(
+            title="Guardar contacto para compartir",
+            initialfile=f"{seguro}.evecontact",
+            defaultextension=".evecontact",
+            filetypes=[("Contacto de Eve", "*.evecontact"), ("JSON", "*.json")],
+        )
+        if destino:
+            messagebox.showinfo("Exportar", store.exportar_contactos([nombre], destino))
+
+    def _contacto_importar(self):
+        from tkinter import filedialog
+
+        ruta = filedialog.askopenfilename(
+            title="Abrir contacto compartido",
+            filetypes=[("Contacto de Eve", "*.evecontact"), ("JSON", "*.json"), ("Todos", "*.*")],
+        )
+        if not ruta:
+            return
+        try:
+            nuevos = store.leer_contactos_archivo(ruta)
+        except ValueError as exc:
+            messagebox.showerror("Importar", str(exc))
+            return
+
+        agregados, cambiados, conflictos = store.importar_contactos(nuevos)
+        if conflictos:
+            # Pisar la agenda de alguien en silencio no es aceptable: se pregunta.
+            if messagebox.askyesno(
+                "Ya existen",
+                "Estos contactos ya estan en tu agenda:\n\n  "
+                + "\n  ".join(conflictos)
+                + "\n\nReemplazarlos con los del archivo?",
+            ):
+                mas, cambiados, _ = store.importar_contactos(nuevos, reemplazar=set(conflictos))
+                agregados += mas
+
+        self.contactos = store.load_contacts()
+        self._contactos_refrescar()
+        messagebox.showinfo(
+            "Importar",
+            f"{agregados} agregado(s), {cambiados} actualizado(s)."
+            + (f"\n{len(conflictos) - cambiados} sin tocar." if conflictos and not cambiados else ""),
+        )
+
     def _contacto_borrar(self):
         nombre = self.contacto_vars["nombre"].get().strip()
         if not nombre:
@@ -342,7 +580,7 @@ class Panel(tk.Tk):
         self._contactos_refrescar()
         self._contacto_limpiar()
 
-    def _tab_voces(self, nb):
+    def _bloque_voces(self, nb):
         """Catalogo de Piper: 173 voces de la comunidad en 49 idiomas."""
         t = ttk.Frame(nb)
         ttk.Label(
@@ -394,7 +632,7 @@ class Panel(tk.Tk):
                 lista = voices.listar(self.voz_idioma.get())
                 puestas = set(voices.instaladas())
             except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda: self.voz_estado.config(text=f"error: {exc}"))
+                self._ui(lambda: self.voz_estado.config(text=f"error: {exc}"))
                 return
 
             def pintar():
@@ -411,7 +649,7 @@ class Panel(tk.Tk):
                     text=f"{len(lista)} voces · en uso: {actual or 'ninguna'}"
                 )
 
-            self.after(0, pintar)
+            self._ui(pintar)
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -424,7 +662,7 @@ class Panel(tk.Tk):
         def work():
             from . import voices
 
-            self.after(0, lambda: self.voz_estado.config(text=f"descargando {key}..."))
+            self._ui(lambda: self.voz_estado.config(text=f"descargando {key}..."))
             try:
                 msg = voices.descargar(
                     key,
@@ -436,7 +674,7 @@ class Panel(tk.Tk):
                 )
             except Exception as exc:  # noqa: BLE001
                 msg = f"Fallo la descarga: {exc}"
-            self.after(0, lambda: (messagebox.showinfo("Voces", msg), self.voces_buscar()))
+            self._ui(lambda: (messagebox.showinfo("Voces", msg), self.voces_buscar()))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -465,7 +703,7 @@ class Panel(tk.Tk):
                     voices.hablar(f"Hola, soy {self.cfg['assistant_name']}. Asi sueno.", key)
                 )
             except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda: messagebox.showerror("Voces", str(exc)))
+                self._ui(lambda: messagebox.showerror("Voces", str(exc)))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -477,7 +715,7 @@ class Panel(tk.Tk):
             messagebox.showinfo("Voces", voices.borrar(key))
             self.voces_buscar()
 
-    def _tab_correo(self, nb):
+    def _bloque_correo(self, nb):
         """Tab propio: junto con Claves no entraba en la ventana."""
         t = ttk.Frame(nb)
 
@@ -521,7 +759,7 @@ class Panel(tk.Tk):
         self.after(200, self.refresh_outlook)
         return t
 
-    def _tab_voice(self, nb):
+    def _bloque_voz(self, nb):
         t = ttk.Frame(nb)
         self._row(t, "STT (reconocimiento)", "stt_provider", ["faster-whisper", "openai"])
         self._row(t, "Modelo Whisper local", "stt_model", ["tiny", "base", "small", "medium"])
@@ -561,7 +799,7 @@ class Panel(tk.Tk):
         self.refresh_apps(scan=True)
         messagebox.showinfo("Programas", "Indice actualizado.")
 
-    def _tab_history(self, nb):
+    def _bloque_historial(self, nb):
         t = ttk.Frame(nb)
         bar = ttk.Frame(t)
         bar.pack(fill="x", padx=8, pady=(8, 0))
@@ -596,7 +834,7 @@ class Panel(tk.Tk):
         self.refresh_history()
         messagebox.showinfo("Limpiar historial", f"{n} mensajes borrados.")
 
-    def _tab_actions(self, nb):
+    def _bloque_acciones(self, nb):
         t = ttk.Frame(nb)
         cols = ("hora", "tool", "detalle", "resultado")
         tree = ttk.Treeview(t, columns=cols, show="headings")
@@ -627,7 +865,7 @@ class Panel(tk.Tk):
                 if cuentas
                 else "Sin cuentas, o Outlook no responde."
             )
-            self.after(0, lambda: self.outlook_label.config(text=texto))
+            self._ui(lambda: self.outlook_label.config(text=texto))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -655,7 +893,7 @@ class Panel(tk.Tk):
             from . import integrations
 
             texto = integrations.gmail_probar()
-            self.after(0, lambda: self.gmail_label.config(text=texto))
+            self._ui(lambda: self.gmail_label.config(text=texto))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -667,7 +905,7 @@ class Panel(tk.Tk):
 
         def work():
             text = _auth_status()
-            self.after(0, lambda: self.auth_label.config(text=text))
+            self._ui(lambda: self.auth_label.config(text=text))
 
         threading.Thread(target=work, daemon=True).start()
 

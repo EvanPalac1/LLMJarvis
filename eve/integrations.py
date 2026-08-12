@@ -74,6 +74,24 @@ def contactos_prompt_texto() -> str:
     )
 
 
+def exportar_contacto(nombre: str) -> str:
+    """Deja un .evecontact en el Escritorio, listo para mandarselo a alguien."""
+    hits = store.buscar_contacto(nombre)
+    if not hits:
+        return f"No tengo a {nombre!r} en la agenda."
+    if len(hits) > 1:
+        return "Hay varios: " + ", ".join(c.get("nombre", "?") for c in hits) + ". Cual?"
+
+    real = hits[0]["nombre"]
+    seguro = "".join(ch if ch.isalnum() or ch in " -_" else "_" for ch in real).strip()
+    escritorio = os.path.join(os.path.expanduser("~"), "Desktop")
+    carpeta = escritorio if os.path.isdir(escritorio) else os.path.expanduser("~")
+    destino = os.path.join(carpeta, f"{seguro}.evecontact")
+
+    msg = store.exportar_contactos([real], destino)
+    return f"{msg}. Adjuntalo con componer para mandarselo a alguien."
+
+
 def contacto(nombre: str) -> str:
     """Resuelve un nombre contra la agenda. Para cuando no entra en el prompt."""
     hits = store.buscar_contacto(nombre)
@@ -110,6 +128,9 @@ Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
       envia de verdad. Exige numero con codigo de pais, NUNCA un nombre. Si el
       usuario dice un nombre y no sabes el numero, preguntaselo o usa componer.
       Puede estar apagado; si lo dice, contalo y pasa a componer.
+  E exportar-contacto NOMBRE
+      deja un archivo .evecontact en el Escritorio para compartir ese contacto.
+      Despues adjuntalo con componer si te piden mandarselo a alguien.
   E outlook-leer -n 10
   E outlook-contacto NOMBRE              resolve "Juan" -> direccion; si hay varios, pregunta
   E outlook-redactar --to X --asunto "..." --cuerpo "..."
@@ -952,6 +973,9 @@ def main(argv=None) -> int:
     ct = sub.add_parser("contacto", help="resuelve un nombre contra la agenda")
     ct.add_argument("nombre")
 
+    ec = sub.add_parser("exportar-contacto", help="guarda un contacto para compartirlo")
+    ec.add_argument("nombre")
+
     no = sub.add_parser("notificaciones", help="lee el centro de notificaciones de Windows")
     no.add_argument("--app", default="", help="filtra por app, ej: whatsapp")
     no.add_argument("-n", type=int, default=15)
@@ -1005,6 +1029,8 @@ def main(argv=None) -> int:
             print(recordar(a.hecho))
         elif a.cmd == "contacto":
             print(contacto(a.nombre))
+        elif a.cmd == "exportar-contacto":
+            print(exportar_contacto(a.nombre))
         elif a.cmd == "notificaciones":
             print(notificaciones(a.app, a.n))
         elif a.cmd == "whatsapp-enviar":

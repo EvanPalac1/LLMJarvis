@@ -8,9 +8,11 @@ bandeja. Desde el codigo cada una sigue siendo un modulo normal.
     Eve.exe --panel    panel de configuracion
     Eve.exe --cli ...  conexiones con apps (lo llama el modelo)
     Eve.exe --hook     freno del motor claude-code
-    Eve.exe --check    diagnostico
+    Eve.exe --check       diagnostico
+    Eve.exe --probar-voz  autotest: sintetiza una frase y la transcribe
 """
 
+import os
 import sys
 
 
@@ -63,6 +65,48 @@ def main() -> int:
 
             WhisperModel(store.load_config()["stt_model"], device="cpu", compute_type="int8")
             print("Modelo de voz descargado.")
+            return 0
+        if flag == "--probar-voz":
+            # Sintetiza una frase y la vuelve a transcribir. Recorre el mismo
+            # camino que una orden hablada, que es donde fallo la v1.0.0: el
+            # modelo VAD no viajaba en el paquete y no habia forma de notarlo
+            # sin hablarle.
+            import wave
+
+            import numpy as np
+
+            from eve import store, voice
+
+            frase = " ".join(resto) or "probando la voz de Eve, uno dos tres"
+            cfg = store.load_config()
+            print(f"sintetizando: {frase!r}")
+            try:
+                from eve import voices
+
+                clave = cfg.get("piper_voice") or (voices.instaladas() or [None])[0]
+                if not clave:
+                    raise RuntimeError("sin voz de Piper")
+                ruta = voices.hablar(frase, clave)
+            except Exception:  # noqa: BLE001 - sin Piper se usa la voz del sistema
+                import pyttsx3
+                import tempfile
+
+                ruta = os.path.join(tempfile.gettempdir(), "eve_prueba.wav")
+                motor = pyttsx3.init()
+                motor.save_to_file(frase, ruta)
+                motor.runAndWait()
+                motor.stop()
+
+            with wave.open(ruta, "rb") as w:
+                audio = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+                rate = w.getframerate()
+            audio = audio.astype("float32") / 32768.0
+            if rate != 16000:
+                idx = (np.arange(int(len(audio) * 16000 / rate)) * rate / 16000).astype(int)
+                audio = audio[idx]
+
+            print("transcribiendo...")
+            print(f"resultado: {voice.transcribe(audio, cfg)!r}")
             return 0
         if flag == "--descargar-voz":
             from eve import store, voices

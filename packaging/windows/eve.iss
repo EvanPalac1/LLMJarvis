@@ -153,13 +153,13 @@ begin
   if PaginaOpciones.Values[0] then
   begin
     WizardForm.StatusLabel.Caption := 'Descargando el modelo de voz (~460 MB)...';
-    Exec(ExpandConstant('{app}\Eve.exe'), '--check --descargar-modelo', '',
+    Exec(ExpandConstant('{app}\Eve.exe'), '--descargar-modelo', '',
          SW_HIDE, ewWaitUntilTerminated, Codigo);
   end;
   if PaginaOpciones.Values[1] then
   begin
     WizardForm.StatusLabel.Caption := 'Descargando la voz en español (~63 MB)...';
-    Exec(ExpandConstant('{app}\Eve.exe'), '--check --descargar-voz', '',
+    Exec(ExpandConstant('{app}\Eve.exe'), '--descargar-voz', '',
          SW_HIDE, ewWaitUntilTerminated, Codigo);
   end;
 end;

@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import threading
 
 import pystray
 
@@ -41,20 +42,31 @@ def build(listener) -> pystray.Icon:
         listener.paused = not listener.paused
         icon.title = _title(listener)
 
+    def _en_hilo(icon, trabajo):
+        """Los callbacks del menu corren en el hilo que bombea los mensajes de la
+        bandeja. Cualquier cosa lenta ahi congela el icono, asi que se delega."""
+        threading.Thread(target=trabajo, args=(icon,), daemon=True).start()
+
     def restart(icon, item):  # noqa: ANN001
-        try:
-            listener.restart()
-            icon.title = _title(listener)
-            _notify(f"Listener reiniciado con la config guardada.\nTecla: {listener.cfg['hotkey']}")
-        except Exception as exc:  # noqa: BLE001 - el icono no puede morir por esto
-            _notify(f"No pude reiniciar el listener:\n\n{exc}", error=True)
+        def trabajo(icon):
+            try:
+                listener.restart()
+                icon.title = _title(listener)
+                _avisar(icon, f"Listo. Tecla: {listener.cfg['hotkey']}", "Listener reiniciado")
+            except Exception as exc:  # noqa: BLE001 - el icono no puede morir por esto
+                _avisar(icon, str(exc)[:200], "No pude reiniciar el listener")
+
+        _en_hilo(icon, trabajo)
 
     def limpiar(icon, item):  # noqa: ANN001
-        from . import store
+        def trabajo(icon):
+            from . import store
 
-        n = store.clear_history()
-        listener.eve.reset_context()
-        _notify(f"Historial borrado ({n} mensajes) y contexto en cero.\nEl registro de acciones se conservo.")
+            n = store.clear_history()
+            listener.eve.reset_context()
+            _avisar(icon, f"{n} mensajes borrados y contexto en cero.", "Historial limpiado")
+
+        _en_hilo(icon, trabajo)
 
     menu = pystray.Menu(
         pystray.MenuItem("Abrir panel", lambda: open_panel(), default=True),
@@ -68,7 +80,15 @@ def build(listener) -> pystray.Icon:
     return pystray.Icon("LLMJarvis", icon_mod.tray_image(), _title(listener), menu)
 
 
-def _notify(msg: str, error: bool = False) -> None:
-    from . import plataforma
+def _avisar(icon, msg: str, titulo: str = "LLMJarvis") -> None:
+    """Notificacion nativa de la bandeja, no un modal.
 
-    plataforma.avisar(msg, "LLMJarvis", error=error)
+    Antes esto abria un MessageBox con MB_SYSTEMMODAL desde el hilo que bombea
+    los mensajes del icono: ese hilo quedaba bloqueado dentro del dialogo, que es
+    justo el que tiene que procesar el clic en Aceptar. El resultado era una
+    ventana que no se podia cerrar.
+    """
+    try:
+        icon.notify(msg, titulo)
+    except Exception:  # noqa: BLE001 - no todos los entornos soportan globos
+        print(f"[{titulo}] {msg}")

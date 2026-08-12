@@ -45,6 +45,14 @@ if WINDOWS:
 else:
     OCULTOS += ["pynput"]
 
+# Paquetes que cargan archivos de datos en runtime. PyInstaller NO los copia si
+# no se le pide, y el fallo no aparece hasta que alguien usa la funcion: la v1.0.0
+# salio con el reconocimiento de voz roto porque faltaba silero_vad_v6.onnx.
+CON_DATOS = ["faster_whisper", "piper", "onnxruntime"]
+
+# Archivos sin los cuales el paquete esta roto aunque el build "haya salido bien".
+IMPRESCINDIBLES = [os.path.join("faster_whisper", "assets", "silero_vad_v6.onnx")]
+
 
 def _icono() -> list[str]:
     """Los iconos se generan en la carpeta de datos; se copian al build."""
@@ -73,6 +81,8 @@ def _construir(nombre: str, ventana: bool, extra: list[str]) -> None:
     ]
     for m in OCULTOS:
         cmd += ["--hidden-import", m]
+    for paquete in CON_DATOS:
+        cmd += ["--collect-data", paquete]
     cmd += _icono() + extra + [os.path.join(RAIZ, "main.py")]
 
     print(f"\n=== {nombre} ===")
@@ -107,6 +117,29 @@ def _app_macos() -> None:
         with open(plist, "w", encoding="utf-8") as f:
             f.write(contenido)
         print("    Info.plist aplicado (LSUIElement, permiso de microfono)")
+
+
+def _verificar(carpeta: str) -> None:
+    """Aborta si falta algo que rompe el programa en runtime.
+
+    Un build "exitoso" al que le faltan datos de paquetes no falla hasta que el
+    usuario intenta hablar. Mejor romper aca que publicar una release rota.
+    """
+    faltan = []
+    for relativo in IMPRESCINDIBLES:
+        if not any(
+            os.path.exists(os.path.join(carpeta, base, relativo))
+            for base in ("_internal", ".", os.path.join("Contents", "Resources"),
+                         os.path.join("Contents", "Frameworks"))
+        ):
+            faltan.append(relativo)
+    if faltan:
+        sys.exit(
+            "Build incompleto, falta:\n  " + "\n  ".join(faltan) +
+            "\n\nRevisa CON_DATOS en build.py: son datos de paquetes que PyInstaller\n"
+            "no copia solo y sin los cuales el programa falla recien al usarse."
+        )
+    print("    verificado: los datos imprescindibles estan en el paquete")
 
 
 def _paquete() -> None:
@@ -167,6 +200,8 @@ def main() -> int:
         _construir("Eve-config", ventana=True, extra=[])
         _construir("Eve-debug", ventana=False, extra=[])
         _fusionar("Eve", ["Eve-config", "Eve-debug"])
+
+    _verificar(os.path.join(RAIZ, "dist", "Eve.app" if MACOS else "Eve"))
 
     salida = os.path.join(RAIZ, "dist")
     print(f"\nListo: {salida}  ({sys.platform} {ARCH})")
