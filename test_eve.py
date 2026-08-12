@@ -178,7 +178,9 @@ def test_integrations_componer():
     from eve import integrations
 
     abiertas = []
-    original, integrations.os.startfile = integrations.os.startfile, abiertas.append
+    # El seam es plataforma.abrir, no os.startfile: startfile no existe fuera de
+    # Windows y parchearlo reventaba el test en Linux y macOS.
+    original, integrations.plataforma.abrir = integrations.plataforma.abrir, abiertas.append
     try:
         r = integrations.componer("whatsapp", "+54 9 11 1234-5678", "hola que tal")
         assert abiertas[-1].startswith("whatsapp://send?phone=5491112345678")
@@ -195,7 +197,7 @@ def test_integrations_componer():
         assert "desconocida" in integrations.componer("myspace", "x", "y")
         assert len(abiertas) == 3, "una app desconocida no abre nada"
     finally:
-        integrations.os.startfile = original
+        integrations.plataforma.abrir = original
 
 
 def test_integrations_anti_inyeccion():
@@ -259,15 +261,20 @@ def test_recordar():
 
 def test_whatsapp_enviar_guardas():
     """Las tres guardas del envio: opt-in, numero real, y nada de nombres."""
-    from eve import integrations
+    from eve import integrations, plataforma
 
     abiertas = []
-    orig_cfg, orig_open = integrations.store.load_config, integrations.os.startfile
-    integrations.os.startfile = abiertas.append
+    orig_cfg, orig_open = integrations.store.load_config, integrations.plataforma.abrir
+    integrations.plataforma.abrir = abiertas.append
     try:
         # Apagado por defecto: no abre nada ni manda nada.
         integrations.store.load_config = lambda: {"whatsapp_autosend": False}
         r = integrations.whatsapp_enviar("+5491112345678", "hola")
+        if not plataforma.WINDOWS:
+            # solo_windows corta antes que la guarda de opt-in. Lo que importa
+            # afuera de Windows es lo mismo: que no abra nada.
+            assert "solo funciona en Windows" in r and not abiertas
+            return
         assert "apagado" in r and not abiertas
 
         # Encendido, pero un nombre no alcanza: sin numero no hay destino garantizado.
@@ -279,7 +286,7 @@ def test_whatsapp_enviar_guardas():
         r = integrations.whatsapp_enviar("123", "hola")  # muy corto
         assert "numero completo" in r and not abiertas
     finally:
-        integrations.store.load_config, integrations.os.startfile = orig_cfg, orig_open
+        integrations.store.load_config, integrations.plataforma.abrir = orig_cfg, orig_open
 
 
 def test_app_password_valida():
@@ -588,6 +595,7 @@ def test_updater():
         {"name": "Eve-Setup-x64.exe"}, {"name": "Eve-Setup-arm64.exe"},
         {"name": "Eve-Intel.dmg"}, {"name": "Eve-AppleSilicon.dmg"},
         {"name": "eve_1.0_amd64.deb"}, {"name": "eve-1.0.x86_64.rpm"},
+        {"name": "eve_1.0_arm64.deb"}, {"name": "eve-1.0.aarch64.rpm"},
     ]
     elegido = updater._asset_para_este_sistema(assets)["name"]
     if plataforma.WINDOWS:
@@ -690,11 +698,14 @@ def test_ollama_payload():
 
 def test_listener_no_hook_leak():
     """Cada restart debe dejar UN hook, no acumular la tecla anterior."""
-    try:
-        import keyboard
-    except ImportError:
-        print("    (salteado: keyboard no instalado)")
+    from eve import plataforma
+
+    if not plataforma.WINDOWS:
+        # Cuenta los hooks hurgando en las tripas de `keyboard`, que es el backend
+        # de Windows. Fuera de ahi el backend es pynput y no tiene equivalente.
+        print("    (salteado: mide los hooks de `keyboard`, solo Windows)")
         return
+    import keyboard
 
     from eve.listener import Listener
 

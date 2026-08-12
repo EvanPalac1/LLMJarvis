@@ -175,10 +175,16 @@ def _paquete() -> None:
         subprocess.run(["bash", os.path.join(pkg, "macos", "dmg.sh"), VERSION, ARCH],
                        cwd=RAIZ, check=True)
     else:
-        for guion in ("build_deb.sh", "build_rpm.sh"):
-            ruta = os.path.join(pkg, "linux", guion)
-            if os.path.exists(ruta):
-                subprocess.run(["bash", ruta, VERSION, ARCH], cwd=RAIZ, check=False)
+        # check=True a proposito: con check=False un script roto dejaba el job en
+        # verde sin ningun paquete, que es como se publico una release vacia.
+        # Lo unico que se saltea en silencio es la herramienta ausente.
+        for guion, herramienta in (("build_deb.sh", "dpkg-deb"), ("build_rpm.sh", "rpmbuild")):
+            if not shutil.which(herramienta):
+                print(f"    salteado {guion}: falta {herramienta}")
+                continue
+            subprocess.run([
+                "bash", os.path.join(pkg, "linux", guion), VERSION, ARCH
+            ], cwd=RAIZ, check=True)
 
 
 def main() -> int:

@@ -14,7 +14,7 @@ import wave
 import numpy as np
 import sounddevice as sd
 
-from . import store
+from . import plataforma, store
 
 SAMPLE_RATE = 16000
 _whisper = None
@@ -165,7 +165,7 @@ def _speak_elevenlabs(text: str, cfg: dict) -> None:
     path = os.path.join(tempfile.gettempdir(), "eve_tts.mp3")
     with open(path, "wb") as f:
         f.write(r.content)
-    os.startfile(path)  # noqa: S606 - reproductor por defecto de Windows
+    plataforma.abrir(path)  # reproductor por defecto del sistema
 
 
 def list_sapi_voices() -> list[str]:
