@@ -170,6 +170,32 @@ subtitulos y donde va el cartel. **Mover en pantalla** lo suelta para arrastrarl
 tema puede pintar tambien el panel de configuracion, que es opt-in porque obliga a dibujar
 los controles por nuestra cuenta en vez de usar los de Windows.
 
+### Fondos e imagenes
+
+El cartel y los subtitulos aceptan una imagen de fondo, **PNG o GIF animado**, cada uno
+por su lado. Se elige el ajuste (recortar, estirar o mosaico), la opacidad y cuanto se
+tiñe con el color de acento.
+
+La opacidad de la imagen **no** es el `-alpha` de la ventana. Se mezcla contra el color
+del panel al cargarla, con PIL: asi el fondo queda tenue y las letras siguen enteras. Con
+el alpha de la ventana, bajar el fondo se llevaria puesto tambien el texto.
+
+Tampoco se usa `PIL.ImageTk`, que seria el puente natural: es un submodulo aparte que
+puede no viajar en el binario empaquetado, y un fondo que solo falla en la version
+instalada es la peor clase de falla. En vez de eso PIL escala y mezcla, guarda un PNG
+temporal (cacheado por hash de los parametros) y lo carga `tk.PhotoImage`, que lee PNG de
+forma nativa desde Tk 8.6.
+
+**Forma recortada**: con `hud_forma = recortado` el cartel deja de ser un rectangulo. Los
+contornos hexagonal y biselado pasan a dejar ver el escritorio por las esquinas cortadas.
+Se hace con `-transparentcolor`, que vuelve invisible un color concreto (`#010203`, raro a
+proposito). Un canvas no sabe recortar una imagen contra un poligono, asi que lo que sobra
+se pinta de ese color.
+
+En el **panel** hay imagen de cabecera por pestaña, pero no fondo para toda la ventana:
+los controles de ttk pintan su propio fondo opaco y lo taparian. Medido: un `ttk.Label`
+sobre una imagen roja da `(220,218,187)` donde la imagen da `(220,30,30)`.
+
 En juegos a **pantalla completa exclusiva** no se ve ningun overlay: es como funciona
 DirectX, no un problema de Eve. En modo ventana o ventana sin bordes si.
 

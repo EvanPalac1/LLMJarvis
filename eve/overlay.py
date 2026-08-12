@@ -15,7 +15,12 @@ import time
 import tkinter as tk
 from collections import deque
 
-from . import plataforma, store, tema
+from . import imagenes, plataforma, store, tema
+
+# Color que la ventana vuelve invisible en modo "recortado". Uno raro a
+# proposito: cualquier pixel exactamente de este color desaparece, asi que no
+# puede ser uno que alguien elija para su tema.
+MAGICO = "#010203"
 
 CUADRO = 33          # ms entre cuadros, ~30 por segundo
 CADA_LECTURA = 3     # leer el estado 1 de cada N cuadros: 10 Hz alcanza
@@ -62,6 +67,7 @@ class Ventana(tk.Toplevel):
         self.lienzo = tk.Canvas(self, highlightthickness=0, borderwidth=0)
         self.lienzo.pack(fill="both", expand=True)
         self._fantasma = None
+        self._transparente = None
 
     def fantasma(self, atraviesan: bool) -> None:
         """Aplica los estilos solo cuando cambia: SetWindowPos cada cuadro
@@ -73,6 +79,20 @@ class Ventana(tk.Toplevel):
 
     def colocar(self, x: int, y: int, ancho: int, alto: int) -> None:
         self.geometry(f"{ancho}x{alto}+{x}+{y}")
+
+    def transparente(self, color: str) -> None:
+        """Hace invisible todo lo que sea exactamente de ese color. '' lo apaga.
+
+        Solo existe en Windows; en el resto se ignora y el cartel queda como una
+        caja, que es lo que hay.
+        """
+        if self._transparente == color:
+            return
+        self._transparente = color
+        try:
+            self.attributes("-transparentcolor", color)
+        except tk.TclError:
+            pass
 
 
 class Pintor:
@@ -87,12 +107,20 @@ class Pintor:
         self.niveles = deque([0.0] * MUESTRAS, maxlen=MUESTRAS)
         self.nivel = 0.0
         self.imagen = None  # referencia viva: tk descarta las que no se guardan
+        self.fondo = imagenes.Fondo()
         self.aplicar(cfg, paleta)
 
     def aplicar(self, cfg: dict, paleta: dict) -> None:
         self.cfg, self.paleta = cfg, paleta
         self.esc = _num(cfg, "hud_escala", 50, 300) / 100
         self.ancho, self.alto = int(ANCHO * self.esc), int(ALTO * self.esc)
+        self.fondo.aplicar(
+            str(cfg.get("hud_fondo", "")), self.ancho, self.alto,
+            str(cfg.get("hud_fondo_ajuste", "recortar")),
+            int(_num(cfg, "hud_fondo_opacidad", 0, 100)),
+            int(_num(cfg, "hud_fondo_tinte", 0, 100)),
+            paleta["panel"], paleta["acento"],
+        )
         self.imagen = None
         ruta = str(cfg.get("hud_icono", ""))
         if ruta.lower().endswith((".png", ".gif")) and os.path.exists(ruta):
@@ -142,7 +170,29 @@ class Pintor:
         tipo = self.cfg.get("hud_contorno", "esquinas")
         m = 3 * e
 
-        c.create_rectangle(m, m, w - m, h - m, fill=p["panel"], outline="")
+        # El relleno: la imagen si hay, el color del panel si no.
+        cuadro = self.fondo.actual()
+        if cuadro is not None:
+            c.create_image(0, 0, image=cuadro, anchor="nw")
+        else:
+            c.create_rectangle(m, m, w - m, h - m, fill=p["panel"], outline="")
+
+        # Las formas con esquinas cortadas se tapan por fuera. Un canvas no sabe
+        # recortar una imagen contra un poligono, asi que se pinta lo que sobra:
+        # con el color de fondo, o con el magico si se pidio recortar de verdad,
+        # y ahi las esquinas dejan ver el escritorio.
+        corte = 14 * e if tipo == "hexagonal" else 16 * e
+        if tipo in ("hexagonal", "biselado"):
+            sobrante = MAGICO if self.cfg.get("hud_forma") == "recortado" else p["fondo"]
+            esquinas = [((m, m), (m + corte, m), (m, m + corte)),
+                        ((w - m, h - m), (w - m - corte, h - m), (w - m, h - m - corte))]
+            if tipo == "hexagonal":
+                esquinas += [((w - m, m), (w - m - corte, m), (w - m, m + corte)),
+                             ((m, h - m), (m + corte, h - m), (m, h - m - corte))]
+            for triangulo in esquinas:
+                c.create_polygon([v for punto in triangulo for v in punto],
+                                 fill=sobrante, outline=sobrante)
+
         if tipo == "ninguno":
             return
         if tipo == "linea":
@@ -250,7 +300,11 @@ class Hud(Ventana):
         self.ancho, self.alto = self.pintor.ancho, self.pintor.alto
         self.esc = self.pintor.esc
         self.attributes("-alpha", _num(cfg, "hud_opacidad", 10, 100) / 100)
-        self.lienzo.configure(bg=paleta["fondo"])
+        # En modo recortado todo lo que quede del color magico desaparece, asi
+        # que el cartel deja de ser un rectangulo y se ve solo su forma.
+        recortado = cfg.get("hud_forma") == "recortado"
+        self.transparente(MAGICO if recortado else "")
+        self.lienzo.configure(bg=MAGICO if recortado else paleta["fondo"])
 
     def avanzar(self, objetivo: float) -> None:
         self.pintor.avanzar(objetivo)
@@ -265,6 +319,7 @@ class Subtitulos(Ventana):
     def __init__(self, raiz, cfg: dict, paleta: dict):
         super().__init__(raiz, _num(cfg, "sub_opacidad", 10, 100) / 100)
         self._ultimo = None
+        self.fondo = imagenes.Fondo()
         self.aplicar(cfg, paleta)
 
     def aplicar(self, cfg: dict, paleta: dict) -> None:
@@ -276,6 +331,15 @@ class Subtitulos(Ventana):
         self.alto = self._alto_de(self.lineas)
         self.attributes("-alpha", _num(cfg, "sub_opacidad", 10, 100) / 100)
         self.lienzo.configure(bg=paleta["fondo"])
+        # Alto maximo: el texto puede crecer, y recargar la imagen cada vez que
+        # cambia un renglon costaria mas que dibujarla un poco mas grande.
+        self.fondo.aplicar(
+            str(cfg.get("sub_fondo", "")), self.ancho, self._alto_de(6),
+            str(cfg.get("sub_fondo_ajuste", "recortar")),
+            int(_num(cfg, "sub_fondo_opacidad", 0, 100)),
+            int(_num(cfg, "sub_fondo_tinte", 0, 100)),
+            paleta["panel"], paleta["acento"],
+        )
         self._ultimo = None  # forzar redibujo con los valores nuevos
 
     def _alto_de(self, lineas: float) -> int:
@@ -296,7 +360,9 @@ class Subtitulos(Ventana):
         if not filas:
             self._ultimo = None
             return False
-        if filas == self._ultimo:
+        # Con un GIF de fondo hay que redibujar aunque el texto no cambie, o la
+        # animacion se congela apenas termina de aparecer la frase.
+        if filas == self._ultimo and len(self.fondo.cuadros) <= 1:
             return True
         self._ultimo = list(filas)
 
@@ -311,7 +377,10 @@ class Subtitulos(Ventana):
         c.delete("all")
         # El fondo va primero para que quede debajo, y se le corrige el alto al
         # final, cuando ya se sabe cuanto ocupo el texto envuelto.
+        cuadro = self.fondo.actual()
         fondo = c.create_rectangle(0, 0, self.ancho, tope, fill=p["panel"], outline="")
+        if cuadro is not None:
+            c.create_image(0, 0, image=cuadro, anchor="nw")
         c.create_line(0, 0, self.ancho, 0, fill=p["acento"],
                       width=max(1, int(2 * self.esc)))
 

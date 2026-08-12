@@ -132,6 +132,10 @@ DEFAULTS = {
     "ui_color_acento2": "",
     "ui_color_borde": "",
     "ui_color_alerta": "",
+    # Imagen de cabecera de las pestañas. No hay fondo para todo el panel: los
+    # controles de ttk pintan su propio fondo opaco y taparian la imagen.
+    "ui_banner": "",
+    "ui_banner_opacidad": 100,
 
     # --- overlay ----------------------------------------------------------
     "overlay_modo": "auto",  # auto (aparece y se va) | siempre | nunca
@@ -146,12 +150,26 @@ DEFAULTS = {
     "hud_icono": "hexagono",   # hexagono | circulo | cuadrado | ninguno | ruta .png
     "hud_contorno": "esquinas",  # ninguno|linea|esquinas|doble|hexagonal|biselado
     "hud_onda": "barras",        # barras|espejo|linea|puntos|ninguna
+    # Imagen de fondo del cartel: PNG o GIF (se anima solo). Vacio = color liso.
+    "hud_fondo": "",
+    "hud_fondo_ajuste": "recortar",  # recortar | estirar | mosaico
+    # Cuanto se ve la imagen. Se mezcla contra el color del panel al cargarla, no
+    # con el alpha de la ventana: asi el fondo queda tenue y el texto entero.
+    "hud_fondo_opacidad": 100,
+    "hud_fondo_tinte": 0,   # cuanto se tiñe con el acento, para que se lea encima
+    # "caja" = rectangulo relleno. "recortado" = solo la forma del contorno, y lo
+    # de afuera deja ver el escritorio.
+    "hud_forma": "caja",
     "sub_muestra": "ambos",      # ambos | eve | usuario
     "sub_tam": 15,
     "sub_lineas": 2,
     "sub_segundos": 6,
     "sub_opacidad": 88,
     "sub_separacion": 10,
+    "sub_fondo": "",
+    "sub_fondo_ajuste": "recortar",
+    "sub_fondo_opacidad": 100,
+    "sub_fondo_tinte": 0,
 }
 
 

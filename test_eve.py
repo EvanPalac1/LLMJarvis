@@ -858,6 +858,62 @@ def test_overlay():
             store.CONFIG_PATH = real
 
 
+def test_fondos():
+    """Fondos de imagen: ajuste, opacidad horneada, GIF y fallos silenciosos."""
+    from PIL import Image
+
+    from eve import imagenes
+
+    with tempfile.TemporaryDirectory() as raiz:
+        png = os.path.join(raiz, "f.png")
+        Image.new("RGB", (900, 300), (255, 255, 255)).save(png)
+
+        for ajuste in ("recortar", "estirar", "mosaico"):
+            rutas, _ = imagenes.procesar(png, 460, 128, ajuste)
+            assert len(rutas) == 1, ajuste
+            with Image.open(rutas[0]) as im:
+                assert im.size == (460, 128), (ajuste, im.size)
+
+        # La opacidad se mezcla contra el color base: es lo que deja atenuar el
+        # fondo sin tocar el texto. Blanco al 50% sobre negro tiene que dar gris.
+        rutas, _ = imagenes.procesar(png, 40, 40, "estirar", opacidad=50,
+                                     color_base="#000000")
+        with Image.open(rutas[0]) as im:
+            r, g, b = im.getpixel((20, 20))
+            assert 120 <= r <= 135 and r == g == b, (r, g, b)
+
+        # Al 0% no queda nada de la imagen: solo el color del panel.
+        rutas, _ = imagenes.procesar(png, 40, 40, "estirar", opacidad=0,
+                                     color_base="#204060")
+        with Image.open(rutas[0]) as im:
+            assert im.getpixel((20, 20)) == (32, 64, 96)
+
+        # El tinte arrastra hacia el color del acento.
+        rutas, _ = imagenes.procesar(png, 40, 40, "estirar", tinte=100,
+                                     color_tinte="#ff0000")
+        with Image.open(rutas[0]) as im:
+            assert im.getpixel((20, 20)) == (255, 0, 0)
+
+        # GIF: un cuadro por cuadro, con su duracion.
+        gif = os.path.join(raiz, "a.gif")
+        cuadros = [Image.new("RGB", (60, 40), (i * 30, 60, 200)) for i in range(4)]
+        cuadros[0].save(gif, save_all=True, append_images=cuadros[1:],
+                        duration=120, loop=0)
+        rutas, tiempos = imagenes.procesar(gif, 100, 50, "estirar")
+        assert len(rutas) == 4 and tiempos == [120] * 4, (len(rutas), tiempos)
+        # Y los cuadros son distintos entre si, no cuatro copias del primero.
+        assert len({open(r, "rb").read() for r in rutas}) > 1
+
+        # Nada de esto puede tirar el overlay.
+        assert imagenes.procesar(os.path.join(raiz, "no-existe.png"), 10, 10) == ([], [])
+        roto = os.path.join(raiz, "roto.png")
+        with open(roto, "wb") as f:
+            f.write(b"esto no es una imagen")
+        assert imagenes.procesar(roto, 10, 10) == ([], [])
+        assert imagenes.procesar(png, 0, 0) == ([], [])
+        assert imagenes.procesar("", 10, 10) == ([], [])
+
+
 def test_voces_piper():
     """Catalogo de voces de la comunidad: filtrado y rutas de descarga."""
     from eve import voices

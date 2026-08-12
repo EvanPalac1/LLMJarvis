@@ -138,6 +138,38 @@ class Panel(tk.Tk):
                 for opcion, valor in opciones.items():
                     self.option_add(f"{clase}.{opcion}", valor)
 
+    BANNER_ALTO = 76
+
+    def _banner_en(self, marco) -> None:
+        """Franja con imagen arriba de la pestaña, si el usuario cargo una.
+
+        Es lo mas parecido a un fondo que admite este panel: los controles de ttk
+        pintan su propio fondo opaco, asi que una imagen detras de todo se veria
+        solo en los huecos. La cabecera si es un espacio libre.
+        """
+        ruta = str(self.cfg.get("ui_banner", ""))
+        if not ruta:
+            return
+        from . import imagenes, tema as tema_mod
+
+        if not hasattr(self, "_banner"):
+            paleta = tema_mod.resolver(self.cfg)
+            ancho = max(320, int(self.cfg.get("_ancho_panel", 0)) or 780)
+            cuadros, _ = imagenes.cargar(
+                ruta, ancho, self.BANNER_ALTO, "recortar",
+                int(self.cfg.get("ui_banner_opacidad", 100) or 100), 0,
+                paleta["fondo"], paleta["acento"],
+            )
+            # Solo el primer cuadro: un GIF animado en la cabecera de un panel de
+            # configuracion distrae mas de lo que aporta.
+            self._banner = cuadros[0] if cuadros else None
+        if self._banner is None:
+            return
+        lienzo = tk.Canvas(marco, height=self.BANNER_ALTO, highlightthickness=0,
+                           borderwidth=0)
+        lienzo.pack(fill="x")
+        lienzo.create_image(0, 0, image=self._banner, anchor="nw")
+
     def _hoja(self, nb, titulo: str, subtitulo: str):
         """Pestaña con encabezado y contenido con scroll.
 
@@ -145,6 +177,7 @@ class Panel(tk.Tk):
         boton Guardar fuera de la ventana.
         """
         marco = ttk.Frame(nb)
+        self._banner_en(marco)
         cab = ttk.Frame(marco)
         cab.pack(fill="x", padx=PAD, pady=(PAD, 2))
         ttk.Label(cab, text=titulo, style="Titulo.TLabel").pack(anchor="w")
@@ -999,6 +1032,36 @@ class Panel(tk.Tk):
             self._fila_color(caja, rol, etiqueta)
         self._ayuda(caja, "Los colores de arriba solo se usan con el tema 'personalizado'.")
 
+        caja = self._seccion(t, "Cabecera del panel")
+        fila = ttk.Frame(caja)
+        fila.pack(fill="x", padx=12, pady=5)
+        ttk.Label(fila, text="Imagen (PNG o GIF)", width=24).pack(side="left")
+        var = tk.StringVar(value=str(self.cfg.get("ui_banner", "")))
+        self.vars["ui_banner"] = var
+        ttk.Entry(fila, textvariable=var).pack(side="left", fill="x", expand=True)
+
+        def elegir_banner():
+            from tkinter import filedialog
+
+            ruta = filedialog.askopenfilename(
+                title="Imagen de cabecera", parent=self,
+                filetypes=[("Imagenes", "*.png *.gif"), ("Todos", "*.*")],
+            )
+            if ruta:
+                var.set(ruta)
+
+        ttk.Button(fila, text="...", width=4,
+                   command=elegir_banner).pack(side="left", padx=(6, 0))
+        ttk.Button(fila, text="Quitar", width=8,
+                   command=lambda: var.set("")).pack(side="left", padx=(4, 0))
+        self._row(caja, "Opacidad (%)", "ui_banner_opacidad")
+        self._ayuda(
+            caja,
+            "Se ve arriba de cada pestaña y se aplica al reabrir el panel. No hay fondo\n"
+            "para todo el panel: los controles de Windows pintan su propio fondo opaco\n"
+            "y lo taparian.",
+        )
+
         for clave in ("ui_tema",):
             self.vars[clave].trace_add("write", self._previa_redibujar)
         return t
@@ -1023,6 +1086,13 @@ class Panel(tk.Tk):
         self._row(caja, "Escala (%)", "hud_escala")
         self._row(caja, "Opacidad (%)", "hud_opacidad")
 
+        self._row(caja, "Forma", "hud_forma", ["caja", "recortado"])
+        self._ayuda(
+            caja,
+            "recortado = el cartel deja de ser un rectangulo y por las esquinas cortadas\n"
+            "de los contornos hexagonal y biselado se ve lo que hay atras.",
+        )
+
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=(6, 10))
         ttk.Button(fila, text="Elegir imagen del icono...",
@@ -1032,10 +1102,48 @@ class Panel(tk.Tk):
         ttk.Button(fila, text="Volver a la esquina",
                    command=self._overlay_esquina).pack(side="left")
 
-        for clave in ("hud_titulo", "hud_subtitulo", "hud_icono", "hud_contorno", "hud_onda"):
+        self._bloque_fondo(t, "hud", "Fondo del cartel")
+        for clave in ("hud_titulo", "hud_subtitulo", "hud_icono", "hud_contorno",
+                      "hud_onda", "hud_forma"):
             self.vars[clave].trace_add("write", self._previa_redibujar)
         self._previa_redibujar()
         return t
+
+    def _bloque_fondo(self, padre, prefijo: str, titulo: str) -> None:
+        """Los controles de imagen de fondo, iguales para el cartel y los subtitulos."""
+        from tkinter import filedialog
+
+        caja = self._seccion(padre, titulo)
+        fila = ttk.Frame(caja)
+        fila.pack(fill="x", padx=12, pady=5)
+        ttk.Label(fila, text="Imagen (PNG o GIF)", width=24).pack(side="left")
+        var = tk.StringVar(value=str(self.cfg.get(f"{prefijo}_fondo", "")))
+        self.vars[f"{prefijo}_fondo"] = var
+        ttk.Entry(fila, textvariable=var).pack(side="left", fill="x", expand=True)
+
+        def elegir():
+            ruta = filedialog.askopenfilename(
+                title=titulo, parent=self,
+                filetypes=[("Imagenes", "*.png *.gif"), ("Todos", "*.*")],
+            )
+            if ruta:
+                var.set(ruta)
+
+        ttk.Button(fila, text="...", width=4, command=elegir).pack(side="left", padx=(6, 0))
+        ttk.Button(fila, text="Quitar", width=8,
+                   command=lambda: var.set("")).pack(side="left", padx=(4, 0))
+
+        self._row(caja, "Ajuste", f"{prefijo}_fondo_ajuste",
+                  ["recortar", "estirar", "mosaico"])
+        self._row(caja, "Opacidad de la imagen (%)", f"{prefijo}_fondo_opacidad")
+        self._row(caja, "Tinte con el acento (%)", f"{prefijo}_fondo_tinte")
+        self._ayuda(
+            caja,
+            "El GIF se anima solo. La opacidad se mezcla en la imagen y no en la ventana,\n"
+            "asi que bajarla atenua el fondo pero el texto sigue entero.",
+        )
+        for sufijo in ("fondo", "fondo_ajuste", "fondo_opacidad", "fondo_tinte"):
+            self.vars[f"{prefijo}_{sufijo}"].trace_add("write", self._previa_redibujar)
 
     def _icono_elegir(self):
         from tkinter import filedialog
@@ -1082,6 +1190,7 @@ class Panel(tk.Tk):
         self._row(caja, "Lineas maximas", "sub_lineas")
         self._row(caja, "Opacidad (%)", "sub_opacidad")
         self._row(caja, "Separacion del cartel (px)", "sub_separacion")
+        self._bloque_fondo(t, "sub", "Fondo de los subtitulos")
         return t
 
     def _bloque_historial(self, nb):
