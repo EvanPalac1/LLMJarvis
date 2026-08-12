@@ -87,6 +87,9 @@ fi
 EOF
 
 chmod 755 "$ETAPA/DEBIAN/postinst" "$ETAPA/DEBIAN/postrm"
-dpkg-deb --build --root-owner-group "$ETAPA" "$SALIDA"
+# -Zxz y no el zstd por defecto: zstd necesita dpkg >= 1.21, asi que un .deb
+# armado en Ubuntu 24 no se instala en Debian 11 ni en Ubuntu 20.04. xz lo lee
+# cualquier version a cambio de comprimir mas lento.
+dpkg-deb -Zxz --build --root-owner-group "$ETAPA" "$SALIDA"
 rm -rf "$ETAPA"
 echo "Listo: $SALIDA"
