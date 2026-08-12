@@ -26,6 +26,26 @@ def congelado() -> bool:
     return getattr(sys, "frozen", False)
 
 
+# CREATE_NO_WINDOW. Sin esto, cada subprocess de una app sin consola (la bandeja,
+# el panel) abre y cierra una ventana negra en pantalla. Con algo periodico —la
+# barra de estado consulta cada 5 segundos— es un parpadeo constante.
+_SIN_VENTANA = 0x08000000 if WINDOWS else 0
+
+
+def correr(argv, **kwargs):
+    """subprocess.run que no abre una consola en Windows."""
+    if WINDOWS:
+        kwargs.setdefault("creationflags", _SIN_VENTANA)
+    return subprocess.run(argv, **kwargs)
+
+
+def lanzar(argv, **kwargs):
+    """subprocess.Popen que no abre una consola en Windows."""
+    if WINDOWS:
+        kwargs.setdefault("creationflags", kwargs.pop("creationflags", 0) | _SIN_VENTANA)
+    return subprocess.Popen(argv, **kwargs)
+
+
 def datos_usuario() -> str:
     """Carpeta escribible para config, agenda, historial y voces.
 
@@ -133,7 +153,7 @@ def preguntar(mensaje: str, titulo: str = "LLMJarvis") -> bool:
             f'display dialog {_as_applescript(mensaje)} with title {_as_applescript(titulo)} '
             'buttons {"No", "Si"} default button "No" with icon caution'
         )
-        r = subprocess.run(["osascript", "-e", guion], capture_output=True, text=True)
+        r = correr(["osascript", "-e", guion], capture_output=True, text=True)
         return "Si" in r.stdout
     return _tk_preguntar(mensaje, titulo)
 
@@ -152,7 +172,7 @@ def avisar(mensaje: str, titulo: str = "LLMJarvis", error: bool = False) -> None
             f'display dialog {_as_applescript(mensaje)} with title {_as_applescript(titulo)} '
             'buttons {"OK"} default button "OK"'
         )
-        subprocess.run(["osascript", "-e", guion], capture_output=True)
+        correr(["osascript", "-e", guion], capture_output=True)
         return
     _tk_avisar(mensaje, titulo)
 
@@ -173,7 +193,7 @@ def _tk_preguntar(mensaje: str, titulo: str) -> bool:
         "r=tkinter.Tk();r.withdraw();"
         "sys.exit(0 if messagebox.askyesno(sys.argv[1], sys.argv[2]) else 1)"
     )
-    r = subprocess.run([sys.executable, "-c", guion, titulo, mensaje])
+    r = correr([sys.executable, "-c", guion, titulo, mensaje])
     return r.returncode == 0
 
 
@@ -182,7 +202,7 @@ def _tk_avisar(mensaje: str, titulo: str) -> None:
         "import tkinter,sys;from tkinter import messagebox;"
         "r=tkinter.Tk();r.withdraw();messagebox.showinfo(sys.argv[1], sys.argv[2])"
     )
-    subprocess.run([sys.executable, "-c", guion, titulo, mensaje])
+    correr([sys.executable, "-c", guion, titulo, mensaje])
 
 
 # --- portapapeles ----------------------------------------------------------
@@ -208,9 +228,9 @@ def copiar(texto: str) -> str | None:
     leer = ["pbpaste"] if MACOS else ["xclip", "-selection", "clipboard", "-o"]
     previo = None
     if shutil.which(leer[0]):
-        previo = subprocess.run(leer, capture_output=True, text=True).stdout
+        previo = correr(leer, capture_output=True, text=True).stdout
     if shutil.which(herramienta[0]):
-        subprocess.run(herramienta, input=texto, text=True)
+        correr(herramienta, input=texto, text=True)
     return previo
 
 

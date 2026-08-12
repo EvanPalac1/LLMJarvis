@@ -33,7 +33,7 @@ def _auth_status() -> str:
     if not shutil.which("claude"):
         return "CLI 'claude' no encontrado en el PATH."
     try:
-        r = subprocess.run(
+        r = plataforma.correr(
             ["claude", "auth", "status"], capture_output=True, text=True, timeout=60
         )
         data = json.loads(r.stdout)
@@ -228,41 +228,28 @@ class Panel(tk.Tk):
     def _refrescar_estado(self) -> None:
         """Dice si el asistente esta corriendo, con que motor y con que tecla."""
 
-        def work():
-            corriendo = False
-            if plataforma.WINDOWS:
-                import subprocess as sp
-
-                try:
-                    r = sp.run(["tasklist", "/FI", "IMAGENAME eq Eve.exe"],
-                               capture_output=True, text=True, timeout=10)
-                    corriendo = "Eve.exe" in r.stdout
-                except (OSError, sp.TimeoutExpired):
-                    pass
-            else:
-                import subprocess as sp
-
-                try:
-                    corriendo = bool(sp.run(["pgrep", "-f", "Eve"], capture_output=True).stdout)
-                except OSError:
-                    pass
-
-            cfg = store.load_config()
-            # Sin caracteres fuera de ASCII: la consola de Windows es cp1252 y
-            # este proyecto ya rompio dos veces por eso.
-            punto = "[on] " if corriendo else "[off] "
+        # Leer un archivo es instantaneo, asi que no hace falta un hilo ni lanzar
+        # un proceso. Lanzarlo era lo que hacia parpadear una consola cada 5s.
+        vivo = store.latido()
+        cfg = store.load_config()
+        # Sin caracteres fuera de ASCII: la consola de Windows es cp1252 y este
+        # proyecto ya rompio dos veces por eso.
+        if vivo:
             texto = (
-                f"{punto}asistente {'corriendo' if corriendo else 'detenido'}   |   "
-                f"motor: {cfg['engine']}   |   tecla: {cfg['hotkey']}   |   {plataforma.NOMBRE}"
+                f"[on] asistente corriendo   |   motor: {vivo.get('motor', cfg['engine'])}"
+                f"   |   tecla: {vivo.get('tecla', cfg['hotkey'])}"
             )
-            estilo = "Ok.TLabel" if corriendo else "Ayuda.TLabel"
-            # La ventana puede haberse cerrado mientras consultabamos: tocar
-            # tkinter despues de eso tira "main thread is not in main loop".
-            self._ui(lambda: self.estado.config(text=texto, style=estilo))
+            estilo = "Ok.TLabel"
+        else:
+            texto = (
+                f"[off] asistente detenido   |   motor: {cfg['engine']}"
+                f"   |   tecla: {cfg['hotkey']}"
+            )
+            estilo = "Ayuda.TLabel"
+        self.estado.config(text=f"{texto}   |   {plataforma.NOMBRE}", style=estilo)
 
-        threading.Thread(target=work, daemon=True).start()
         try:
-            self.after(5000, self._refrescar_estado)
+            self.after(3000, self._refrescar_estado)
         except tk.TclError:
             pass
 
@@ -994,7 +981,7 @@ class Panel(tk.Tk):
             "El motor 'claude-code' va a dejar de funcionar hasta que vuelvas a entrar.\n\nSeguro?",
         ):
             return
-        r = subprocess.run(["claude", "auth", "logout"], capture_output=True, text=True, timeout=60)
+        r = plataforma.correr(["claude", "auth", "logout"], capture_output=True, text=True, timeout=60)
         messagebox.showinfo("Cerrar sesion", (r.stdout or r.stderr or "Sesion cerrada.").strip()[:500])
         self.refresh_auth()
 

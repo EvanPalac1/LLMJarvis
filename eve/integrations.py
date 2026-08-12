@@ -721,10 +721,8 @@ def outlook_agregar_cuenta() -> str:
     Es tambien la via recomendada para Gmail: Outlook hace el OAuth con Google y
     Eve lee y escribe por COM, sin que ninguna clave del usuario pase por aca.
     """
-    import subprocess
-
     try:
-        subprocess.Popen(["outlook.exe", "/manageprofiles"])
+        plataforma.lanzar(["outlook.exe", "/manageprofiles"])
         return "Abri el administrador de cuentas de Outlook."
     except OSError as exc:
         return f"No pude abrir Outlook ({exc}). Abrilo a mano: Archivo > Agregar cuenta."

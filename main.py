@@ -158,7 +158,15 @@ def main() -> int:
     # El panel corre aparte; al guardar cambia config.json y el listener se rearma
     # solo. El icono actualiza su tooltip para que se note que paso.
     lis.watch_config(on_reload=lambda l: setattr(icono, "title", tray._title(l)))
-    icono.run()  # bloquea hasta 'Salir'
+    try:
+        icono.run()  # bloquea hasta 'Salir'
+    finally:
+        # Sin esto el panel cree que el asistente sigue vivo hasta que el latido
+        # caduque.
+        try:
+            os.remove(store.LATIDO_PATH)
+        except OSError:
+            pass
     return 0
 
 

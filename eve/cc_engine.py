@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-from . import apps, integrations, store
+from . import apps, integrations, plataforma, store
 
 SETTINGS_PATH = os.path.join(store.BASE, "cc_settings.json")
 
@@ -122,7 +122,7 @@ class ClaudeCodeEve:
         store.log_turn("user", text)
         cmd = self._build_cmd(text)
         self.on_status("Pensando...")
-        proc = subprocess.run(
+        proc = plataforma.correr(
             cmd,
             capture_output=True,
             text=True,

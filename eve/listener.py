@@ -125,6 +125,10 @@ class Listener:
         def bucle():
             ultimo = _mtime(store.CONFIG_PATH)
             while True:
+                # El panel corre en otro proceso y lee esto para saber si el
+                # asistente esta vivo, sin tener que preguntarle al SO.
+                store.latir({"motor": self.cfg.get("engine"), "tecla": self.cfg.get("hotkey"),
+                             "pausado": self.paused})
                 time.sleep(2)
                 actual = _mtime(store.CONFIG_PATH)
                 if actual == ultimo:

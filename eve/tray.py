@@ -21,9 +21,9 @@ def open_panel() -> None:
             "Eve-config.exe" if plataforma.WINDOWS else "Eve-config",
         )
         if os.path.exists(exe):
-            subprocess.Popen([exe])
+            plataforma.lanzar([exe])
             return
-    subprocess.Popen(plataforma.comando_propio("--panel"), cwd=_project_root())
+    plataforma.lanzar(plataforma.comando_propio("--panel"), cwd=_project_root())
 
 
 def _project_root() -> str:

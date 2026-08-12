@@ -103,7 +103,7 @@ class Eve:
         """Devuelve (texto_resultado, es_error)."""
         try:
             if name == "run_command":
-                proc = subprocess.run(
+                proc = plataforma.correr(
                     plataforma.shell_cmd(args["command"]),
                     capture_output=True,
                     text=True,

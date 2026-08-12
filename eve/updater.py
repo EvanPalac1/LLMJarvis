@@ -134,6 +134,7 @@ def instalar(ruta: str) -> str:
     """
     if plataforma.WINDOWS:
         # /SILENT muestra la barra pero no vuelve a preguntar lo ya elegido.
+        # Sin CREATE_NO_WINDOW a proposito: el instalador tiene que verse.
         subprocess.Popen([ruta, "/SILENT", "/NORESTART"], close_fds=True)
         return "Instalando la actualizacion. Eve se va a cerrar y volver a abrir."
 

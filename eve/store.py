@@ -375,6 +375,34 @@ def recent_actions(limit: int = 200) -> list[tuple]:
         ).fetchall()
 
 
+LATIDO_PATH = os.path.join(BASE, "latido.json")
+
+
+def latir(datos: dict) -> None:
+    """El asistente deja señales de vida para que el panel sepa si esta vivo."""
+    datos = {**datos, "ts": time.time(), "pid": os.getpid()}
+    try:
+        with open(LATIDO_PATH, "w", encoding="utf-8") as f:
+            json.dump(datos, f)
+    except OSError:
+        pass
+
+
+def latido(max_edad: float = 20.0) -> dict | None:
+    """Ultimo latido si es reciente, None si el asistente no esta corriendo.
+
+    Un archivo en vez de preguntarle al SO por los procesos: consultar `tasklist`
+    cada pocos segundos desde una app sin consola abria y cerraba una ventana
+    negra todo el tiempo, y ademas es mucho mas caro que leer 80 bytes.
+    """
+    try:
+        with open(LATIDO_PATH, encoding="utf-8") as f:
+            datos = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return datos if time.time() - datos.get("ts", 0) < max_edad else None
+
+
 def clear_history(also_actions: bool = False) -> int:
     """Borra la conversacion guardada. El log de auditoria se conserva salvo que
     se pida lo contrario: es el registro de lo que Eve ejecuto en la PC."""
