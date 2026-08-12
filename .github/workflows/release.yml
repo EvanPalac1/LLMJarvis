@@ -21,11 +21,11 @@ jobs:
           - nombre: Windows x64
             runner: windows-latest
             arch: x64
-          - nombre: Windows ARM64
-            runner: windows-11-arm
-            arch: arm64
+          # Windows ARM64 no esta: ctranslate2, que es lo que hace andar
+          # faster-whisper, no publica wheel para esa arquitectura. Windows on ARM
+          # corre el instalador x64 emulado, y el updater lo elige solo.
           - nombre: macOS Intel
-            runner: macos-13
+            runner: macos-15-intel  # macos-13 se retiro en diciembre de 2025
             arch: x64
           - nombre: macOS Apple Silicon
             runner: macos-14
@@ -97,7 +97,7 @@ jobs:
 
             | Sistema | Archivo |
             |---|---|
-            | Windows | `Eve-Setup-x64.exe` o `Eve-Setup-arm64.exe` |
+            | Windows | `Eve-Setup-x64.exe` (en Windows on ARM corre emulado) |
             | macOS | `Eve-AppleSilicon.dmg` (M1 o posterior) / `Eve-Intel.dmg` |
             | Debian, Ubuntu | `eve_*_amd64.deb` o `eve_*_arm64.deb` |
             | Fedora, RHEL | `eve-*.x86_64.rpm` o `eve-*.aarch64.rpm` |

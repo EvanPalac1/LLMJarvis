@@ -48,7 +48,9 @@ def hay_novedad(remota: str, local: str | None = None) -> bool:
 def _asset_para_este_sistema(assets: list[dict]) -> dict | None:
     """Elige el paquete que corresponde a este sistema y arquitectura."""
     if plataforma.WINDOWS:
-        quiere = [f"Eve-Setup-{ARCH}.exe"]
+        # No hay build para Windows ARM64 (ctranslate2 no publica wheel), pero
+        # Windows on ARM corre el x64 emulado: mejor eso que no ofrecer nada.
+        quiere = [f"Eve-Setup-{ARCH}.exe", "Eve-Setup-x64.exe"]
     elif plataforma.MACOS:
         quiere = ["Eve-AppleSilicon.dmg" if ARCH == "arm64" else "Eve-Intel.dmg"]
     else:
