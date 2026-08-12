@@ -10,6 +10,7 @@ bandeja. Desde el codigo cada una sigue siendo un modulo normal.
     Eve.exe --hook     freno del motor claude-code
     Eve.exe --check       diagnostico
     Eve.exe --probar-voz  autotest: sintetiza una frase y la transcribe
+    Eve.exe --actualizar  busca una version nueva (--instalar para aplicarla)
 """
 
 import os
@@ -56,6 +57,10 @@ def main() -> int:
 
             sys.argv = [sys.argv[0], *resto]
             return diagnostico.main()
+        if flag == "--actualizar":
+            from eve import updater
+
+            return updater.main(resto)
         if flag == "--descargar-modelo":
             # Lo llama el instalador si el usuario marco bajarlo durante la
             # instalacion, en vez de esperar al primer uso.
@@ -140,6 +145,16 @@ def main() -> int:
 
     lis.start()
     icono = tray.build(lis)
+
+    from eve import updater
+
+    # Chequeo silencioso: si no hay internet o no hay novedad, no molesta.
+    updater.revisar_en_segundo_plano(
+        lambda nueva: tray._avisar(
+            icono, f"Version {nueva['version']} disponible. Bandeja > Buscar actualizaciones.",
+            "Hay una actualizacion",
+        )
+    )
     # El panel corre aparte; al guardar cambia config.json y el listener se rearma
     # solo. El icono actualiza su tooltip para que se note que paso.
     lis.watch_config(on_reload=lambda l: setattr(icono, "title", tray._title(l)))

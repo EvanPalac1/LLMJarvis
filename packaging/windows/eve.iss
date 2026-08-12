@@ -42,6 +42,9 @@ WizardStyle=modern
 ; seria pedir de mas. `dialog` deja elegir instalar para todos si lo quieren.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+; Al actualizar, Eve puede estar corriendo y con el .exe tomado.
+CloseApplications=yes
+RestartApplications=yes
 UninstallDisplayName={#MiApp} ({#MiNombre})
 UninstallDisplayIcon={app}\Eve.exe
 ArchitecturesAllowed=x64compatible arm64

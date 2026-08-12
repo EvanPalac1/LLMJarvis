@@ -68,6 +68,47 @@ def build(listener) -> pystray.Icon:
 
         _en_hilo(icon, trabajo)
 
+    def actualizar(icon, item):  # noqa: ANN001
+        def trabajo(icon):
+            from . import plataforma, updater
+
+            if not plataforma.congelado():
+                _avisar(icon, "Corriendo desde el codigo: actualiza con git pull.", "Actualizar")
+                return
+            try:
+                nueva = updater.buscar()
+            except RuntimeError as exc:
+                _avisar(icon, str(exc), "Actualizar")
+                return
+            if not nueva:
+                _avisar(icon, f"Ya tenes la ultima ({updater.version_actual()}).", "Actualizar")
+                return
+            if not nueva["asset"]:
+                _avisar(icon, f"Hay {nueva['version']}, pero aun sin paquete para tu sistema.",
+                        "Actualizar")
+                plataforma.abrir(nueva["url"])
+                return
+            # Descargar y ejecutar un instalador no se hace a espaldas del usuario.
+            if not plataforma.preguntar(
+                f"Hay una version nueva: {nueva['version']}\n"
+                f"Tenes la {updater.version_actual()}.\n\n"
+                "Se descarga, se verifica su firma sha256 y se instala encima.\n"
+                "Tus datos y tu configuracion no se tocan.\n\n"
+                "Actualizar ahora?",
+                "Actualizar Eve",
+            ):
+                return
+            _avisar(icon, "Descargando...", "Actualizar")
+            try:
+                ruta = updater.descargar(nueva["asset"])
+            except (ValueError, OSError) as exc:
+                _avisar(icon, str(exc), "No pude actualizar")
+                return
+            _avisar(icon, updater.instalar(ruta), "Actualizar")
+            icon.stop()  # liberar el .exe para que el instalador lo reemplace
+
+        _en_hilo(icon, trabajo)
+
     menu = pystray.Menu(
         pystray.MenuItem("Abrir panel", lambda: open_panel(), default=True),
         pystray.MenuItem("Limpiar historial y contexto", limpiar),
@@ -75,6 +116,7 @@ def build(listener) -> pystray.Icon:
         pystray.MenuItem(
             "Pausar listener", toggle_pause, checked=lambda _: listener.paused
         ),
+        pystray.MenuItem("Buscar actualizaciones", actualizar),
         pystray.MenuItem("Salir", lambda icon: icon.stop()),
     )
     return pystray.Icon("LLMJarvis", icon_mod.tray_image(), _title(listener), menu)

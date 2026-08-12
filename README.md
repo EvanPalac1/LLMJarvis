@@ -69,7 +69,25 @@ python main.py            # asistente
 python main.py --panel    # configuracion
 python main.py --check       # diagnostico
 python main.py --probar-voz  # autotest: sintetiza una frase y la transcribe
+python main.py --actualizar  # busca una version nueva (--instalar para aplicarla)
 ```
+
+### Actualizaciones
+
+Eve avisa cuando hay una version nueva y se actualiza sola desde
+[Releases](https://github.com/EvanPalac1/LLMJarvis/releases): bandeja >
+**Buscar actualizaciones**, o el mismo boton en el panel.
+
+Descargar y ejecutar un instalador merece cuidado, asi que el camino esta cerrado:
+
+- Solo el repositorio oficial y solo por HTTPS; el repo no se lee de la config.
+- **Se verifica el sha256** que publica la API de GitHub para cada archivo. Si no
+  coincide, se borra y no se ejecuta nada.
+- **Nunca instala solo**: busca, avisa, y decidis vos.
+- Actualiza encima conservando tu configuracion, agenda, memoria y voces, porque
+  viven en otra carpeta.
+
+Corriendo desde el codigo no se actualiza: ahi es `git pull`.
 
 ### Armar los paquetes
 

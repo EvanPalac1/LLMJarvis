@@ -75,6 +75,9 @@ class Panel(tk.Tk):
         self.estado = ttk.Label(fila, text="", style="Ayuda.TLabel")
         self.estado.pack(side="left")
         ttk.Button(fila, text="Guardar", command=self.save).pack(side="right")
+        ttk.Button(fila, text="Buscar actualizaciones", command=self.buscar_update).pack(
+            side="right", padx=(0, 6)
+        )
         self.after(300, self._refrescar_estado)
 
         nb = ttk.Notebook(self)
@@ -158,6 +161,69 @@ class Panel(tk.Tk):
     def destroy(self) -> None:
         self._vivo = False
         super().destroy()
+
+    def buscar_update(self) -> None:
+        from . import updater
+
+        def work():
+            try:
+                nueva = updater.buscar()
+            except RuntimeError as exc:
+                self._ui(lambda: messagebox.showerror("Actualizar", str(exc)))
+                return
+            if not nueva:
+                self._ui(lambda: messagebox.showinfo(
+                    "Actualizar", f"Ya tenes la ultima version ({updater.version_actual()})."))
+                return
+            self._ui(lambda: self._ofrecer_update(nueva))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _ofrecer_update(self, nueva: dict) -> None:
+        from . import plataforma, updater
+
+        if not plataforma.congelado():
+            messagebox.showinfo(
+                "Actualizar",
+                f"Hay una version nueva: {nueva['version']}.\n\n"
+                "Estas corriendo desde el codigo, asi que se actualiza con git pull.",
+            )
+            return
+        if not nueva["asset"]:
+            messagebox.showinfo(
+                "Actualizar",
+                f"Hay {nueva['version']}, pero todavia no hay paquete para tu sistema.\n"
+                "Te abro la pagina de descargas.",
+            )
+            plataforma.abrir(nueva["url"])
+            return
+        if not messagebox.askyesno(
+            "Actualizar",
+            f"Version nueva: {nueva['version']}   (tenes la {updater.version_actual()})\n\n"
+            "Se descarga, se verifica su sha256 y se instala encima.\n"
+            "Tu configuracion, agenda, memoria y voces no se tocan.\n\n"
+            "Descargar e instalar ahora?",
+        ):
+            return
+
+        self.estado.config(text="descargando actualizacion...")
+
+        def bajar():
+            try:
+                ruta = updater.descargar(
+                    nueva["asset"],
+                    progreso=lambda hecho, total: self._ui(
+                        lambda: self.estado.config(
+                            text=f"descargando actualizacion... {hecho * 100 // total}%")
+                    ),
+                )
+            except (ValueError, OSError) as exc:
+                self._ui(lambda: messagebox.showerror("Actualizar", str(exc)))
+                return
+            self._ui(lambda: (messagebox.showinfo("Actualizar", updater.instalar(ruta)),
+                              self.destroy()))
+
+        threading.Thread(target=bajar, daemon=True).start()
 
     def _refrescar_estado(self) -> None:
         """Dice si el asistente esta corriendo, con que motor y con que tecla."""

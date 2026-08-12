@@ -566,6 +566,85 @@ def test_compartir_contactos():
         store.load_contacts, store.save_contacts = orig_l, orig_s
 
 
+def test_updater():
+    """Descarga y ejecuta un instalador: las guardas son lo que se testea."""
+    import hashlib
+
+    from eve import __version__, plataforma, updater
+
+    # Comparar versiones como texto diria que 1.2.9 > 1.2.10.
+    assert updater.hay_novedad("v1.2.10", "1.2.9")
+    assert updater.hay_novedad("v2.0.0", "1.9.9")
+    assert not updater.hay_novedad("v1.0.1", "1.0.1")
+    assert not updater.hay_novedad("v1.0.0", "1.0.1")
+    assert updater.version_actual() == __version__, "una sola fuente de verdad"
+
+    # El asset tiene que corresponder al sistema y arquitectura reales.
+    assets = [
+        {"name": "Eve-Setup-x64.exe"}, {"name": "Eve-Setup-arm64.exe"},
+        {"name": "Eve-Intel.dmg"}, {"name": "Eve-AppleSilicon.dmg"},
+        {"name": "eve_1.0_amd64.deb"}, {"name": "eve-1.0.x86_64.rpm"},
+    ]
+    elegido = updater._asset_para_este_sistema(assets)["name"]
+    if plataforma.WINDOWS:
+        assert elegido == f"Eve-Setup-{updater.ARCH}.exe", elegido
+    elif plataforma.MACOS:
+        assert elegido.endswith(".dmg")
+    else:
+        assert elegido.endswith((".deb", ".rpm"))
+    assert updater._asset_para_este_sistema([{"name": "otra-cosa.zip"}]) is None
+
+    # Una URL que no sea del repo oficial no se descarga, aunque venga en el JSON.
+    try:
+        updater.descargar({"name": "x", "browser_download_url": "https://evil.example/x.exe"})
+        raise AssertionError("deberia rechazar una URL ajena al repo")
+    except ValueError as exc:
+        assert "oficial" in str(exc)
+
+    # Si el sha256 no coincide, el archivo se borra y no se ejecuta nada.
+    import urllib.request
+
+    contenido = b"instalador falso"
+    real = urllib.request.urlopen
+
+    class Resp:
+        def __init__(self):
+            self._d = [contenido, b""]
+
+        def read(self, _n=0):
+            return self._d.pop(0)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    urllib.request.urlopen = lambda *a, **k: Resp()
+    try:
+        asset = {
+            "name": "prueba.bin",
+            "size": len(contenido),
+            "browser_download_url": f"https://github.com/{updater.REPO}/releases/download/v9/prueba.bin",
+            "digest": "sha256:" + "0" * 64,
+        }
+        try:
+            updater.descargar(asset)
+            raise AssertionError("deberia rechazar un sha256 que no coincide")
+        except ValueError as exc:
+            assert "sha256" in str(exc)
+        assert not os.path.exists(os.path.join(tempfile.gettempdir(), "prueba.bin")), \
+            "el archivo corrupto tiene que borrarse"
+
+        # Con el digest correcto, se acepta.
+        asset["digest"] = "sha256:" + hashlib.sha256(contenido).hexdigest()
+        ruta = updater.descargar(asset)
+        assert os.path.exists(ruta)
+        os.remove(ruta)
+    finally:
+        urllib.request.urlopen = real
+
+
 def test_voces_piper():
     """Catalogo de voces de la comunidad: filtrado y rutas de descarga."""
     from eve import voices

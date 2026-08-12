@@ -23,7 +23,7 @@ import sys
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 WINDOWS = sys.platform == "win32"
 MACOS = sys.platform == "darwin"
-VERSION = "1.0.0"
+from eve import __version__ as VERSION
 
 # amd64/x86_64 -> x64, aarch64/arm64 -> arm64
 _M = platform.machine().lower()
