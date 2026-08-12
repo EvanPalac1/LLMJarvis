@@ -31,6 +31,9 @@ class Recorder:
     def __init__(self):
         self._q: queue.Queue = queue.Queue()
         self._stream = None
+        # Volumen del ultimo bloque, 0..1. Lo lee el overlay para dibujar la
+        # onda: es el mismo audio que se va a transcribir, no una animacion.
+        self.nivel = 0.0
 
     def start(self) -> None:
         if self._stream is not None:
@@ -40,6 +43,9 @@ class Recorder:
         def cb(indata, _frames, _t, status):  # noqa: ANN001
             if status:
                 pass  # xruns: preferimos audio con glitches a perder la frase
+            # RMS por raiz cuadrada para que la voz normal ocupe buena parte de
+            # la barra: el RMS crudo de la voz vive en valores muy chicos.
+            self.nivel = min(1.0, float(np.sqrt(np.abs(indata).mean())) * 2.2)
             self._q.put(indata.copy())
 
         try:
@@ -57,6 +63,7 @@ class Recorder:
         self._stream.stop()
         self._stream.close()
         self._stream = None
+        self.nivel = 0.0
         chunks = []
         while not self._q.empty():
             chunks.append(self._q.get())
@@ -121,7 +128,31 @@ def transcribe(audio: np.ndarray, cfg: dict) -> str:
     return " ".join(s.text for s in segments).strip()
 
 
-def speak(text: str, cfg: dict) -> None:
+def hasta(texto: str, fraccion: float) -> str:
+    """El texto revelado hasta esa fraccion de la reproduccion.
+
+    Corta en palabra entera y reparte el tiempo segun el largo de cada una, que
+    es una aproximacion decente a como se tarda en pronunciarlas. No hace falta
+    nada mas fino: la duracion total la da el wav, asi que el final siempre cae
+    donde tiene que caer.
+    """
+    palabras = texto.split()
+    if not palabras:
+        return ""
+    fraccion = max(0.0, min(1.0, fraccion))
+    largos = [len(p) + 1 for p in palabras]
+    total = sum(largos)
+    objetivo, acumulado, cuantas = total * fraccion, 0, 0
+    for i, largo in enumerate(largos):
+        acumulado += largo
+        cuantas = i + 1
+        if acumulado >= objetivo:
+            break
+    return " ".join(palabras[:cuantas])
+
+
+def speak(text: str, cfg: dict, progreso=None) -> None:
+    """Dice `text`. `progreso(nivel, revelado)` sigue el avance para el overlay."""
     if not text or not cfg.get("speak_replies", True):
         return
 
@@ -137,7 +168,10 @@ def speak(text: str, cfg: dict) -> None:
             raise RuntimeError(
                 "TTS en Piper pero no hay ninguna voz descargada. Panel > Voces."
             )
-        voices.reproducir(voices.hablar(text, clave))
+        avance = None
+        if progreso:
+            avance = lambda f, nivel: progreso(nivel, hasta(text, f))  # noqa: E731
+        voices.reproducir(voices.hablar(text, clave), avance)
         return
 
     if not plataforma.WINDOWS:
@@ -156,6 +190,14 @@ def speak(text: str, cfg: dict) -> None:
             if cfg["tts_voice"].lower() in v.name.lower():
                 engine.setProperty("voice", v.id)
                 break
+    if progreso:
+        # SAPI avisa en que palabra va: aca el subtitulo queda sincronizado de
+        # verdad, no repartido por largo como con Piper. El nivel lo inventamos
+        # a partir del largo de la palabra, porque SAPI no da amplitud.
+        def al_empezar_palabra(_nombre, ubicacion, largo):  # noqa: ANN001
+            progreso(min(1.0, 0.35 + largo / 12), text[:ubicacion + largo])
+
+        engine.connect("started-word", al_empezar_palabra)
     engine.say(text)
     engine.runAndWait()
     engine.stop()

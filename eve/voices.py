@@ -170,12 +170,18 @@ def hablar(texto: str, key: str, salida: str = "") -> str:
     return salida
 
 
-def reproducir(ruta: str) -> None:
+def reproducir(ruta: str, progreso=None) -> None:
     """Reproduce un wav por la placa de sonido, sin abrir ningun reproductor.
 
     Se usa `sounddevice`, que ya esta instalado para grabar el microfono: evita
     depender del reproductor por defecto de cada sistema.
+
+    `progreso(fraccion, nivel)` se llama ~20 veces por segundo mientras suena,
+    con cuanto va reproducido (0..1) y el volumen de ese instante. De ahi salen
+    la onda del overlay y el avance del subtitulo, sincronizados con el audio de
+    verdad y no con un cronometro aparte.
     """
+    import time
     import wave
 
     import numpy as np
@@ -189,7 +195,24 @@ def reproducir(ruta: str) -> None:
     if canales > 1:
         audio = audio.reshape(-1, canales)
     sd.play(audio, rate)
+    if progreso is None:
+        sd.wait()
+        return
+
+    mono = audio if audio.ndim == 1 else audio.mean(axis=1)
+    duracion = len(mono) / rate
+    arranque = time.monotonic()
+    while True:
+        t = time.monotonic() - arranque
+        if t >= duracion:
+            break
+        i = int(t * rate)
+        bloque = mono[i:i + rate // 20]
+        nivel = float(np.sqrt(np.abs(bloque).mean())) * 1.8 if bloque.size else 0.0
+        progreso(t / duracion, min(1.0, nivel))
+        time.sleep(0.05)
     sd.wait()
+    progreso(1.0, 0.0)
 
 
 if __name__ == "__main__":

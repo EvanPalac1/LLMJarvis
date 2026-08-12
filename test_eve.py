@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 from eve import safety, store
 
@@ -756,6 +757,105 @@ def test_archivos_a_medio_escribir():
         assert argv[1] == "--dialogo" and "-c" not in argv, argv
     finally:
         plataforma.congelado = real
+
+
+def test_tema():
+    """La paleta siempre trae los ocho roles, elija lo que elija el usuario."""
+    from eve import tema
+
+    for nombre in tema.PALETAS:
+        paleta = tema.resolver({"ui_tema": nombre})
+        assert set(paleta) == set(tema.ROLES), nombre
+        assert all(v.startswith("#") for v in paleta.values()), nombre
+
+    # Un tema inventado no rompe: cae al de base.
+    assert tema.resolver({"ui_tema": "no-existe"}) == tema.PALETAS[tema.BASE_PERSONALIZADO]
+
+    # 'personalizado' pisa solo lo que se cargo, y lo invalido se ignora: un
+    # color a medio escribir en el panel no puede tirar el overlay.
+    propio = tema.resolver({
+        "ui_tema": "personalizado",
+        "ui_color_acento": "#ff0000",
+        "ui_color_fondo": "",          # vacio = el del preset
+        "ui_color_texto": "rojo",      # invalido
+        "ui_color_borde": "#zzz",      # invalido
+    })
+    base = tema.PALETAS[tema.BASE_PERSONALIZADO]
+    assert propio["acento"] == "#ff0000"
+    assert propio["fondo"] == base["fondo"]
+    assert propio["texto"] == base["texto"]
+    assert propio["borde"] == base["borde"]
+
+    assert tema.mezclar("#000000", "#ffffff", 0.5) == "#808080"
+    assert tema.mezclar("#000", "#fff", 0.0) == "#000000"
+
+    # Pintar el panel es opt-in: cambia el aspecto de todo y no puede pasar solo.
+    assert not tema.pinta_panel({})
+
+
+def test_overlay():
+    """El canal de estado, el acotado de posicion y el avance del subtitulo."""
+    from eve import overlay, voice
+
+    # Acotado: sin pantalla, para que ande en el CI. Escritorio de 4480 de ancho
+    # que arranca en -1920, como el de dos monitores con el segundo a la izquierda.
+    limites = (-1920, 0, 4480, 1440)
+    assert overlay.acotar(40, 40, 460, 200, limites) == (40, 40)
+    assert overlay.acotar(-5000, 40, 460, 200, limites) == (-1920, 40)  # sin monitor
+    assert overlay.acotar(-1000, 40, 460, 200, limites) == (-1000, 40)  # negativa valida
+    assert overlay.acotar(99999, 99999, 460, 200, limites) == (2100, 1240)
+    # Un cartel mas grande que la pantalla no se va a coordenadas imposibles.
+    assert overlay.acotar(0, 0, 9999, 9999, limites) == (-1920, 0)
+
+    # El subtitulo se revela de a palabras enteras y termina completo.
+    frase = "abriendo spotify y poniendo la lista de ayer"
+    assert voice.hasta(frase, 0.0).split() == ["abriendo"]
+    assert voice.hasta(frase, 1.0) == frase
+    assert frase.startswith(voice.hasta(frase, 0.5)), "nunca corta una palabra"
+    assert voice.hasta("", 0.5) == ""
+
+    with tempfile.TemporaryDirectory() as raiz:
+        reales = store.OVERLAY_PATH, store.OVERLAY_VIVO_PATH
+        store.OVERLAY_PATH = os.path.join(raiz, "overlay.json")
+        store.OVERLAY_VIVO_PATH = os.path.join(raiz, "overlay-vivo.json")
+        try:
+            assert store.estado_overlay() is None  # sin archivo, sin estado
+            store.emitir_overlay({"estado": "hablando", "nivel": 0.5})
+            assert store.estado_overlay()["estado"] == "hablando"
+            # Viejo = Eve ya no esta haciendo nada.
+            assert store.estado_overlay(max_edad=-1) is None
+
+            # Una lectura partida se saltea, NO se aparta como .roto: a 10 Hz es
+            # lo normal, y apartarlo dejaria basura y perderia el canal.
+            with open(store.OVERLAY_PATH, "w", encoding="utf-8") as f:
+                f.write('{"estado": "habl')
+            assert store.estado_overlay() is None
+            assert not os.path.exists(store.OVERLAY_PATH + ".roto")
+
+            # Guardia de instancia unica.
+            assert not store.overlay_ya_corre()   # el pid propio no cuenta
+            with open(store.OVERLAY_VIVO_PATH, "w", encoding="utf-8") as f:
+                json.dump({"ts": time.time(), "pid": os.getpid() + 1}, f)
+            assert store.overlay_ya_corre()
+        finally:
+            store.OVERLAY_PATH, store.OVERLAY_VIVO_PATH = reales
+
+    # Las claves nuevas sobreviven el ida y vuelta con el tipo que corresponde.
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        try:
+            cfg = store.load_config()
+            cfg.update({"hud_x": -1200, "hud_contorno": "hexagonal",
+                        "sub_muestra": "eve", "ui_pintar_panel": True})
+            store.save_config(cfg)
+            vuelta = store.load_config()
+            assert vuelta["hud_x"] == -1200 and isinstance(vuelta["hud_x"], int)
+            assert vuelta["hud_contorno"] == "hexagonal"
+            assert vuelta["sub_muestra"] == "eve"
+            assert vuelta["ui_pintar_panel"] is True
+        finally:
+            store.CONFIG_PATH = real
 
 
 def test_voces_piper():

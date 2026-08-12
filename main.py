@@ -47,6 +47,10 @@ def main() -> int:
             from eve import hook_gate
 
             return hook_gate.main()
+        if flag == "--overlay":
+            from eve import overlay
+
+            return overlay.main(resto)
         if flag == "--dialogo":
             # Lo llama plataforma cuando necesita un dialogo fuera de Windows y
             # macOS: congelado no hay un python al que pasarle `-c`.
@@ -158,6 +162,10 @@ def main() -> int:
 
     lis.start()
     icono = tray.build(lis)
+
+    from eve import overlay
+
+    overlay.asegurar(cfg)  # el HUD corre aparte y se cierra solo cuando Eve sale
 
     from eve import updater
 

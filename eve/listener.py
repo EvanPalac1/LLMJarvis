@@ -34,19 +34,35 @@ class Listener:
         self._down = False  # filtra el autorepeat de keydown de Windows
         self._busy = False  # ignora un segundo disparo mientras procesa el anterior
         self._hook = None
+        self._vista = {}  # ultimo estado mandado al overlay
         self.eve = self._build_engine()
+
+    # --- lo que ve el usuario en pantalla ----------------------------------
+
+    def mostrar(self, **cambios) -> None:
+        """Actualiza el overlay. Acumula, asi que se manda solo lo que cambia."""
+        self._vista.update(cambios)
+        store.emitir_overlay(self._vista)
+
+    def _estado(self, texto: str) -> None:
+        """Lo que los motores reportan por `on_status`: sale por consola y a la
+        pantalla, que es donde el usuario lo va a ver."""
+        print(texto)
+        self.mostrar(estado="pensando", detalle=texto.upper().rstrip(". "), nivel=0.12)
 
     def _build_engine(self):
         motor = self.cfg.get("engine")
         if motor == "claude-code":
-            return cc_engine.ClaudeCodeEve(self.cfg, on_status=print)
+            return cc_engine.ClaudeCodeEve(self.cfg, on_status=self._estado)
         if motor == "ollama":
             from . import ollama_engine
 
-            return ollama_engine.OllamaEve(self.cfg, confirm=self._confirm, on_status=print)
+            return ollama_engine.OllamaEve(
+                self.cfg, confirm=self._confirm, on_status=self._estado
+            )
         from . import brain  # import perezoso: el motor CLI no necesita `anthropic`
 
-        return brain.Eve(self.cfg, confirm=self._confirm, on_status=print)
+        return brain.Eve(self.cfg, confirm=self._confirm, on_status=self._estado)
 
     def _confirm(self, reason: str, detail: str) -> bool:
         voice.speak(f"Necesito tu confirmacion. {reason}.", self.cfg)
@@ -59,9 +75,21 @@ class Listener:
         try:
             self.recorder.start()
             print("[grabando]")
+            self.mostrar(estado="escuchando", detalle="ESCUCHANDO", usuario="", eve="")
+            threading.Thread(target=self._seguir_microfono, daemon=True).start()
         except voice.MicBusyError:
             self._down = False
             voice.speak("No puedo usar el microfono, otro programa lo tiene tomado.", self.cfg)
+
+    def _seguir_microfono(self) -> None:
+        """Manda el volumen del microfono mientras dura la grabacion.
+
+        En un hilo aparte para no meter trabajo en el callback de audio, que
+        tiene que devolver rapido o se pierden bloques.
+        """
+        while self._down:
+            self.mostrar(nivel=self.recorder.nivel)
+            time.sleep(0.1)
 
     def _on_up(self, _tecla) -> None:
         if not self._down:
@@ -69,23 +97,34 @@ class Listener:
         self._down = False
         audio = self.recorder.stop()
         self._busy = True
+        self.mostrar(estado="pensando", detalle="TRANSCRIBIENDO", nivel=0.1)
         threading.Thread(target=self._process, args=(audio,), daemon=True).start()
 
     def _process(self, audio) -> None:
         try:
             text = voice.transcribe(audio, self.cfg)
             if not text:
+                self.mostrar(estado="reposo", detalle="", nivel=0.0)
                 return
             print(f"[usuario] {text}")
+            self.mostrar(estado="pensando", detalle="PENSANDO", usuario=text, eve="")
             reply = self.eve.ask(text)
             print(f"[{self.cfg['assistant_name']}] {reply}")
-            voice.speak(reply, self.cfg)
+            self.mostrar(estado="hablando", detalle="RESPONDIENDO", eve="")
+            voice.speak(
+                reply, self.cfg,
+                progreso=lambda nivel, dicho: self.mostrar(nivel=nivel, eve=dicho),
+            )
+            # El texto completo queda a la vista aunque no se hable la respuesta.
+            self.mostrar(eve=reply, nivel=0.0)
         except Exception as exc:  # noqa: BLE001 - el listener no puede morir en silencio
             traceback.print_exc()
             store.log_action("listener", "procesar audio", f"ERROR: {exc}")
+            self.mostrar(estado="error", detalle="ERROR", eve=str(exc)[:200], nivel=0.0)
             voice.speak("Tuve un error procesando eso.", self.cfg)
         finally:
             self._busy = False
+            self.mostrar(estado="reposo", detalle="", nivel=0.0)
 
     def _on_event(self, nombre: str, tipo: str) -> None:
         if nombre != self.cfg["hotkey"]:

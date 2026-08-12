@@ -116,6 +116,42 @@ DEFAULTS = {
     # Nombre y foto con los que aparecen los mensajes del webhook.
     "discord_username": "",
     "discord_avatar": "",
+
+    # --- aspecto ----------------------------------------------------------
+    # Planas y no anidadas a proposito: Panel.save() decide el tipo de cada
+    # valor con type(DEFAULTS[clave]), y un dict adentro romperia ese bucle.
+    "ui_tema": "tactico",  # ver tema.NOMBRES
+    # Pintar el panel obliga a cambiar los widgets al tema `clam`: el nativo de
+    # Windows los dibuja el sistema y no respeta colores. Que sea una eleccion.
+    "ui_pintar_panel": False,
+    "ui_color_fondo": "",
+    "ui_color_panel": "",
+    "ui_color_texto": "",
+    "ui_color_texto_tenue": "",
+    "ui_color_acento": "",
+    "ui_color_acento2": "",
+    "ui_color_borde": "",
+    "ui_color_alerta": "",
+
+    # --- overlay ----------------------------------------------------------
+    "overlay_modo": "auto",  # auto (aparece y se va) | siempre | nunca
+    # Lo prende el panel para poder arrastrarlo; el overlay lo apaga al soltar.
+    "overlay_mover": False,
+    "hud_x": 40,
+    "hud_y": 40,
+    "hud_escala": 100,      # porcentaje
+    "hud_opacidad": 92,     # porcentaje
+    "hud_titulo": "",       # vacio = el nombre de la IA
+    "hud_subtitulo": "Canal de Seguridad 7",
+    "hud_icono": "hexagono",   # hexagono | circulo | cuadrado | ninguno | ruta .png
+    "hud_contorno": "esquinas",  # ninguno|linea|esquinas|doble|hexagonal|biselado
+    "hud_onda": "barras",        # barras|espejo|linea|puntos|ninguna
+    "sub_muestra": "ambos",      # ambos | eve | usuario
+    "sub_tam": 15,
+    "sub_lineas": 2,
+    "sub_segundos": 6,
+    "sub_opacidad": 88,
+    "sub_separacion": 10,
 }
 
 
@@ -410,6 +446,62 @@ def recent_actions(limit: int = 200) -> list[tuple]:
 
 
 LATIDO_PATH = os.path.join(BASE, "latido.json")
+# Lo que esta haciendo Eve ahora mismo, para el overlay. Lo escribe el listener
+# varias veces por segundo mientras hay actividad; en reposo no se escribe nada.
+OVERLAY_PATH = os.path.join(BASE, "overlay.json")
+# El overlay avisa que ya hay uno corriendo, para no apilar dos ventanas.
+OVERLAY_VIVO_PATH = os.path.join(BASE, "overlay-vivo.json")
+
+
+def _escribir_señal(ruta: str, datos: dict) -> None:
+    """Escritura directa, sin el temporal + os.replace de la config.
+
+    Aca la atomicidad no compensa: son varias escrituras por segundo y en
+    Windows os.replace falla cuando el lector tiene el archivo abierto. Una
+    lectura partida es un cuadro perdido de una animacion, no un dato perdido:
+    quien lee lo trata como ruido y espera al siguiente.
+    """
+    try:
+        with open(ruta, "w", encoding="utf-8") as f:
+            json.dump({**datos, "ts": time.time(), "pid": os.getpid()}, f)
+    except OSError:
+        pass
+
+
+def _leer_señal(ruta: str, max_edad: float) -> dict | None:
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            datos = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        # Ojo: aca NO se usa _leer_json, que aparta el archivo como .roto. Una
+        # lectura a medias es lo esperado en un canal a 10 Hz, no una corrupcion.
+        return None
+    return datos if time.time() - datos.get("ts", 0) < max_edad else None
+
+
+def emitir_overlay(datos: dict) -> None:
+    """Estado actual para el overlay: que hace Eve, nivel de audio y texto."""
+    _escribir_señal(OVERLAY_PATH, datos)
+
+
+def estado_overlay(max_edad: float = 3.0) -> dict | None:
+    """Ultimo estado si es reciente. None significa 'Eve no esta haciendo nada'."""
+    return _leer_señal(OVERLAY_PATH, max_edad)
+
+
+def overlay_ya_corre(max_edad: float = 6.0) -> bool:
+    """True si otro proceso de overlay esta vivo.
+
+    Sin esto, el preview del panel y el que lanza el listener se apilan y quedan
+    dos HUD dibujados uno encima del otro.
+    """
+    vivo = _leer_señal(OVERLAY_VIVO_PATH, max_edad)
+    return bool(vivo and vivo.get("pid") != os.getpid())
+
+
+def overlay_presente() -> None:
+    """Lo llama el propio overlay cada par de segundos."""
+    _escribir_señal(OVERLAY_VIVO_PATH, {})
 
 
 def latir(datos: dict) -> None:

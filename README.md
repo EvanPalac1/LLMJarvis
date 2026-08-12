@@ -147,6 +147,36 @@ un pedido de voz en curso — reintenta cuando termina.
 
 **Reiniciar listener** sigue en el menu de la bandeja para forzarlo a mano.
 
+### El cartel en pantalla
+
+Cuando le hablas aparece un cartel encima de todo con el nombre, en que anda y la onda
+del audio, y debajo los subtitulos: lo que dijiste (para ver si te entendio antes de que
+actue) y lo que responde, revelandose mientras lo dice.
+
+**No te saca el foco de lo que estes haciendo y los clics lo atraviesan.** Podes estar
+jugando y aparece encima sin sacarte del juego. Eso son tres estilos de ventana de
+Windows (`WS_EX_NOACTIVATE`, `WS_EX_TOOLWINDOW` y `WS_EX_TRANSPARENT`) que se aplican en
+`plataforma.ventana_fantasma`; el unico momento en que acepta el mouse es cuando lo
+soltas para reubicarlo.
+
+Corre como un tercer proceso (`Eve --overlay`) por lo mismo que el panel: el hilo
+principal del listener ya es del icono de la bandeja. El listener le pasa el estado por
+un archivo chico que escribe ~10 veces por segundo mientras hay actividad, y en reposo no
+escribe nada. Se cierra solo cuando Eve deja de latir.
+
+Todo se configura en **Apariencia**: tema de colores (o los ocho colores a mano), tipo de
+contorno, tipo de onda, icono (o una imagen propia), escala, opacidad, que muestran los
+subtitulos y donde va el cartel. **Mover en pantalla** lo suelta para arrastrarlo. El mismo
+tema puede pintar tambien el panel de configuracion, que es opt-in porque obliga a dibujar
+los controles por nuestra cuenta en vez de usar los de Windows.
+
+En juegos a **pantalla completa exclusiva** no se ve ningun overlay: es como funciona
+DirectX, no un problema de Eve. En modo ventana o ventana sin bordes si.
+
+Fuera de Windows el cartel se ve y se puede mover, pero el no-robar-foco y el
+click-through son *best effort*: X11 necesita regiones de entrada por shape y macOS
+`ignoresMouseEvents`, que tkinter no expone.
+
 El arranque automatico se elige durante la instalacion.
 
 Windows 11 manda los iconos nuevos al desbordamiento ocultos. Para fijarlo visible:

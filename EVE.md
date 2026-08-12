@@ -11,6 +11,8 @@ nunca "narrame". La voz es el acuse de recibo, no el contenido.
 - **Si no entra en 2 frases habladas, va a pantalla.** Artículos, listas, código,
   tablas, comparaciones, cualquier cosa >40 palabras.
 - Después de mostrar algo, la voz dice solo qué abriste. No lo resumas salvo que lo pidan.
+- Lo que decís se subtitula en pantalla mientras lo decís. Eso **no** reemplaza a
+  `mostrar`: el subtítulo son dos renglones al paso, no un lugar donde leer.
 
 ## Ruteo
 

@@ -5,6 +5,7 @@ tkinter con el de pystray.
 """
 
 import json
+import math
 import shutil
 import subprocess
 import threading
@@ -89,6 +90,7 @@ class Panel(tk.Tk):
         nb.add(self._tab_cuentas(nb), text="  Cuentas  ")
         nb.add(self._tab_voz(nb), text="  Voz  ")
         nb.add(self._tab_contactos(nb), text="  Contactos  ")
+        nb.add(self._tab_apariencia(nb), text="  Apariencia  ")
         nb.add(self._tab_actividad(nb), text="  Actividad  ")
 
     # --- estilo y helpers de layout ----------------------------------------
@@ -98,10 +100,16 @@ class Panel(tk.Tk):
 
         Antes cada widget traia su propio padx/pady y el resultado era desparejo.
         """
+        from . import tema as tema_mod
+
         s = ttk.Style(self)
-        for tema in ("vista", "clam", "default"):
-            if tema in s.theme_names():
-                s.theme_use(tema)
+        pintar = tema_mod.pinta_panel(self.cfg)
+        # `clam` es el unico tema de ttk que respeta los colores que uno le pone:
+        # `vista` deja que los dibuje Windows. Por eso pintar obliga a cambiarlo.
+        preferidos = ("clam", "default") if pintar else ("vista", "clam", "default")
+        for nombre in preferidos:
+            if nombre in s.theme_names():
+                s.theme_use(nombre)
                 break
         base = ("Segoe UI", 9) if plataforma.WINDOWS else ("Helvetica", 11)
         self.option_add("*Font", base)
@@ -112,6 +120,23 @@ class Panel(tk.Tk):
         s.configure("Seccion.TLabelframe.Label", font=(base[0], base[1], "bold"))
         s.configure("TNotebook.Tab", padding=(14, 7))
         s.configure("TButton", padding=(10, 4))
+
+        if pintar:
+            paleta = tema_mod.resolver(self.cfg)
+            tema_mod.aplicar_ttk(s, paleta)
+            # Los tipos de letra se pierden al reconfigurar el estilo base.
+            s.configure("Titulo.TLabel", font=(base[0], base[1] + 4, "bold"))
+            s.configure("Seccion.TLabelframe.Label", font=(base[0], base[1], "bold"))
+            self.configure(background=paleta["fondo"])
+            # tk puro (Canvas, Text, Listbox) no pasa por ttk.Style.
+            for clase, opciones in (
+                ("*Text", {"background": paleta["panel"], "foreground": paleta["texto"],
+                           "insertBackground": paleta["texto"]}),
+                ("*Listbox", {"background": paleta["panel"], "foreground": paleta["texto"]}),
+                ("*Canvas", {"background": paleta["fondo"]}),
+            ):
+                for opcion, valor in opciones.items():
+                    self.option_add(f"{clase}.{opcion}", valor)
 
     def _hoja(self, nb, titulo: str, subtitulo: str):
         """Pestaña con encabezado y contenido con scroll.
@@ -304,6 +329,13 @@ class Panel(tk.Tk):
             nb, "Contactos",
             "La agenda que Eve usa cuando nombras a alguien.",
             [self._bloque_contactos],
+        )
+
+    def _tab_apariencia(self, nb):
+        return self._componer(
+            nb, "Apariencia",
+            "Los colores de todo, y el cartel que Eve muestra encima de lo que estes haciendo.",
+            [self._bloque_tema, self._bloque_hud, self._bloque_subtitulos],
         )
 
     def _tab_actividad(self, nb):
@@ -857,6 +889,200 @@ class Panel(tk.Tk):
     def rescan_apps(self):
         self.refresh_apps(scan=True)
         messagebox.showinfo("Programas", "Indice actualizado.")
+
+    # --- apariencia --------------------------------------------------------
+
+    def _cfg_previa(self) -> dict:
+        """La config como quedaria si guardaras ahora, para la vista previa."""
+        cfg = dict(self.cfg)
+        for clave, var in self.vars.items():
+            if clave.startswith(("ui_", "hud_", "sub_")):
+                valor = var.get()
+                por_defecto = store.DEFAULTS.get(clave)
+                if isinstance(por_defecto, int) and not isinstance(por_defecto, bool):
+                    try:
+                        valor = int(valor)
+                    except (TypeError, ValueError):
+                        valor = por_defecto
+                cfg[clave] = valor
+        # La escala es cuan grande sale en pantalla; en la previa sobraria.
+        cfg["hud_escala"] = 100
+        return cfg
+
+    def _previa_redibujar(self, *_args) -> None:
+        if not getattr(self, "previa", None):
+            return
+        from . import overlay, tema
+
+        cfg = self._cfg_previa()
+        paleta = tema.resolver(cfg)
+        if self._pintor is None:
+            self._pintor = overlay.Pintor(cfg, paleta)
+            for i in range(overlay.MUESTRAS):  # una onda de muestra, quieta
+                self._pintor.niveles.append(abs(math.sin(i * 0.37)) * 0.85)
+        else:
+            self._pintor.aplicar(cfg, paleta)
+        self.previa.configure(bg=paleta["fondo"])
+        titulo = cfg.get("hud_titulo") or self.vars["assistant_name"].get() or "Eve"
+        self._pintor.pintar(self.previa, "hablando", titulo, "RESPONDIENDO")
+        self._colores_habilitados()
+
+    def _colores_habilitados(self) -> None:
+        propio = self.vars["ui_tema"].get() == "personalizado"
+        for fila in getattr(self, "_filas_color", []):
+            for w in fila:
+                try:
+                    w.configure(state="normal" if propio else "disabled")
+                except tk.TclError:
+                    pass
+
+    def _fila_color(self, padre, rol: str, etiqueta: str) -> None:
+        from tkinter import colorchooser
+
+        from . import tema
+
+        clave = f"ui_color_{rol}"
+        fila = ttk.Frame(padre)
+        fila.pack(fill="x", padx=12, pady=3)
+        ttk.Label(fila, text=etiqueta, width=24).pack(side="left")
+        var = tk.StringVar(value=str(self.cfg.get(clave, "")))
+        self.vars[clave] = var
+        entrada = ttk.Entry(fila, textvariable=var, width=12)
+        entrada.pack(side="left")
+        muestra = tk.Label(fila, width=4, relief="solid", borderwidth=1)
+        muestra.pack(side="left", padx=6)
+
+        def repintar(*_a):
+            valor = var.get().strip() or tema.resolver(self._cfg_previa())[rol]
+            try:
+                muestra.configure(bg=valor)
+            except tk.TclError:
+                pass  # a medio escribir "#4fc" no es un color todavia
+
+        def elegir():
+            elegido = colorchooser.askcolor(color=muestra.cget("bg"), parent=self)[1]
+            if elegido:
+                var.set(elegido)
+
+        boton = ttk.Button(fila, text="Elegir...", command=elegir, width=10)
+        boton.pack(side="left")
+        var.trace_add("write", repintar)
+        var.trace_add("write", self._previa_redibujar)
+        repintar()
+        self._filas_color.append((entrada, boton))
+
+    def _bloque_tema(self, nb):
+        from . import tema
+
+        self._pintor = None
+        self._filas_color = []
+        t = ttk.Frame(nb)
+
+        caja = self._seccion(t, "Vista previa")
+        self.previa = tk.Canvas(caja, width=460, height=128, highlightthickness=0)
+        self.previa.pack(padx=12, pady=(8, 4))
+        self._ayuda(caja, "Asi se ve el cartel. La escala real se aplica en pantalla.")
+
+        caja = self._seccion(t, "Colores")
+        self._row(caja, "Tema", "ui_tema", tema.NOMBRES)
+        self._check(caja, "Pintar tambien este panel con el tema", "ui_pintar_panel")
+        self._ayuda(
+            caja,
+            "Pintar el panel obliga a dibujar los controles por nuestra cuenta: Windows\n"
+            "no deja cambiarle el color a los suyos. Se aplica al reabrir el panel.",
+        )
+        for rol, etiqueta in (
+            ("fondo", "Fondo"), ("panel", "Cajas y campos"), ("texto", "Texto"),
+            ("texto_tenue", "Texto secundario"), ("acento", "Acento"),
+            ("acento2", "Acento apagado"), ("borde", "Contorno"), ("alerta", "Alerta"),
+        ):
+            self._fila_color(caja, rol, etiqueta)
+        self._ayuda(caja, "Los colores de arriba solo se usan con el tema 'personalizado'.")
+
+        for clave in ("ui_tema",):
+            self.vars[clave].trace_add("write", self._previa_redibujar)
+        return t
+
+    def _bloque_hud(self, nb):
+        t = ttk.Frame(nb)
+        caja = self._seccion(t, "Cartel en pantalla")
+        self._row(caja, "Cuando se ve", "overlay_modo", ["auto", "siempre", "nunca"])
+        self._ayuda(
+            caja,
+            "auto = aparece al hablarle y se va sola. Nunca se lleva el foco de lo que\n"
+            "estes haciendo, y los clics la atraviesan.",
+        )
+        self._row(caja, "Titulo (vacio = nombre IA)", "hud_titulo")
+        self._row(caja, "Segunda linea", "hud_subtitulo")
+        self._row(caja, "Icono", "hud_icono",
+                  ["hexagono", "circulo", "cuadrado", "ninguno"])
+        self._row(caja, "Contorno", "hud_contorno",
+                  ["ninguno", "linea", "esquinas", "doble", "hexagonal", "biselado"])
+        self._row(caja, "Onda", "hud_onda",
+                  ["barras", "espejo", "linea", "puntos", "ninguna"])
+        self._row(caja, "Escala (%)", "hud_escala")
+        self._row(caja, "Opacidad (%)", "hud_opacidad")
+
+        fila = ttk.Frame(caja)
+        fila.pack(fill="x", padx=12, pady=(6, 10))
+        ttk.Button(fila, text="Elegir imagen del icono...",
+                   command=self._icono_elegir).pack(side="left")
+        ttk.Button(fila, text="Mover en pantalla",
+                   command=self._overlay_mover).pack(side="left", padx=6)
+        ttk.Button(fila, text="Volver a la esquina",
+                   command=self._overlay_esquina).pack(side="left")
+
+        for clave in ("hud_titulo", "hud_subtitulo", "hud_icono", "hud_contorno", "hud_onda"):
+            self.vars[clave].trace_add("write", self._previa_redibujar)
+        self._previa_redibujar()
+        return t
+
+    def _icono_elegir(self):
+        from tkinter import filedialog
+
+        ruta = filedialog.askopenfilename(
+            title="Imagen para el icono", parent=self,
+            filetypes=[("Imagenes", "*.png *.gif"), ("Todos", "*.*")],
+        )
+        if ruta:
+            self.vars["hud_icono"].set(ruta)
+
+    def _overlay_mover(self):
+        from . import overlay
+
+        cfg = store.load_config()
+        cfg["overlay_mover"] = True
+        store.save_config(cfg)
+        self.cfg["overlay_mover"] = True
+        overlay.asegurar(cfg)
+        messagebox.showinfo(
+            "Mover el cartel",
+            "El cartel esta suelto: arrastralo a donde quieras y soltalo.\n\n"
+            "Al soltarlo se guarda la posicion y vuelve a dejar pasar los clics.",
+        )
+
+    def _overlay_esquina(self):
+        self.vars["hud_x"].set("40") if "hud_x" in self.vars else None
+        cfg = store.load_config()
+        cfg.update({"hud_x": 40, "hud_y": 40})
+        store.save_config(cfg)
+        self.cfg.update({"hud_x": 40, "hud_y": 40})
+        messagebox.showinfo("Posicion", "El cartel vuelve a la esquina de arriba a la izquierda.")
+
+    def _bloque_subtitulos(self, nb):
+        t = ttk.Frame(nb)
+        caja = self._seccion(t, "Subtitulos")
+        self._row(caja, "Que se muestra", "sub_muestra", ["ambos", "eve", "usuario"])
+        self._ayuda(
+            caja,
+            "ambos = lo que dijiste vos (para ver si te entendio) y lo que responde Eve,\n"
+            "revelandose mientras lo dice.",
+        )
+        self._row(caja, "Tamano de letra", "sub_tam")
+        self._row(caja, "Lineas maximas", "sub_lineas")
+        self._row(caja, "Opacidad (%)", "sub_opacidad")
+        self._row(caja, "Separacion del cartel (px)", "sub_separacion")
+        return t
 
     def _bloque_historial(self, nb):
         t = ttk.Frame(nb)

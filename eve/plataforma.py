@@ -88,7 +88,8 @@ def comando_propio(flag: str) -> list[str]:
     """
     if congelado():
         return [sys.executable, flag]
-    modulo = {"--cli": "eve.integrations", "--hook": "eve.hook_gate", "--panel": "eve.gui"}[flag]
+    modulo = {"--cli": "eve.integrations", "--hook": "eve.hook_gate",
+              "--panel": "eve.gui", "--overlay": "eve.overlay"}[flag]
     exe = sys.executable.replace("pythonw.exe", "python.exe")
     return [exe, "-m", modulo]
 
@@ -342,3 +343,61 @@ def notas_permisos() -> str:
 
 def resumen() -> str:
     return f"{NOMBRE} | shell: {nombre_shell()} | teclado: {backend_teclado()}"
+
+
+# --- ventanas que no molestan ----------------------------------------------
+# Unico lugar que toca la API de ventanas del sistema.
+
+_GWL_EXSTYLE = -20
+_WS_EX_TRANSPARENT = 0x00000020   # los clics la atraviesan
+_WS_EX_TOOLWINDOW = 0x00000080    # no sale en Alt+Tab ni en la barra de tareas
+_WS_EX_LAYERED = 0x00080000
+_WS_EX_NOACTIVATE = 0x08000000    # no toma el foco al aparecer
+
+
+def hwnd_de(ventana) -> int:
+    """HWND real de un Toplevel de tk. 0 si no es Windows o no se pudo."""
+    if not WINDOWS:
+        return 0
+    import ctypes
+
+    ventana.update_idletasks()
+    ident = ventana.winfo_id()
+    # Con overrideredirect la jerarquia cambia segun la version de Tk: a veces
+    # winfo_id() ya es la ventana de nivel superior y a veces es una hija.
+    return ctypes.windll.user32.GetParent(ident) or ident
+
+
+def ventana_fantasma(ventana, atraviesan_los_clics: bool = True) -> bool:
+    """Deja la ventana encima sin robarle el foco a nada. True si se aplico.
+
+    Es lo que hace que el overlay pueda aparecer mientras jugas sin sacarte del
+    juego. Con `atraviesan_los_clics` los clics llegan al programa de abajo; se
+    apaga solo mientras el usuario arrastra el overlay para reubicarlo.
+
+    Fuera de Windows devuelve False: X11 necesita regiones de entrada por shape
+    y macOS `ignoresMouseEvents`, que tk no expone. Ahi la ventana igual queda
+    encima y sin borde, pero puede robar el foco y se come los clics.
+    """
+    if not WINDOWS:
+        return False
+    import ctypes
+
+    hwnd = hwnd_de(ventana)
+    if not hwnd:
+        return False
+    u = ctypes.windll.user32
+    # Se AGREGAN bits a los que ya hay, no se reemplaza el estilo entero: tk pone
+    # WS_EX_LAYERED por su cuenta para el '-alpha' y le asocia unos atributos.
+    # Pisarlo dejaba una ventana layered sin atributos, o sea invisible: se
+    # comportaba bien (no robaba foco, dejaba pasar los clics) pero no se veia.
+    estilos = u.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+    estilos |= _WS_EX_TOOLWINDOW | _WS_EX_NOACTIVATE
+    if atraviesan_los_clics:
+        estilos |= _WS_EX_TRANSPARENT
+    else:
+        estilos &= ~_WS_EX_TRANSPARENT
+    u.SetWindowLongW(hwnd, _GWL_EXSTYLE, estilos)
+    # SWP_FRAMECHANGED, y HWND_TOPMOST para que el cambio surta efecto ya.
+    u.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0020)
+    return True
