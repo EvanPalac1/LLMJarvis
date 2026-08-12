@@ -119,17 +119,56 @@ DEFAULTS = {
 }
 
 
+def _escribir_json(ruta: str, datos) -> None:
+    """Guarda de forma atomica: archivo temporal y despues os.replace.
+
+    Abrir el definitivo en modo 'w' lo trunca antes de escribir, asi que
+    quedarse sin bateria o matar el proceso a mitad del guardado dejaba un JSON
+    cortado. Con os.replace, o esta el contenido viejo entero o el nuevo entero.
+    """
+    tmp = f"{ruta}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(datos, f, indent=2, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, ruta)
+
+
+def _leer_json(ruta: str, por_defecto):
+    """Lee un JSON del usuario. Si esta roto lo aparta en vez de ignorarlo.
+
+    Devolver el default en silencio era peor que fallar: con contactos.json
+    cortado el panel mostraba la agenda vacia, y el primer guardado la
+    sobrescribia con esa nada. Renombrarlo a .roto deja los datos recuperables.
+    """
+    if not os.path.exists(ruta):
+        return por_defecto
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        # Contenido roto de verdad: se aparta para poder recuperarlo a mano.
+        try:
+            os.replace(ruta, f"{ruta}.roto")
+        except OSError:
+            pass
+        return por_defecto
+    except OSError:
+        # No se pudo abrir (el antivirus lo tiene tomado, permisos, disco): el
+        # archivo puede estar perfecto, asi que no se toca.
+        return por_defecto
+
+
 def load_config() -> dict:
     cfg = dict(DEFAULTS)
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            cfg.update(json.load(f))
+    guardado = _leer_json(CONFIG_PATH, {})
+    if isinstance(guardado, dict):
+        cfg.update(guardado)
     return cfg
 
 
 def save_config(cfg: dict) -> None:
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    _escribir_json(CONFIG_PATH, cfg)
 
 
 CONTACTS_PATH = os.path.join(BASE, "contactos.json")
@@ -143,13 +182,7 @@ def load_contacts() -> list[dict]:
     Aparte de config.json porque crece, se edita en su propia tabla, y no tiene
     que perderse si alguien toca la config a mano.
     """
-    if not os.path.exists(CONTACTS_PATH):
-        return []
-    try:
-        with open(CONTACTS_PATH, encoding="utf-8") as f:
-            datos = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return []
+    datos = _leer_json(CONTACTS_PATH, [])
     if not isinstance(datos, list):
         return []
     for c in datos:
@@ -161,8 +194,7 @@ def load_contacts() -> list[dict]:
 
 
 def save_contacts(contactos: list[dict]) -> None:
-    with open(CONTACTS_PATH, "w", encoding="utf-8") as f:
-        json.dump(contactos, f, indent=2, ensure_ascii=False)
+    _escribir_json(CONTACTS_PATH, contactos)
 
 
 def _plano(texto: str) -> str:

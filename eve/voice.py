@@ -18,6 +18,7 @@ from . import plataforma, store
 
 SAMPLE_RATE = 16000
 _whisper = None
+_whisper_para = None  # (modelo, device) con el que se construyo el de arriba
 
 
 class MicBusyError(RuntimeError):
@@ -94,13 +95,18 @@ def transcribe(audio: np.ndarray, cfg: dict) -> str:
         r.raise_for_status()
         return r.json().get("text", "").strip()
 
-    global _whisper
-    if _whisper is None:
+    global _whisper, _whisper_para
+    # Cargar el modelo cuesta segundos, asi que se cachea; pero atado a con que
+    # se cargo. Sin esto, cambiar el modelo o el device en el panel no hacia
+    # nada: el listener se rearmaba y seguia usando el que ya estaba en memoria.
+    quiere = (cfg["stt_model"], cfg["stt_device"])
+    if _whisper is None or _whisper_para != quiere:
         from faster_whisper import WhisperModel
 
         _whisper = WhisperModel(
             cfg["stt_model"], device=cfg["stt_device"], compute_type="int8"
         )
+        _whisper_para = quiere
     # Sin initial_prompt, decodificar en espanol destroza los nombres propios en
     # ingles. Pasarle los programas instalados es lo que hace que "abre rainbow
     # six siege" no salga como "Haberé en Vox XC".

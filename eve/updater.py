@@ -103,7 +103,17 @@ def descargar(asset: dict, progreso=None) -> str:
     if not url.startswith(f"https://github.com/{REPO}/"):
         raise ValueError("La descarga no viene del repositorio oficial.")
 
-    destino = os.path.join(tempfile.gettempdir(), asset["name"])
+    esperado = (asset.get("digest") or "").removeprefix("sha256:")
+    if not esperado:
+        # Antes se bajaba igual y no se verificaba nada. Esto termina ejecutando
+        # un instalador: sin con que compararlo, mejor no bajarlo.
+        raise ValueError(
+            "La release no publica el sha256 del archivo, asi que no puedo "
+            f"verificarlo. Bajalo a mano de {PAGINA} si confias en el."
+        )
+
+    # basename: el nombre lo da una API remota y no tiene por que salir de tmp.
+    destino = os.path.join(tempfile.gettempdir(), os.path.basename(asset["name"]))
     total = asset.get("size", 0)
     sha = hashlib.sha256()
     bajado = 0
@@ -117,8 +127,7 @@ def descargar(asset: dict, progreso=None) -> str:
             if progreso and total:
                 progreso(bajado, total)
 
-    esperado = (asset.get("digest") or "").removeprefix("sha256:")
-    if esperado and sha.hexdigest() != esperado:
+    if sha.hexdigest() != esperado:
         os.remove(destino)
         raise ValueError(
             "El archivo descargado no coincide con el publicado (sha256). "

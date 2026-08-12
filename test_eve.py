@@ -6,6 +6,7 @@ seguridad y la ventana de contexto. Sin dependencias externas.
 
 import json
 import os
+import sys
 import tempfile
 
 from eve import safety, store
@@ -450,6 +451,35 @@ def test_plataforma():
         assert plataforma.shell_cmd("ls")[0] == "/bin/sh"
         assert plataforma.backend_teclado() == "pynput"
 
+    # El modelo de STT se cachea, pero atado a con que se cargo: si no, cambiarlo
+    # en el panel no hacia nada hasta cerrar y volver a abrir el programa.
+    import types
+
+    construidos = []
+    falso = types.ModuleType("faster_whisper")
+    falso.WhisperModel = lambda nombre, **kw: (
+        construidos.append(nombre), types.SimpleNamespace(transcribe=lambda *a, **k: ([], None))
+    )[1]
+    previo = sys.modules.get("faster_whisper")
+    sys.modules["faster_whisper"] = falso
+    try:
+        from eve import voice
+
+        voice._whisper = voice._whisper_para = None
+        base = {"stt_provider": "faster-whisper", "stt_device": "cpu",
+                "language": "es", "stt_vocabulary": ""}
+        audio = __import__("numpy").zeros(16000, dtype="float32")
+        voice.transcribe(audio, {**base, "stt_model": "small"})
+        voice.transcribe(audio, {**base, "stt_model": "small"})   # cachea
+        voice.transcribe(audio, {**base, "stt_model": "medium"})  # rearma
+        assert construidos == ["small", "medium"], construidos
+    finally:
+        voice._whisper = voice._whisper_para = None
+        if previo is None:
+            del sys.modules["faster_whisper"]
+        else:
+            sys.modules["faster_whisper"] = previo
+
     # La voz por defecto tiene que existir en este sistema: con 'sapi' de default
     # en Linux, una instalacion limpia no podia hablar (ImportError de pyttsx3).
     assert store.DEFAULTS["tts_provider"] == ("sapi" if plataforma.WINDOWS else "piper")
@@ -660,6 +690,22 @@ def test_updater():
         assert not os.path.exists(os.path.join(tempfile.gettempdir(), "prueba.bin")), \
             "el archivo corrupto tiene que borrarse"
 
+        # Sin digest no se baja nada: verificar era opcional y esto termina
+        # ejecutando un instalador.
+        sin_digest = {k: v for k, v in asset.items() if k != "digest"}
+        try:
+            updater.descargar(sin_digest)
+            raise AssertionError("sin sha256 publicado no deberia descargar")
+        except ValueError as exc:
+            assert "verificarlo" in str(exc), exc
+
+        # Un nombre con ../ no debe escribir fuera del temporal.
+        escapista = {**asset, "name": "../../evil.bin",
+                     "digest": "sha256:" + hashlib.sha256(contenido).hexdigest()}
+        ruta = updater.descargar(escapista)
+        assert os.path.dirname(ruta) == tempfile.gettempdir(), ruta
+        os.remove(ruta)
+
         # Con el digest correcto, se acepta.
         asset["digest"] = "sha256:" + hashlib.sha256(contenido).hexdigest()
         ruta = updater.descargar(asset)
@@ -667,6 +713,49 @@ def test_updater():
         os.remove(ruta)
     finally:
         urllib.request.urlopen = real
+
+
+def test_archivos_a_medio_escribir():
+    """Un JSON cortado no puede tirar el programa ni borrar la agenda."""
+    from eve import plataforma
+
+    with tempfile.TemporaryDirectory() as raiz:
+        cfg_real, con_real = store.CONFIG_PATH, store.CONTACTS_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.CONTACTS_PATH = os.path.join(raiz, "contactos.json")
+        try:
+            # Guardar es atomico: nunca queda un temporal suelto.
+            store.save_config({**store.DEFAULTS, "assistant_name": "Ivi"})
+            assert not os.path.exists(store.CONFIG_PATH + ".tmp")
+            assert store.load_config()["assistant_name"] == "Ivi"
+
+            # Config cortada: arranca con los defaults en vez de reventar.
+            with open(store.CONFIG_PATH, "w", encoding="utf-8") as f:
+                f.write('{"assistant_name": "Ivi", "hotke')
+            assert store.load_config()["assistant_name"] == "Eve"
+            assert os.path.exists(store.CONFIG_PATH + ".roto"), "los datos se apartan"
+
+            # Agenda cortada: se aparta, no se pisa con una lista vacia.
+            store.save_contacts([{"nombre": "Lucas", "email": "lucas@x.com"}])
+            with open(store.CONTACTS_PATH, "w", encoding="utf-8") as f:
+                f.write('[{"nombre": "Lu')
+            assert store.load_contacts() == []
+            roto = store.CONTACTS_PATH + ".roto"
+            assert os.path.exists(roto), "sin esto el panel guardaba encima y se perdia"
+            with open(roto, encoding="utf-8") as f:
+                assert "Lu" in f.read()
+        finally:
+            store.CONFIG_PATH, store.CONTACTS_PATH = cfg_real, con_real
+
+    # Congelado, el dialogo va por nuestro flag: pasarle -c al propio Eve
+    # arrancaba un asistente entero en vez de preguntar.
+    real = plataforma.congelado
+    plataforma.congelado = lambda: True
+    try:
+        argv = plataforma._argv_dialogo("pregunta", "T", "M")
+        assert argv[1] == "--dialogo" and "-c" not in argv, argv
+    finally:
+        plataforma.congelado = real
 
 
 def test_voces_piper():

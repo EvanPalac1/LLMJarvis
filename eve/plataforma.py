@@ -182,27 +182,54 @@ def _as_applescript(texto: str) -> str:
     return '"' + texto.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+_GUION_DIALOGO = (
+    "import tkinter,sys;from tkinter import messagebox;"
+    "r=tkinter.Tk();r.withdraw();"
+    "sys.exit(0 if (messagebox.askyesno(sys.argv[2], sys.argv[3])"
+    " if sys.argv[1]=='pregunta' else"
+    " messagebox.showinfo(sys.argv[2], sys.argv[3]) or True) else 1)"
+)
+
+
+def _argv_dialogo(tipo: str, titulo: str, mensaje: str) -> list[str]:
+    """Como invocar el dialogo en otro proceso.
+
+    Congelado, sys.executable es el propio Eve y no entiende `-c`: le pasaba el
+    guion como argumento suelto y main.py, al no ver un flag, arrancaba un
+    asistente entero de nuevo en vez de mostrar la pregunta. Por eso va por
+    nuestro propio flag --dialogo.
+    """
+    if congelado():
+        return [sys.executable, "--dialogo", tipo, titulo, mensaje]
+    return [sys.executable.replace("pythonw.exe", "python.exe"),
+            "-c", _GUION_DIALOGO, tipo, titulo, mensaje]
+
+
+def dialogo_cli(argv: list[str]) -> int:
+    """Implementa `Eve --dialogo pregunta|aviso TITULO MENSAJE`."""
+    import tkinter
+    from tkinter import messagebox
+
+    tipo, titulo, mensaje = (argv + ["aviso", "LLMJarvis", ""])[:3]
+    raiz = tkinter.Tk()
+    raiz.withdraw()
+    if tipo == "pregunta":
+        return 0 if messagebox.askyesno(titulo, mensaje) else 1
+    messagebox.showinfo(titulo, mensaje)
+    return 0
+
+
 def _tk_preguntar(mensaje: str, titulo: str) -> bool:
     """Linux: tkinter en una raiz propia y efimera.
 
     Va en un proceso aparte porque tkinter no tolera que lo llamen desde un hilo
     que no sea el suyo, y estos dialogos salen de hilos de fondo.
     """
-    guion = (
-        "import tkinter,sys;from tkinter import messagebox;"
-        "r=tkinter.Tk();r.withdraw();"
-        "sys.exit(0 if messagebox.askyesno(sys.argv[1], sys.argv[2]) else 1)"
-    )
-    r = correr([sys.executable, "-c", guion, titulo, mensaje])
-    return r.returncode == 0
+    return correr(_argv_dialogo("pregunta", titulo, mensaje)).returncode == 0
 
 
 def _tk_avisar(mensaje: str, titulo: str) -> None:
-    guion = (
-        "import tkinter,sys;from tkinter import messagebox;"
-        "r=tkinter.Tk();r.withdraw();messagebox.showinfo(sys.argv[1], sys.argv[2])"
-    )
-    correr([sys.executable, "-c", guion, titulo, mensaje])
+    correr(_argv_dialogo("aviso", titulo, mensaje))
 
 
 # --- portapapeles ----------------------------------------------------------

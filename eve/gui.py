@@ -169,7 +169,10 @@ class Panel(tk.Tk):
             try:
                 nueva = updater.buscar()
             except RuntimeError as exc:
-                self._ui(lambda: messagebox.showerror("Actualizar", str(exc)))
+                # El mensaje se copia a una variable: Python borra `exc` al salir
+                # del except, y estos lambdas corren despues, en el hilo de tk.
+                fallo = str(exc)
+                self._ui(lambda: messagebox.showerror("Actualizar", fallo))
                 return
             if not nueva:
                 self._ui(lambda: messagebox.showinfo(
@@ -218,7 +221,8 @@ class Panel(tk.Tk):
                     ),
                 )
             except (ValueError, OSError) as exc:
-                self._ui(lambda: messagebox.showerror("Actualizar", str(exc)))
+                fallo = str(exc)
+                self._ui(lambda: messagebox.showerror("Actualizar", fallo))
                 return
             self._ui(lambda: (messagebox.showinfo("Actualizar", updater.instalar(ruta)),
                               self.destroy()))
@@ -685,7 +689,8 @@ class Panel(tk.Tk):
                 lista = voices.listar(self.voz_idioma.get())
                 puestas = set(voices.instaladas())
             except Exception as exc:  # noqa: BLE001
-                self._ui(lambda: self.voz_estado.config(text=f"error: {exc}"))
+                fallo = str(exc)
+                self._ui(lambda: self.voz_estado.config(text=f"error: {fallo}"))
                 return
 
             def pintar():
@@ -756,7 +761,8 @@ class Panel(tk.Tk):
                     voices.hablar(f"Hola, soy {self.cfg['assistant_name']}. Asi sueno.", key)
                 )
             except Exception as exc:  # noqa: BLE001
-                self._ui(lambda: messagebox.showerror("Voces", str(exc)))
+                fallo = str(exc)
+                self._ui(lambda: messagebox.showerror("Voces", fallo))
 
         threading.Thread(target=work, daemon=True).start()
 

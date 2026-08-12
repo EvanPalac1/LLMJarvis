@@ -47,6 +47,12 @@ def main() -> int:
             from eve import hook_gate
 
             return hook_gate.main()
+        if flag == "--dialogo":
+            # Lo llama plataforma cuando necesita un dialogo fuera de Windows y
+            # macOS: congelado no hay un python al que pasarle `-c`.
+            from eve import plataforma
+
+            return plataforma.dialogo_cli(resto)
         if flag == "--panel":
             from eve.gui import Panel
 
