@@ -134,6 +134,13 @@ def speak(text: str, cfg: dict) -> None:
         voices.reproducir(voices.hablar(text, clave))
         return
 
+    if not plataforma.WINDOWS:
+        # pyttsx3 ni se instala fuera de Windows: sin esto el usuario que elija
+        # sapi en Linux se come un ImportError pelado en vez de saber que hacer.
+        raise RuntimeError(
+            f"El TTS 'sapi' solo existe en Windows y aca corre {plataforma.NOMBRE}. "
+            "Panel > Voz: elegi Piper."
+        )
     import pyttsx3
 
     # Motor nuevo por utterance: pyttsx3 se cuelga si se reusa entre hilos.

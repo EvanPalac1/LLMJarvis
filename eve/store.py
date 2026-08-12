@@ -91,8 +91,10 @@ DEFAULTS = {
     "stt_model": "small",
     "stt_device": "cpu",
     "stt_vocabulary": "",  # palabras extra que el STT suele errar
-    # piper es el unico que funciona igual en los tres sistemas; sapi es solo Windows.
-    "tts_provider": "sapi",  # sapi | piper | elevenlabs
+    # piper es el unico que funciona igual en los tres sistemas; sapi es solo
+    # Windows, y dejarlo de default afuera hacia que Eve no pudiera hablar en una
+    # instalacion limpia de Linux o macOS.
+    "tts_provider": "sapi" if plataforma.WINDOWS else "piper",  # sapi|piper|elevenlabs
     "tts_voice": "",
     "piper_voice": "",  # clave del catalogo, ej. es_ES-davefx-medium
     "elevenlabs_voice_id": "",

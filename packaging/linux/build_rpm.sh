@@ -39,7 +39,7 @@ Summary:        Asistente de voz local con IA
 License:        MIT
 URL:            https://github.com/EvanPalac1/LLMJarvis
 BuildArch:      $RPM_ARCH
-Requires:       alsa-lib, libX11
+Requires:       alsa-lib, libX11, portaudio
 Recommends:     xclip, libappindicator-gtk3
 AutoReqProv:    no
 

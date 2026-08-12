@@ -92,7 +92,14 @@ def main() -> int:
                 if not clave:
                     raise RuntimeError("sin voz de Piper")
                 ruta = voices.hablar(frase, clave)
-            except Exception:  # noqa: BLE001 - sin Piper se usa la voz del sistema
+            except Exception as exc:  # noqa: BLE001 - sin Piper se usa la voz del sistema
+                from eve import plataforma
+
+                if not plataforma.WINDOWS:
+                    # Fuera de Windows no hay voz del sistema a la que caer.
+                    print(f"ERROR: no pude sintetizar con Piper: {exc}")
+                    print("Bajate una voz con:  eve --descargar-voz es_ES-davefx-medium")
+                    return 1
                 import pyttsx3
                 import tempfile
 

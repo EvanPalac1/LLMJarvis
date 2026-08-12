@@ -450,6 +450,18 @@ def test_plataforma():
         assert plataforma.shell_cmd("ls")[0] == "/bin/sh"
         assert plataforma.backend_teclado() == "pynput"
 
+    # La voz por defecto tiene que existir en este sistema: con 'sapi' de default
+    # en Linux, una instalacion limpia no podia hablar (ImportError de pyttsx3).
+    assert store.DEFAULTS["tts_provider"] == ("sapi" if plataforma.WINDOWS else "piper")
+    if not plataforma.WINDOWS:
+        from eve import voice
+
+        try:
+            voice.speak("hola", {**store.DEFAULTS, "tts_provider": "sapi"})
+            raise AssertionError("sapi fuera de Windows tiene que avisar, no hablar")
+        except RuntimeError as exc:
+            assert "solo existe en Windows" in str(exc), exc
+
     # AppleScript solo escapa comillas y backslash; si no, un mensaje con comillas
     # rompe el guion entero.
     assert plataforma._as_applescript('di "hola"') == '"di \\"hola\\""'

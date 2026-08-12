@@ -8,17 +8,19 @@ import shutil
 import subprocess
 import sys
 
-from eve import store
+from eve import plataforma, store
 
 OK, FAIL, WARN = "[ok]  ", "[FALTA]", "[!]   "
 
 DEPS = [
     ("anthropic", "motor 'api' (no hace falta con motor 'claude-code')"),
-    ("keyboard", "detectar el boton del keypad"),
+    # Fuera de Windows el backend del atajo global es pynput, no keyboard.
+    ("keyboard" if plataforma.WINDOWS else "pynput", "detectar el boton del keypad"),
     ("sounddevice", "grabar del microfono"),
     ("numpy", "manejar el audio"),
     ("faster_whisper", "transcribir voz a texto"),
-    ("pyttsx3", "leer las respuestas en voz alta"),
+    # SAPI es de Windows; en el resto la voz la pone Piper.
+    ("pyttsx3" if plataforma.WINDOWS else "piper", "leer las respuestas en voz alta"),
     ("pystray", "icono de bandeja"),
     ("PIL", "icono de bandeja"),
     ("keyring", "guardar las claves"),
@@ -34,6 +36,13 @@ def check_deps() -> list[str]:
             print(f"{OK}{mod}")
         except ImportError:
             print(f"{FAIL} {mod} - {why}")
+            missing.append(mod)
+        except Exception as exc:  # noqa: BLE001 - el diagnostico no puede morirse aca
+            # El modulo esta pero no carga su libreria del sistema: sounddevice
+            # sin libportaudio2 tira OSError, no ImportError, y hacia explotar
+            # justo a la herramienta que existe para avisar de esto.
+            print(f"{FAIL} {mod} - {why}")
+            print(f"        {type(exc).__name__}: {exc}")
             missing.append(mod)
     return missing
 
