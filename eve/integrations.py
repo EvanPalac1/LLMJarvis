@@ -148,6 +148,8 @@ Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
       DESTINO: el nombre del contacto (lo mas comun), un link, un ID, o nada
       (canal del webhook). Con un nombre, --tipo dm manda al privado y
       --tipo canal al canal de servidor. NO pidas IDs si el contacto ya tiene.
+      Si dice que quedo en la lista de amigos, el ID guardado es el del usuario
+      y no el del chat: deci que carguen el @usuario en el panel > Contactos.
   E steam-info                           biblioteca y horas
 
 Si un comando dice que algo no esta configurado, decilo y pará; no lo rodees.
@@ -396,6 +398,59 @@ def _destino_discord(canal: str, tipo: str = "dm") -> str:
     return ""
 
 
+def destino_visible(titulo: str) -> str:
+    """El canal que Discord esta mostrando, o '' si no esta mostrando ninguno.
+
+    Cuando la navegacion falla, Discord no avisa: se queda en la lista de amigos
+    o directamente con el titulo vacio, y hasta ahora eso se tomaba por un
+    destino valido. Un titulo vacio no es un chat.
+    """
+    donde = (titulo or "").removesuffix(" - Discord").strip()
+    if not donde or donde.lower() in ("amigos", "friends", "discord"):
+        return ""
+    return donde
+
+
+def _usuario_discord(nombre: str) -> str:
+    """El @usuario de un contacto de la agenda, si lo tiene."""
+    for c in store.buscar_contacto(nombre):
+        if c.get("discord_user"):
+            return str(c["discord_user"]).lstrip("@")
+    return ""
+
+
+def _abrir_dm_por_usuario(usuario: str) -> bool:
+    """Abre el privado con alguien por el buscador rapido (Ctrl+K).
+
+    Es como lo abre una persona, y sobre todo: no necesita ningun ID. El link de
+    un privado lleva el id del CANAL, mientras que lo que Discord ofrece a la
+    vista es "Copiar ID de usuario", que es otro numero. Pegado en la URI,
+    Discord no resuelve nada y deja la ventana en blanco: medido, el titulo
+    quedaba en ' - Discord' y el codigo lo tomaba por un destino bueno.
+    """
+    import time
+
+    import keyboard
+
+    _, hwnd = _titulo_discord()
+    if not hwnd:
+        return False
+    import ctypes
+
+    if ctypes.windll.user32.GetForegroundWindow() != hwnd and not _traer_al_frente(hwnd):
+        return False
+    time.sleep(0.5)
+    keyboard.send("esc")  # por si habia un modal abierto comiendose las teclas
+    time.sleep(0.2)
+    keyboard.send("ctrl+k")
+    time.sleep(0.8)
+    keyboard.write(usuario, delay=0.02)
+    time.sleep(1.2)  # el buscador filtra mientras escribis
+    keyboard.send("enter")
+    time.sleep(2.0)
+    return bool(destino_visible(_titulo_discord()[0]))
+
+
 @plataforma.solo_windows
 def discord_enviar(canal: str, texto: str, tipo: str = "dm") -> str:
     """Escribe en Discord como VOS, manejando el cliente que ya tiene tu sesion.
@@ -419,32 +474,53 @@ def discord_enviar(canal: str, texto: str, tipo: str = "dm") -> str:
         )
 
     destino = _destino_discord(canal, tipo)
-    if not destino:
+    usuario = _usuario_discord(canal) if tipo == "dm" else ""
+    if not destino and not usuario:
         return (
             "No se a que canal mandar. Pasa el link (boton derecho en el canal > Copiar "
             "enlace) o configura el webhook para usar ese canal por defecto."
         )
 
-    uri = f"discord://-/channels/{destino}"
-    if not _activar_discord(uri):
+    uri = f"discord://-/channels/{destino}" if destino else ""
+    if uri and not _activar_discord(uri):
         return "No pude poner Discord en primer plano. No mande nada."
 
     titulo, _ = _titulo_discord()
     if not titulo:
         return "No encuentro la ventana de Discord. No mande nada."
-    donde = titulo.removesuffix(" - Discord")
+    donde = destino_visible(titulo)
+
+    # Si la URI no llevo a ningun lado, se prueba como lo haria una persona:
+    # el buscador rapido con el @usuario, que no depende de ningun ID.
+    if not donde and usuario:
+        if _abrir_dm_por_usuario(usuario):
+            titulo, _ = _titulo_discord()
+            donde = destino_visible(titulo)
+            uri = ""  # ya no hay URI a la que volver: se reusa el foco actual
+
+    if not donde:
+        pista = (f" El ID guardado para {canal!r} parece ser el del usuario y no el "
+                 "del chat: en Discord, abri el privado y usa 'Copiar enlace', o "
+                 "carga su @usuario en el panel > Contactos.") if destino else ""
+        return f"Discord no abrio ningun chat, quedo en la lista de amigos.{pista} No mande nada."
 
     if not _confirmar_envio("Discord", donde, "", texto):
         return "El usuario cancelo el envio."
 
     # Reactivar con la MISMA uri del canal: `discord://` a secas manda a la vista
-    # de Amigos y se pierde el destino. Medido.
-    if not _activar_discord(uri):
-        return "Perdi el foco de Discord. No mande nada."
+    # de Amigos y se pierde el destino. Medido. Si se llego por el buscador
+    # rapido no hay uri, asi que solo se trae la ventana al frente.
+    if uri:
+        if not _activar_discord(uri):
+            return "Perdi el foco de Discord. No mande nada."
+    else:
+        _, hwnd = _titulo_discord()
+        if not hwnd or not (_traer_al_frente(hwnd) or True):
+            return "Perdi el foco de Discord. No mande nada."
 
     titulo2, hwnd = _titulo_discord()
-    if titulo2 != titulo:
-        return f"El canal cambio de {donde!r} a {titulo2!r}. No mande nada."
+    if destino_visible(titulo2) != donde:
+        return f"El chat cambio de {donde!r} a {destino_visible(titulo2)!r}. No mande nada."
 
     ok, motivo = _pegar_y_enviar(hwnd, texto, lambda: _titulo_discord()[0], titulo)
     store.log_action("discord", f"{donde}: {texto[:200]}", "ENVIADO" if ok else f"FALLO: {motivo}")

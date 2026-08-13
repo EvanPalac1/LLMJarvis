@@ -350,6 +350,45 @@ def test_discord_destino():
         integrations.store.load_config = orig
 
 
+def test_discord_destino_visible():
+    """Que Discord este mostrando un chat de verdad antes de escribir en el.
+
+    Bug real: el link de un privado lleva el id del CANAL, pero lo que Discord
+    ofrece a la vista es "Copiar ID de usuario", que es otro numero. Pegado en
+    la URI, Discord no resuelve nada y deja el titulo vacio — y eso se tomaba
+    por un destino valido, asi que iba a escribir en la nada.
+    """
+    from eve import integrations
+
+    for titulo, esperado in (
+        ("@jotape - Discord", "@jotape"),
+        ("general - Discord", "general"),
+        ("☕┊Chill | Autistas - Discord", "☕┊Chill | Autistas"),
+        (" - Discord", ""),        # lo que deja un ID que no resuelve
+        ("", ""),
+        (None, ""),
+        ("Amigos - Discord", ""),  # la lista de amigos no es un chat
+        ("Friends - Discord", ""),
+        ("Discord", ""),
+    ):
+        assert integrations.destino_visible(titulo) == esperado, titulo
+
+    agenda = [
+        {"nombre": "Juan", "alias": "", "discord_user": "@jotape0506",
+         "discord_dm": "685618126062485526"},
+        {"nombre": "Sin usuario", "alias": "", "discord_dm": "123"},
+    ]
+    orig = store.load_contacts
+    store.load_contacts = lambda: agenda
+    try:
+        # La arroba se saca: el buscador rapido la pone sola.
+        assert integrations._usuario_discord("Juan") == "jotape0506"
+        assert integrations._usuario_discord("Sin usuario") == ""
+        assert integrations._usuario_discord("nadie") == ""
+    finally:
+        store.load_contacts = orig
+
+
 def test_contactos():
     """La agenda: matcheo por alias, sin tildes, y ambiguedad explicita."""
     from eve import integrations
