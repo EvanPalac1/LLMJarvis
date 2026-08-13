@@ -1330,6 +1330,13 @@ def test_overlay_arranca_escondido():
     if not plataforma.WINDOWS:
         print("    (salteado: necesita pantalla)")
         return
+    if os.environ.get("CI"):
+        # El runner de CI no tiene escritorio interactivo: una ventana sin borde
+        # y siempre encima no se comporta igual, y ademas Tcl aborta el proceso
+        # si el recolector libera algo suyo desde uno de los hilos que dejan
+        # otros tests. Este se corre en la maquina de desarrollo.
+        print("    (salteado: el CI no tiene escritorio)")
+        return
     import tkinter as tk
 
     try:
@@ -1354,6 +1361,14 @@ def test_overlay_arranca_escondido():
                 assert ov.visible is False and ov._sub_visible is False
             finally:
                 ov.raiz.destroy()
+                # Soltar TODO ahora y en este hilo. Otros tests dejan hilos
+                # daemon vivos, y si el recolector libera un objeto de Tk desde
+                # uno de ellos, Tcl aborta el proceso entero con
+                # "async handler deleted by the wrong thread".
+                del ov
+                import gc
+
+                gc.collect()
         finally:
             store.OVERLAY_PATH = real
 
