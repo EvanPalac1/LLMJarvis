@@ -41,7 +41,23 @@ read -r -p "Enter para cerrar."
 EOF
 chmod +x "$ETAPA/Desinstalar Eve.command"
 
-hdiutil create -volname "Eve $VERSION" -srcfolder "$ETAPA" -ov -format UDZO "$SALIDA"
+# hdiutil falla con "Resource busy" de vez en cuando: Spotlight o el propio
+# diskimages-helper todavia tienen tomada la carpeta que se acaba de escribir.
+# No es un error del paquete -el intento siguiente arma el mismo dmg-, asi que
+# reintentar es la respuesta y no abortar el release entero por eso.
+for intento in 1 2 3 4 5; do
+    if hdiutil create -volname "Eve $VERSION" -srcfolder "$ETAPA" \
+           -ov -format UDZO "$SALIDA"; then
+        break
+    fi
+    if [ "$intento" = 5 ]; then
+        echo "hdiutil fallo 5 veces seguidas; esto ya no es el disco ocupado." >&2
+        exit 1
+    fi
+    echo "hdiutil ocupado, reintento $intento de 4 en ${intento}0s..." >&2
+    sleep "${intento}0"
+    rm -f "$SALIDA"
+done
 rm -rf "$ETAPA"
 echo "Listo: $SALIDA"
 echo
