@@ -24,7 +24,7 @@ import traceback
 
 from .. import store
 
-INTEGRADOS = ("spotify",)
+INTEGRADOS = ("spotify", "obs")
 CARPETA_USUARIO = os.path.join(store.BASE, "addons")
 
 _cache: dict = {}

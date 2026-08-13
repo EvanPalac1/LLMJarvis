@@ -97,6 +97,9 @@ DEFAULTS = {
     "stt_model": "small",
     "stt_device": "cpu",
     "stt_vocabulary": "",  # palabras extra que el STT suele errar
+    # 1 = greedy. Medido: beam 5 tarda 4.4s y beam 1 tarda 3.5s con el mismo
+    # texto en una orden corta. Subilo solo si dictas frases largas.
+    "stt_beam": 1,
     # piper es el unico que funciona igual en los tres sistemas; sapi es solo
     # Windows, y dejarlo de default afuera hacia que Eve no pudiera hablar en una
     # instalacion limpia de Linux o macOS.

@@ -178,6 +178,53 @@ claves que este programa no conoce se descartan en vez de entrar.
 
 ---
 
+## Velocidad
+
+Todo lo de abajo esta medido en un Ryzen 5 4500, no estimado.
+
+**El sintetizador cargaba su modelo en cada frase.** `PiperVoice.load()` cuesta 2.3s y
+sintetizar solo 0.24s: se pagaba diez veces el trabajo util, y eso dejaba a Piper mas lento
+que la voz robotica de Windows, que es la razon por la que uno terminaba eligiendo la fea.
+Cacheado por voz:
+
+| | antes | ahora |
+|---|---|---|
+| frase nueva | 2.57s | **0.09s** |
+| frase repetida | 2.57s | **0.00s** |
+| SAPI (la robotica) | 0.55s | 0.55s |
+
+Piper quedo seis veces mas rapido que la voz de Windows **y** suena mejor. No hay razon
+para seguir con SAPI.
+
+**Las frases que Eve repite se guardan en disco.** Dice siempre lo mismo — "Abriendo
+Spotify", "Listo", "No te entendi" — asi que el wav se genera una vez y despues se lee.
+Cambiar de voz limpia ese cache, o seguirias escuchando la voz vieja en las frases comunes.
+
+**El reconocimiento usa busqueda greedy.** Medido sobre una orden tipica: `beam_size=5`
+tarda 4.4s y `beam_size=1` tarda 3.5s **con el mismo texto**. La busqueda por haz sirve
+para dictado largo; una orden de ocho palabras no cambia de resultado por explorar cinco
+ramas. Se puede subir en el panel si dictas frases largas.
+
+**Los modelos se cargan al arrancar**, no en la primera orden. Son ~2.5s de Whisper y
+~2.3s de Piper que antes se pagaban justo cuando el usuario ya estaba esperando.
+
+### Lo que se midio y se descarto
+
+- **Modelos de voz mas chicos.** `tiny` y `base` son 3-5x mas rapidos pero destrozan el
+  español: "Abrés Potisi" por "abre Spotify", "a Jera la tarde" por "ayer a la tarde".
+  No sirve un asistente rapido que entiende mal.
+- **Transcribir mientras hablas.** faster-whisper no tiene API de streaming: procesa el
+  buffer entero rellenado a 30s, y transcribir pedazos sueltos garabatea el texto.
+- **Buffer circular para no perder la primera palabra.** Medido: el microfono arranca en
+  6-21 ms. No hay nada que recuperar.
+- **Filtro contra alucinaciones del modelo sobre silencio.** Medido con silencio absoluto
+  y con ruido de sala: devuelve vacio en los dos casos. El VAD ya lo cubre.
+
+Los ultimos dos salieron de una revision del concilio como problemas "criticos". Se
+midieron antes de construir nada y no aplicaban.
+
+---
+
 ## Addons
 
 Comandos que se le agregan al agente sin tocar el nucleo. Eve los llama con
@@ -207,6 +254,27 @@ Es informacion que ya esta en pantalla: no hace falta API ni permisos.
 Lo unico que necesita claves es **buscar**, y son de aplicacion (client id y secret en
 https://developer.spotify.com/dashboard), sin login tuyo. Sin ellas, "poné X" abre la
 busqueda en la app y elegis vos, y Eve lo dice en vez de fingir que quedo sonando.
+
+### El de OBS
+
+Grabar, transmitir, cambiar de escena, silenciar el micro y sacar una captura, por voz.
+Util justo cuando no podes tocar el teclado porque estas grabando.
+
+**No hay que instalar ningun plugin en OBS.** Desde la version 28 trae obs-websocket
+adentro. Lo unico que hay que hacer es prenderlo:
+
+> OBS > Herramientas > **Configuracion del servidor WebSocket** > Activar servidor
+
+Eve lee sola el puerto y la contraseña del `global.ini` de OBS, asi que no hay que copiar
+nada. Si preferis ponerla a mano, el campo esta en el panel > Addons.
+
+Escribir un plugin en Lua dentro de OBS habria sido mantener codigo en dos lados para
+llegar al mismo lugar.
+
+**Los nombres de escena se emparejan por parecido, no por igualdad.** El reconocimiento de
+voz no escribe los nombres propios como estan en OBS: pedis "camara dos" y la escena se
+llama "Cámara 2". Eve pide la lista real a OBS y busca la mas parecida. Sin eso, la mitad
+de los pedidos fallarian con un "no existe esa escena" que no le sirve a nadie.
 
 ### Escribir uno propio
 

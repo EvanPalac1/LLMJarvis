@@ -1045,6 +1045,84 @@ def test_spotify():
     assert "spotify" in quieto and "spotify premium" in quieto
 
 
+def test_obs():
+    """El addon de OBS sin necesitar OBS abierto."""
+    from eve.addons import obs
+
+    # Lo que hace que ande de verdad: el STT no escribe los nombres propios como
+    # estan en OBS, asi que se busca el mas parecido contra la lista real.
+    escenas = ["Gameplay", "Cámara 2", "BRB", "Pantalla completa", "Intro Stream"]
+    for pedido, esperado in (
+        ("Gameplay", "Gameplay"),          # exacto
+        ("gameplay", "Gameplay"),          # sin mayusculas
+        ("game play", "Gameplay"),         # como lo parte el STT
+        ("camara 2", "Cámara 2"),          # sin tilde
+        ("pantalla", "Pantalla completa"),  # contenido
+        ("intro", "Intro Stream"),
+    ):
+        assert obs.parecido(pedido, escenas) == esperado, pedido
+    assert obs.parecido("cualquier verdura", escenas) == ""
+    assert obs.parecido("", escenas) == ""
+    assert obs.parecido("gameplay", []) == ""
+
+    # Sin OBS abierto, un mensaje que se pueda decir en voz alta y sirva.
+    salida = obs.ejecutar("estado", [], {})
+    assert "OBS" in salida and ("no responde" in salida or "apagado" in salida), salida
+    assert "Traceback" not in salida
+
+    assert "No conozco la accion" in obs.ejecutar("bailar", [], {})
+    assert "Decime a que escena" in obs.ejecutar("escena", [], {})
+
+    # Leer la config de OBS no puede reventar aunque no exista o este rara.
+    assert isinstance(obs._config_obs(), dict)
+
+
+def test_voz_cacheada():
+    """La voz de Piper se carga una vez y las frases repetidas no se regeneran."""
+    from eve import voices
+
+    llamadas = []
+
+    class VozFalsa:
+        def synthesize_wav(self, texto, wav):
+            llamadas.append(texto)
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(22050)
+            wav.writeframes(b"\0\0" * 2205)
+
+    real_load = voices._cargadas
+    voices._cargadas = {"falsa": VozFalsa()}
+    with tempfile.TemporaryDirectory() as raiz:
+        cache_real = voices.CACHE_FRASES
+        voices.CACHE_FRASES = os.path.join(raiz, "frases")
+        try:
+            salida = os.path.join(raiz, "a.wav")
+            voices.hablar("Abriendo Spotify.", "falsa", salida)
+            voices.hablar("Abriendo Spotify.", "falsa", salida)
+            assert len(llamadas) == 2, "sin cache en disco, sintetiza cada vez"
+
+            # Con el cache: se guarda una y la segunda ya no sintetiza.
+            assert voices.frase_cacheada("Abriendo Spotify.", "falsa") == ""
+            voices.guardar_frase("Abriendo Spotify.", "falsa", salida)
+            assert voices.frase_cacheada("Abriendo Spotify.", "falsa") != ""
+            # Insensible a mayusculas y espacios de mas: es la misma frase.
+            assert voices.frase_cacheada("  abriendo spotify.  ", "falsa") != ""
+            # Otra voz es otro audio.
+            assert voices.frase_cacheada("Abriendo Spotify.", "otra") == ""
+
+            # Las frases largas no se guardan: no se repiten y llenan el disco.
+            largo = "x" * 200
+            voices.guardar_frase(largo, "falsa", salida)
+            assert voices.frase_cacheada(largo, "falsa") == ""
+
+            assert voices.limpiar_cache_frases() >= 1
+            assert voices.frase_cacheada("Abriendo Spotify.", "falsa") == ""
+        finally:
+            voices.CACHE_FRASES = cache_real
+            voices._cargadas = real_load
+
+
 def test_perfiles():
     """Un perfil guarda la config entera y se puede volver a ella."""
     with tempfile.TemporaryDirectory() as raiz:

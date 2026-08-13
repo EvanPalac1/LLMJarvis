@@ -149,25 +149,101 @@ def borrar(key: str) -> str:
     return f"Voz {key} borrada." if borrados else f"{key} no estaba instalada."
 
 
+_cargadas: dict = {}
+
+
+def _voz(key: str):
+    """El modelo de Piper, cargado una sola vez por voz.
+
+    Cargarlo cuesta ~2.3 segundos y sintetizar solo 0.24: hacerlo en cada frase
+    era pagar diez veces el trabajo util y dejaba a Piper mas lento que la voz
+    robotica de Windows. Cacheado, es cuatro veces mas rapido que SAPI ademas de
+    sonar mejor.
+    """
+    if key not in _cargadas:
+        from piper import PiperVoice
+
+        modelo = ruta_modelo(key)
+        if not os.path.exists(modelo):
+            raise FileNotFoundError(f"La voz {key} no esta descargada.")
+        _cargadas[key] = PiperVoice.load(modelo)
+    return _cargadas[key]
+
+
+def precargar(key: str) -> None:
+    """Deja la voz lista antes de que haga falta, sin bloquear a nadie."""
+    import threading
+
+    def trabajo():
+        try:
+            _voz(key)
+        except Exception:  # noqa: BLE001 - si no esta, ya se avisara al hablar
+            pass
+
+    threading.Thread(target=trabajo, daemon=True).start()
+
+
 def hablar(texto: str, key: str, salida: str = "") -> str:
     """Sintetiza con Piper y reproduce. Devuelve la ruta del wav."""
     import wave
-
-    from piper import PiperVoice
-
-    modelo = ruta_modelo(key)
-    if not os.path.exists(modelo):
-        raise FileNotFoundError(f"La voz {key} no esta descargada.")
 
     if not salida:
         import tempfile
 
         salida = os.path.join(tempfile.gettempdir(), "eve_piper.wav")
 
-    voz = PiperVoice.load(modelo)
+    voz = _voz(key)
     with wave.open(salida, "wb") as wav:
         voz.synthesize_wav(texto, wav)
     return salida
+
+
+CACHE_FRASES = os.path.join(store.BASE, "frases")
+
+
+def frase_cacheada(texto: str, key: str) -> str:
+    """Wav ya generado para esa frase y esa voz, o '' si no esta.
+
+    Eve dice siempre lo mismo: "Abriendo Spotify", "Listo", "No te entendi". Son
+    pocas y se repiten, asi que guardarlas en disco convierte el sintetizado en
+    una lectura de archivo. Lo caro no era el motor sino generar de nuevo algo
+    identico a lo de ayer.
+    """
+    import hashlib
+
+    firma = hashlib.sha1(f"{key}|{texto.strip().lower()}".encode()).hexdigest()[:16]
+    ruta = os.path.join(CACHE_FRASES, f"{firma}.wav")
+    return ruta if os.path.exists(ruta) else ""
+
+
+def guardar_frase(texto: str, key: str, origen: str) -> None:
+    """Guarda el wav de una frase corta para la proxima vez."""
+    import hashlib
+    import shutil
+
+    if len(texto) > 120:
+        return  # las largas no se repiten; llenar el disco con ellas no paga
+    try:
+        os.makedirs(CACHE_FRASES, exist_ok=True)
+        firma = hashlib.sha1(f"{key}|{texto.strip().lower()}".encode()).hexdigest()[:16]
+        shutil.copy2(origen, os.path.join(CACHE_FRASES, f"{firma}.wav"))
+    except OSError:
+        pass
+
+
+def limpiar_cache_frases() -> int:
+    """Borra los wav guardados. Devuelve cuantos. Al cambiar de voz hay que
+    tirarlos: si no, seguirias escuchando la voz vieja en las frases repetidas."""
+    if not os.path.isdir(CACHE_FRASES):
+        return 0
+    n = 0
+    for archivo in os.listdir(CACHE_FRASES):
+        try:
+            os.remove(os.path.join(CACHE_FRASES, archivo))
+            n += 1
+        except OSError:
+            pass
+    return n
 
 
 def reproducir(ruta: str, progreso=None) -> None:

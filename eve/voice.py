@@ -124,8 +124,43 @@ def transcribe(audio: np.ndarray, cfg: dict) -> str:
         language=cfg["language"],
         initial_prompt=apps.vocabulary(cfg.get("stt_vocabulary", "")),
         vad_filter=True,
+        # Medido sobre una orden tipica: beam 5 tarda 4.4s y beam 1 tarda 3.5s,
+        # con el MISMO texto. La busqueda por haz sirve para dictado largo; una
+        # orden de ocho palabras no cambia de resultado por explorar cinco ramas.
+        beam_size=int(_num(cfg, "stt_beam", 1, 5)),
+        # Cada orden es independiente: arrastrar la anterior como contexto solo
+        # agrega trabajo y le da al modelo una excusa para inventar continuidad.
+        condition_on_previous_text=False,
     )
     return " ".join(s.text for s in segments).strip()
+
+
+def precargar_stt(cfg: dict) -> None:
+    """Deja el modelo de voz cargado y listo, sin transcribir nada.
+
+    Construirlo cuesta ~2.5s. Pagarlo mientras el usuario todavia no hablo es
+    gratis; pagarlo en la primera orden es la diferencia entre parecer lento y
+    no parecerlo. No se transcribe de prueba: cargar alcanza, y correr el modelo
+    de verdad seria trabajo y CPU al pedo justo en el arranque.
+    """
+    global _whisper, _whisper_para
+    if cfg.get("stt_provider") != "faster-whisper":
+        return
+    quiere = (cfg["stt_model"], cfg["stt_device"])
+    if _whisper is not None and _whisper_para == quiere:
+        return
+    from faster_whisper import WhisperModel
+
+    _whisper = WhisperModel(cfg["stt_model"], device=cfg["stt_device"],
+                            compute_type="int8")
+    _whisper_para = quiere
+
+
+def _num(cfg: dict, clave: str, minimo: int, maximo: int) -> int:
+    try:
+        return max(minimo, min(maximo, int(cfg.get(clave, minimo))))
+    except (TypeError, ValueError):
+        return minimo
 
 
 def hasta(texto: str, fraccion: float) -> str:
@@ -171,7 +206,12 @@ def speak(text: str, cfg: dict, progreso=None) -> None:
         avance = None
         if progreso:
             avance = lambda f, nivel: progreso(nivel, hasta(text, f))  # noqa: E731
-        voices.reproducir(voices.hablar(text, clave), avance)
+        # Lo que Eve repite siempre ya esta generado en disco: se lee y suena.
+        ruta = voices.frase_cacheada(text, clave)
+        if not ruta:
+            ruta = voices.hablar(text, clave)
+            voices.guardar_frase(text, clave, ruta)
+        voices.reproducir(ruta, avance)
         return
 
     if not plataforma.WINDOWS:

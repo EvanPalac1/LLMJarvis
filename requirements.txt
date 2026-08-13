@@ -30,3 +30,7 @@ winrt-Windows.UI.Notifications.Management>=3.0; sys_platform == "win32"
 winrt-Windows.Foundation>=3.0; sys_platform == "win32"
 winrt-Windows.Foundation.Collections>=3.0; sys_platform == "win32"
 winrt-Windows.ApplicationModel>=3.0; sys_platform == "win32"
+
+# Addon de OBS: obs-websocket v5 viene dentro de OBS 28+, no hace falta plugin.
+# Solo el cliente, que son ~200 KB.
+websocket-client>=1.6

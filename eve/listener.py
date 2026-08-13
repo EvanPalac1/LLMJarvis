@@ -198,6 +198,29 @@ class Listener:
             self._obrero = threading.Thread(target=self._atender_cola, daemon=True)
             self._obrero.start()
             threading.Thread(target=self._sostener_overlay, daemon=True).start()
+            self._precalentar()
+
+    def _precalentar(self) -> None:
+        """Deja los modelos cargados antes de la primera orden.
+
+        Cargar Piper cuesta ~2.3s y Whisper otro tanto. Pagarlo mientras el
+        usuario todavia no hablo es gratis; pagarlo en la primera orden es la
+        diferencia entre parecer lento y no parecerlo.
+        """
+        if self.cfg.get("tts_provider") == "piper":
+            from . import voices
+
+            clave = self.cfg.get("piper_voice") or (voices.instaladas() or [""])[0]
+            if clave:
+                voices.precargar(clave)
+
+        def whisper():
+            try:
+                voice.precargar_stt(self.cfg)
+            except Exception:  # noqa: BLE001 - si falla, se vera al hablar
+                pass
+
+        threading.Thread(target=whisper, daemon=True).start()
         print(
             f"Listener activo en la tecla '{self.cfg['hotkey']}' "
             f"({plataforma.backend_teclado()}). Manten presionado para hablar."
