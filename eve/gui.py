@@ -89,7 +89,10 @@ class Panel(tk.Tk):
         # el asistente estaba corriendo ni con que motor.
         self.estado = ttk.Label(fila, text="", style="Ayuda.TLabel")
         self.estado.pack(side="left")
-        ttk.Button(fila, text="Guardar", command=self.save).pack(side="right")
+        # Guardar es LA accion de esta ventana: tiene que verse distinta de las
+        # secundarias, no igual. Es lo unico que se destaca en el pie.
+        ttk.Button(fila, text="Guardar", command=self.save,
+                   style="Principal.TButton").pack(side="right")
         ttk.Button(fila, text="Buscar actualizaciones", command=self.buscar_update).pack(
             side="right", padx=(0, 6)
         )
@@ -139,6 +142,8 @@ class Panel(tk.Tk):
         s.configure("Seccion.TLabelframe.Label", font=(base[0], base[1], "bold"))
         s.configure("TNotebook.Tab", padding=(14, 7))
         s.configure("TButton", padding=(10, 4))
+        s.configure("Principal.TButton", padding=(18, 5),
+                    font=(base[0], base[1], "bold"))
 
         self._base_fuente = base
         self.repintar()
@@ -455,11 +460,61 @@ class Panel(tk.Tk):
         plataforma.abrir(addons.CARPETA_USUARIO)
 
     def _tab_apariencia(self, nb):
-        return self._componer(
-            nb, "Apariencia",
-            "Los colores de todo, y el cartel que Eve muestra encima de lo que estes haciendo.",
-            [self._bloque_tema, self._bloque_hud, self._bloque_subtitulos],
-        )
+        """Apariencia se divide en sub-pestañas.
+
+        Habia diez secciones apiladas en un solo scroll: para cambiar el tamaño
+        de los subtitulos habia que pasar por delante de todo lo demas. Partirla
+        en cuatro pantallas cortas hace que cada una entre sin scrollear y que
+        se llegue en dos clics en vez de en un viaje.
+        """
+        marco = ttk.Frame(nb)
+        cab = ttk.Frame(marco)
+        cab.pack(fill="x", padx=PAD, pady=(PAD, 2))
+        ttk.Label(cab, text="Apariencia", style="Titulo.TLabel").pack(anchor="w")
+        ttk.Label(cab, text="Los colores de todo, y el cartel que Eve muestra "
+                            "encima de lo que estes haciendo.",
+                  style="Ayuda.TLabel").pack(anchor="w")
+
+        # La vista previa vive arriba y no adentro de una sub-pestaña: es la
+        # respuesta a lo que estas tocando, y tiene que verse toques lo que
+        # toques. Metida en "Tema", ajustar el marco era a ciegas.
+        self._pintor = None
+        self._filas_color = []
+        caja = ttk.Frame(marco)
+        caja.pack(fill="x", padx=PAD, pady=(8, 0))
+        self.previa = tk.Canvas(caja, width=460, height=128, highlightthickness=0)
+        self.previa.pack()
+
+        sub = ttk.Notebook(marco)
+        sub.pack(fill="both", expand=True, padx=PAD, pady=(8, PAD))
+        for titulo, bloques in (
+            ("Tema", [self._bloque_tema]),
+            ("Cartel", [self._bloque_hud]),
+            ("Subtitulos", [self._bloque_subtitulos]),
+        ):
+            sub.add(self._hoja_simple(sub, bloques), text=f"  {titulo}  ")
+        return marco
+
+    def _hoja_simple(self, padre, bloques):
+        """Contenido con scroll, sin encabezado propio: ya lo puso la pestaña."""
+        marco = ttk.Frame(padre)
+        lienzo = tk.Canvas(marco, highlightthickness=0, borderwidth=0)
+        barra = ttk.Scrollbar(marco, orient="vertical", command=lienzo.yview)
+        dentro = ttk.Frame(lienzo)
+        ventana = lienzo.create_window((0, 0), window=dentro, anchor="nw")
+
+        def ajustar(_e=None):
+            lienzo.configure(scrollregion=lienzo.bbox("all"))
+            lienzo.itemconfigure(ventana, width=lienzo.winfo_width())
+
+        dentro.bind("<Configure>", ajustar)
+        lienzo.bind("<Configure>", ajustar)
+        lienzo.configure(yscrollcommand=barra.set)
+        lienzo.pack(side="left", fill="both", expand=True, pady=8)
+        barra.pack(side="right", fill="y", pady=8)
+        for bloque in bloques:
+            bloque(dentro).pack(fill="both", expand=True)
+        return marco
 
     def _tab_actividad(self, nb):
         return self._componer(
@@ -1217,6 +1272,7 @@ class Panel(tk.Tk):
         entrada = ttk.Entry(fila, textvariable=var, width=12)
         entrada.pack(side="left")
         muestra = tk.Label(fila, width=4, relief="solid", borderwidth=1)
+        muestra._eve_color_propio = True  # el repintado del tema no la toca
         muestra.pack(side="left", padx=6)
 
         def repintar(*_a):
@@ -1241,15 +1297,7 @@ class Panel(tk.Tk):
     def _bloque_tema(self, nb):
         from . import tema
 
-        self._pintor = None
-        self._filas_color = []
         t = ttk.Frame(nb)
-
-        caja = self._seccion(t, "Vista previa")
-        self.previa = tk.Canvas(caja, width=460, height=128, highlightthickness=0)
-        self.previa.pack(padx=12, pady=(8, 4))
-        self._ayuda(caja, "Asi se ve el cartel. La escala real se aplica en pantalla.")
-
         caja = self._seccion(t, "Colores del panel")
         self._row(caja, "Tema", "ui_tema", tema.NOMBRES)
         self._check(caja, "Pintar tambien este panel con el tema", "ui_pintar_panel")
@@ -1446,6 +1494,7 @@ class Panel(tk.Tk):
         self.vars[clave] = var
         ttk.Entry(fila, textvariable=var, width=12).pack(side="left")
         muestra = tk.Label(fila, width=4, relief="solid", borderwidth=1)
+        muestra._eve_color_propio = True  # el repintado del tema no la toca
         muestra.pack(side="left", padx=6)
 
         def repintar(*_a):

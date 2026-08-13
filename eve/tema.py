@@ -85,6 +85,23 @@ def _color_valido(valor: str) -> bool:
     return all(c in "0123456789abcdefABCDEF" for c in valor[1:])
 
 
+def luminancia(color: str) -> float:
+    """0 (negro) a 1 (blanco), con los pesos con que el ojo ve cada canal."""
+    r, g, b = _rgb(color)
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+
+
+def contraste(color: str) -> str:
+    """Un color que se lea ENCIMA del que le pases: negro o blanco.
+
+    Para el halo del texto del cartel hay que calcularlo y no tomarlo de un rol
+    fijo: si alguien deja el rol `fondo` en el default oscuro y pinta el panel de
+    violeta, un halo tomado de `fondo` dibuja manchas negras alrededor de cada
+    letra. Lo que tiene que contrastar es con el texto, no con la paleta.
+    """
+    return "#000000" if luminancia(color) > 0.5 else "#101014"
+
+
 def mezclar(uno: str, otro: str, cuanto: float) -> str:
     """Interpola dos colores. `cuanto` 0 devuelve `uno`, 1 devuelve `otro`.
 
@@ -158,7 +175,13 @@ def repintar_tk(widget, paleta: dict) -> None:
 
     Canvas, Text, Listbox, Frame de tk puro y los Toplevel tienen su color
     propio y el motor de estilos no los toca nunca. Se recorren a mano.
+
+    Se saltea lo marcado con `_eve_color_propio`: las muestras del selector de
+    color SON su color, y pintarlas con el del tema las dejaba todas iguales y
+    vacias, que es justo lo contrario de para lo que estan.
     """
+    if getattr(widget, "_eve_color_propio", False):
+        return
     opciones = {
         "background": paleta["fondo"],
         "bg": paleta["fondo"],
@@ -204,6 +227,13 @@ def aplicar_ttk(style, paleta: dict) -> None:
     style.map("TButton",
               background=[("active", borde), ("pressed", acento)],
               foreground=[("pressed", fondo)])
+    # La accion principal va con el acento de fondo: se distingue por color Y
+    # por peso de letra, no solo por color, que es lo que pide accesibilidad.
+    style.configure("Principal.TButton", background=acento,
+                    foreground=contraste(texto), bordercolor=acento)
+    style.map("Principal.TButton",
+              background=[("active", mezclar(acento, texto, 0.2)),
+                          ("pressed", mezclar(acento, fondo, 0.3))])
     style.configure("TEntry", fieldbackground=panel, foreground=texto,
                     insertcolor=texto, bordercolor=borde)
     style.configure("TCombobox", fieldbackground=panel, background=panel,

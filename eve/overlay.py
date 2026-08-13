@@ -26,6 +26,7 @@ CUADRO = 33          # ms entre cuadros, ~30 por segundo
 CADA_LECTURA = 3     # leer el estado 1 de cada N cuadros: 10 Hz alcanza
 MUESTRAS = 56        # barras de la onda
 DESVANECER = 2.5     # segundos sin actividad antes de esconderse en modo auto
+TOLERANCIA = 8.0     # cuanto se aguanta sin señal antes de darla por vieja
 
 ANCHO, ALTO = 460, 128   # a escala 100
 
@@ -217,9 +218,11 @@ class Pintor:
             self._icono(c, cx, cy, alto_icono / 2, activo=estado != "reposo")
             x = 26 * e + alto_icono + 22 * e
         _texto(c, x, self.alto * 0.30, titulo.upper(), p["acento"],
-               (self.fuente, int(19 * e), "bold"), p["fondo"], anchor="w")
+               (self.fuente, int(19 * e), "bold"), tema.contraste(p["acento"]),
+               anchor="w")
         _texto(c, x, self.alto * 0.50, linea2, p["texto_tenue"],
-               (self.fuente, int(10 * e)), p["fondo"], anchor="w")
+               (self.fuente, int(10 * e)), tema.contraste(p["texto_tenue"]),
+               anchor="w")
         self._onda(c, x, self.alto * 0.74, self.ancho - x - 22 * e, 30 * e)
 
     # --- piezas ------------------------------------------------------------
@@ -239,12 +242,12 @@ class Pintor:
             c.create_rectangle(m, m, w - m, h - m, fill=p["panel"], outline="")
 
         # Las formas con esquinas cortadas se tapan por fuera. Un canvas no sabe
-        # recortar una imagen contra un poligono, asi que se pinta lo que sobra:
-        # con el color de fondo, o con el magico si se pidio recortar de verdad,
-        # y ahi las esquinas dejan ver el escritorio.
+        # recortar una imagen contra un poligono, asi que se pinta lo que sobra
+        # del mismo color que el lienzo, o con el magico si se pidio recortar de
+        # verdad, y ahi las esquinas dejan ver el escritorio.
         corte = 14 * e if tipo == "hexagonal" else 16 * e
         if tipo in ("hexagonal", "biselado"):
-            sobrante = MAGICO if self.cfg.get("hud_forma") == "recortado" else p["fondo"]
+            sobrante = MAGICO if self.cfg.get("hud_forma") == "recortado" else p["panel"]
             esquinas = [((m, m), (m + corte, m), (m, m + corte)),
                         ((w - m, h - m), (w - m - corte, h - m), (w - m, h - m - corte))]
             if tipo == "hexagonal":
@@ -298,13 +301,13 @@ class Pintor:
             return
         if lados < 3:
             c.create_oval(cx - r, cy - r, cx + r, cy + r,
-                          outline=color, width=grosor, fill=p["fondo"])
+                          outline=color, width=grosor, fill=p["panel"])
         else:
             puntos = marco(cx, cy, r, lados, rotacion)
             # smooth=True redondea los vertices con splines: es el "radio de
             # esquina" gratis, sin calcular ni un arco. splinesteps regula
             # cuanto se redondea.
-            c.create_polygon(puntos, outline=color, width=grosor, fill=p["fondo"],
+            c.create_polygon(puntos, outline=color, width=grosor, fill=p["panel"],
                              smooth=redondeo > 0,
                              splinesteps=max(1, redondeo * 3))
 
@@ -367,7 +370,7 @@ class Hud(Ventana):
         # que el cartel deja de ser un rectangulo y se ve solo su forma.
         recortado = cfg.get("hud_forma") == "recortado"
         self.transparente(MAGICO if recortado else "")
-        self.lienzo.configure(bg=MAGICO if recortado else paleta["fondo"])
+        self.lienzo.configure(bg=MAGICO if recortado else paleta["panel"])
 
     def avanzar(self, objetivo: float) -> None:
         self.pintor.avanzar(objetivo)
@@ -395,7 +398,7 @@ class Subtitulos(Ventana):
         self.ancho = int(ANCHO * self.esc)
         self.alto = self._alto_de(self.lineas)
         self.attributes("-alpha", _num(cfg, "sub_opacidad", 10, 100) / 100)
-        self.lienzo.configure(bg=paleta["fondo"])
+        self.lienzo.configure(bg=paleta["panel"])
         # Alto maximo: el texto puede crecer, y recargar la imagen cada vez que
         # cambia un renglon costaria mas que dibujarla un poco mas grande.
         self.fondo.aplicar(
@@ -454,7 +457,7 @@ class Subtitulos(Ventana):
         y = 8 * self.esc
         for texto, color in filas:
             item = _texto(c, margen, y, texto, color, (self.fuente, self.tam),
-                          p["fondo"], anchor="nw", width=ancho_texto)
+                          tema.contraste(color), anchor="nw", width=ancho_texto)
             # Cuantos renglones ocupa no se sabe hasta dibujarlo. Si no entra, se
             # sacan palabras del principio: en un subtitulo importa el final.
             palabras = texto.split()
@@ -479,6 +482,7 @@ class Overlay:
         self.hud = Hud(self.raiz, self.cfg, self.paleta)
         self.sub = Subtitulos(self.raiz, self.cfg, self.paleta)
         self.visible = False
+        self._sub_visible = True  # nacen mapeadas; ver _mostrar
         self.nacio = time.time()
         self.ultimo_activo = 0.0
         self.cuadro = 0
@@ -591,6 +595,7 @@ class Overlay:
         self.visible = si
         for v in (self.hud, self.sub):
             (v.deiconify if si else v.withdraw)()
+        self._sub_visible = si
         if si:
             self.hud.fantasma(not self.cfg.get("overlay_mover"))
             self.sub.fantasma(not self.cfg.get("overlay_mover"))
@@ -598,7 +603,11 @@ class Overlay:
     def tick(self) -> None:
         self.cuadro += 1
         if self.cuadro % CADA_LECTURA == 0:
-            self.estado = store.estado_overlay() or {}
+            # Margen amplio a proposito. El listener manda un pulso por segundo,
+            # pero si se traba un momento sintetizando o esperando al modelo, un
+            # margen corto hacia desaparecer el cartel en mitad de la respuesta.
+            # Que Eve se haya ido de verdad ya lo cubre _sobra() con el latido.
+            self.estado = store.estado_overlay(max_edad=TOLERANCIA) or {}
             self._releer_config()
         if self.cuadro % 30 == 0 and store.toca_salir_overlay():
             # Se lo pidio el actualizador o el asistente al salir.
@@ -636,10 +645,13 @@ class Overlay:
             if self.sub.alto != alto_previo:
                 self._ubicar()  # el texto envuelto cambio de alto
             self.sub.fantasma(not moviendo)
-            if hay or moviendo:
-                self.sub.deiconify()
-            else:
-                self.sub.withdraw()
+            # Solo cuando cambia. Llamar deiconify/withdraw en cada cuadro son 30
+            # ShowWindow por segundo sobre una ventana que ya estaba como se
+            # queria: parpadea y deja el cartel yendo y viniendo.
+            quiere_sub = bool(hay or moviendo)
+            if quiere_sub != self._sub_visible:
+                self._sub_visible = quiere_sub
+                (self.sub.deiconify if quiere_sub else self.sub.withdraw)()
 
         self.raiz.after(CUADRO, self.tick)
 

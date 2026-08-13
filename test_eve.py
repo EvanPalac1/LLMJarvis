@@ -1267,6 +1267,39 @@ def test_salida_del_overlay():
             store.OVERLAY_VIVO_PATH, store.OVERLAY_SALIR_PATH = reales
 
 
+def test_colores_del_cartel():
+    """El cartel no puede pintar con el color de fondo de la app.
+
+    Con un tema donde el usuario define 'panel' pero deja 'fondo' en el default
+    oscuro, usar 'fondo' para el icono, el halo y el lienzo dibujaba bloques
+    casi negros encima de la tarjeta. Lo que asoma tiene que ser la tarjeta.
+    """
+    from eve import tema
+
+    # El halo se calcula contra el color del texto, no sale de un rol fijo.
+    assert tema.contraste("#ffffff") == "#000000", "texto claro -> halo oscuro"
+    assert tema.contraste("#f0f0f0") == "#000000"
+    assert tema.luminancia("#000000") == 0
+    assert abs(tema.luminancia("#ffffff") - 1) < 1e-9  # los pesos no suman exacto
+    assert abs(tema.luminancia("#808080") - 0.5) < 0.03
+    oscuro = tema.contraste("#101010")
+    assert oscuro != "#000000", "texto oscuro no lleva halo negro encima"
+
+    # Un tema a medio definir: solo 'panel'. Los demas caen al preset.
+    paleta = tema.resolver({"ui_tema": "personalizado", "ui_color_panel": "#400080"})
+    assert paleta["panel"] == "#400080"
+    assert paleta["fondo"] == tema.PALETAS[tema.BASE_PERSONALIZADO]["fondo"]
+
+    # Y el dibujo del cartel no puede usar 'fondo' en ningun relleno.
+    import re
+
+    with open(os.path.join(os.path.dirname(__file__), "eve", "overlay.py"),
+              encoding="utf-8") as f:
+        fuente = f.read()
+    rellenos = re.findall(r'fill=p\["(\w+)"\]', fuente)
+    assert "fondo" not in rellenos, f"el cartel rellena con 'fondo': {rellenos}"
+
+
 def test_marco_y_degradado():
     """El marco parametrico y el degradado generado."""
     from PIL import Image
