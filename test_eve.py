@@ -1158,6 +1158,37 @@ def test_perfiles_compartir():
             store.PERFILES_PATH, store.CONFIG_PATH = reales
 
 
+def test_salida_del_overlay():
+    """Pedirle al cartel que se cierre. Sin esto el instalador se traba.
+
+    El cartel corre desde el mismo .exe que el asistente, asi que si sigue vivo
+    el instalador no puede reemplazar el archivo y se queda pidiendo que cierres
+    las aplicaciones a mano.
+    """
+    with tempfile.TemporaryDirectory() as raiz:
+        reales = store.OVERLAY_VIVO_PATH, store.OVERLAY_SALIR_PATH
+        store.OVERLAY_VIVO_PATH = os.path.join(raiz, "vivo.json")
+        store.OVERLAY_SALIR_PATH = os.path.join(raiz, "salir")
+        try:
+            # Sin cartel corriendo no hay nada que esperar.
+            assert store.pedir_salida_overlay(esperar=0.5) is True
+            assert not os.path.exists(store.OVERLAY_SALIR_PATH)
+            assert store.toca_salir_overlay() is False
+
+            # Con uno vivo, se deja la señal y se espera.
+            with open(store.OVERLAY_VIVO_PATH, "w", encoding="utf-8") as f:
+                json.dump({"ts": time.time(), "pid": os.getpid() + 1}, f)
+            assert store.pedir_salida_overlay(esperar=0.6) is False, "no se cerro solo"
+            assert os.path.exists(store.OVERLAY_SALIR_PATH), "quedo la señal"
+
+            # El cartel la consume una sola vez.
+            assert store.toca_salir_overlay() is True
+            assert store.toca_salir_overlay() is False
+            assert not os.path.exists(store.OVERLAY_SALIR_PATH)
+        finally:
+            store.OVERLAY_VIVO_PATH, store.OVERLAY_SALIR_PATH = reales
+
+
 def test_marco_y_degradado():
     """El marco parametrico y el degradado generado."""
     from PIL import Image

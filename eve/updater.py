@@ -143,6 +143,12 @@ def instalar(ruta: str) -> str:
     y conserva los datos de %APPDATA%. Eve tiene que salir para liberar el .exe:
     de eso se encarga quien llama, cerrando la bandeja despues de esto.
     """
+    # El cartel corre desde el mismo .exe: si sigue vivo, el instalador no puede
+    # reemplazarlo y se traba en "no pude cerrar todas las aplicaciones".
+    from . import store
+
+    store.pedir_salida_overlay()
+
     if plataforma.WINDOWS:
         # /SILENT muestra la barra pero no vuelve a preguntar lo ya elegido.
         # Sin CREATE_NO_WINDOW a proposito: el instalador tiene que verse.

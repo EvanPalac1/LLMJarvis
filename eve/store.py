@@ -665,6 +665,43 @@ def overlay_presente() -> None:
     _escribir_señal(OVERLAY_VIVO_PATH, {})
 
 
+OVERLAY_SALIR_PATH = os.path.join(BASE, "overlay-salir")
+
+
+def pedir_salida_overlay(esperar: float = 3.0) -> bool:
+    """Le pide al overlay que se cierre y espera a que lo haga.
+
+    Hace falta antes de instalar una actualizacion: el overlay corre desde el
+    mismo .exe que el asistente, y si sigue vivo el instalador no puede
+    reemplazarlo y se traba pidiendo que cierres las aplicaciones a mano.
+    Tambien sirve al salir, para que el cartel se vaya en el acto.
+    """
+    if not os.path.exists(OVERLAY_VIVO_PATH):
+        return True
+    try:
+        with open(OVERLAY_SALIR_PATH, "w", encoding="utf-8") as f:
+            f.write(str(time.time()))
+    except OSError:
+        return False
+    limite = time.time() + esperar
+    while time.time() < limite:
+        if not overlay_ya_corre(max_edad=2.0):
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def toca_salir_overlay() -> bool:
+    """Lo consulta el overlay. Consume la señal para no repetirla."""
+    if not os.path.exists(OVERLAY_SALIR_PATH):
+        return False
+    try:
+        os.remove(OVERLAY_SALIR_PATH)
+    except OSError:
+        pass
+    return True
+
+
 def latir(datos: dict) -> None:
     """El asistente deja señales de vida para que el panel sepa si esta vivo."""
     datos = {**datos, "ts": time.time(), "pid": os.getpid()}

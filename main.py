@@ -183,11 +183,12 @@ def main() -> int:
         icono.run()  # bloquea hasta 'Salir'
     finally:
         # Sin esto el panel cree que el asistente sigue vivo hasta que el latido
-        # caduque.
+        # caduque, y el cartel se queda en pantalla otro rato.
         try:
             os.remove(store.LATIDO_PATH)
         except OSError:
             pass
+        store.pedir_salida_overlay(esperar=2.0)
     return 0
 
 

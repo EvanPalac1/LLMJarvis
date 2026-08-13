@@ -485,7 +485,13 @@ class Overlay:
         self.estado = {}
         self.mtime_cfg = self._mtime()
         self.arrastre = None
+        # Que un pedido de cierre de afuera funcione: el Administrador de
+        # reinicio de Windows, que es lo que usa el instalador para cerrar las
+        # apps antes de reemplazar sus archivos, manda WM_CLOSE a las ventanas.
+        # Sin esto el instalador se trababa pidiendo cerrar Eve a mano.
+        self.raiz.protocol("WM_DELETE_WINDOW", self.raiz.quit)
         for v in (self.hud, self.sub):
+            v.protocol("WM_DELETE_WINDOW", self.raiz.quit)
             v.lienzo.bind("<Button-1>", self._agarrar)
             v.lienzo.bind("<B1-Motion>", self._mover)
             v.lienzo.bind("<ButtonRelease-1>", self._soltar)
@@ -594,6 +600,10 @@ class Overlay:
         if self.cuadro % CADA_LECTURA == 0:
             self.estado = store.estado_overlay() or {}
             self._releer_config()
+        if self.cuadro % 30 == 0 and store.toca_salir_overlay():
+            # Se lo pidio el actualizador o el asistente al salir.
+            self.raiz.quit()
+            return
         if self.cuadro % 60 == 0:
             store.overlay_presente()
             if self._sobra():
