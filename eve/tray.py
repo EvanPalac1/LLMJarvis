@@ -109,32 +109,48 @@ def build(listener) -> pystray.Icon:
 
         _en_hilo(icon, trabajo)
 
-    def perfiles():
-        """Submenu para cambiar de perfil sin abrir el panel.
+    def _item_perfil(nombre: str):
+        """Arma el item de un perfil.
 
-        Se arma cada vez que se despliega el menu (pystray llama al generador),
-        asi aparecen los perfiles nuevos sin reiniciar la bandeja.
+        El nombre se captura con una fabrica y NO con un parametro por defecto:
+        pystray cuenta los argumentos del callback y rechaza cualquiera con mas
+        de dos, asi que un `def cambiar(icon, item, nombre=nombre)` levanta
+        ValueError y se lleva puesto el arranque entero de la bandeja.
         """
         from . import store
 
-        for nombre in sorted(store.listar_perfiles()):
-            def cambiar(icon, item, nombre=nombre):
-                def trabajo(icon):
-                    try:
-                        store.aplicar_perfil(nombre)
-                        # No se llama a listener.restart(): el watcher de
-                        # config.json lo hace solo, y asi hay un unico camino.
-                        _avisar(icon, f"Perfil {nombre} aplicado.", "Perfiles")
-                    except (ValueError, OSError) as exc:
-                        _avisar(icon, str(exc)[:200], "No pude cambiar de perfil")
+        def cambiar(icon, item):
+            def trabajo(icon):
+                try:
+                    store.aplicar_perfil(nombre)
+                    # No se llama a listener.restart(): el watcher de
+                    # config.json lo hace solo, y asi hay un unico camino.
+                    _avisar(icon, f"Perfil {nombre} aplicado.", "Perfiles")
+                except (ValueError, OSError) as exc:
+                    _avisar(icon, str(exc)[:200], "No pude cambiar de perfil")
 
-                _en_hilo(icon, trabajo)
+            _en_hilo(icon, trabajo)
 
-            yield pystray.MenuItem(
-                nombre, cambiar,
-                checked=lambda _i, nombre=nombre: listener.cfg.get("perfil_activo") == nombre,
-                radio=True,
-            )
+        def marcado(_item):
+            return listener.cfg.get("perfil_activo") == nombre
+
+        return pystray.MenuItem(nombre, cambiar, checked=marcado, radio=True)
+
+    def perfiles():
+        """Submenu para cambiar de perfil sin abrir el panel.
+
+        Se arma cada vez que se despliega el menu, asi aparecen los perfiles
+        nuevos sin reiniciar la bandeja. Devuelve una tupla y no un generador:
+        pystray recorre los items mas de una vez y un generador ya agotado
+        dejaria el submenu vacio la segunda.
+        """
+        from . import store
+
+        guardados = sorted(store.listar_perfiles())
+        if not guardados:
+            return (pystray.MenuItem("(no hay perfiles guardados)",
+                                     lambda: None, enabled=False),)
+        return tuple(_item_perfil(n) for n in guardados)
 
     menu = pystray.Menu(
         pystray.MenuItem("Abrir panel", lambda: open_panel(), default=True),

@@ -1180,6 +1180,57 @@ def test_perfiles():
             store.CONFIG_PATH, store.PERFILES_PATH = reales
 
 
+def test_menu_bandeja():
+    """El menu de la bandeja tiene que armarse, con y sin perfiles guardados.
+
+    Este test existe por un crash real: pystray cuenta los argumentos de cada
+    callback y rechaza los de mas de dos, asi que capturar el nombre del perfil
+    con `def cambiar(icon, item, nombre=nombre)` tiraba ValueError y se llevaba
+    puesto el arranque entero. Solo pasaba con al menos un perfil guardado, que
+    es justo lo que no se estaba probando.
+    """
+    from eve import plataforma
+
+    if not plataforma.WINDOWS:
+        print("    (salteado: pystray necesita bandeja)")
+        return
+
+    from eve import tray
+
+    class ListenerFalso:
+        cfg = {"assistant_name": "Eve", "hotkey": "f12", "perfil_activo": "juego"}
+        paused = False
+        eve = None
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.PERFILES_PATH
+        store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+        try:
+            # Sin perfiles: el submenu no puede quedar vacio ni romper.
+            icono = tray.build(ListenerFalso())
+            perfiles = [i for i in icono.menu if i.text == "Perfiles"][0]
+            assert len(list(perfiles.submenu)) == 1
+            assert not list(perfiles.submenu)[0].enabled, "el aviso no es clickeable"
+
+            # Con perfiles: uno por cada uno, y el activo marcado.
+            store.guardar_perfil("juego", dict(store.DEFAULTS))
+            store.guardar_perfil("trabajo", dict(store.DEFAULTS))
+            icono = tray.build(ListenerFalso())
+            perfiles = [i for i in icono.menu if i.text == "Perfiles"][0]
+            nombres = [s.text for s in perfiles.submenu]
+            assert nombres == ["juego", "trabajo"], nombres
+            assert [s.text for s in perfiles.submenu] == nombres, \
+                "recorrerlo dos veces tiene que dar lo mismo, no vaciarse"
+            marcados = [s.text for s in perfiles.submenu if s.checked]
+            assert marcados == ["juego"], marcados
+
+            # Y todos los items de arriba se construyen sin excepcion.
+            assert [i.text for i in icono.menu][0] == "Abrir panel"
+            assert "Salir" in [i.text for i in icono.menu]
+        finally:
+            store.PERFILES_PATH = real
+
+
 def test_perfiles_compartir():
     """Exportar e importar un perfil, sin filtrar claves ni datos personales."""
     with tempfile.TemporaryDirectory() as raiz:
