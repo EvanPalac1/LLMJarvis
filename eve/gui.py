@@ -624,9 +624,10 @@ class Panel(tk.Tk):
                    command=self._perfil_importar).pack(side="left", padx=6)
         self._ayuda(
             caja,
-            "Un perfil guarda TODA la configuracion de golpe: motor, tecla, permisos,\n"
-            "voz y aspecto. Sirve para tener uno para jugar y otro para trabajar.\n"
-            "La posicion del cartel no entra: esa es de tu pantalla, no de tu modo.",
+            "Un perfil guarda como se ve y como suena Eve: colores, forma, fuente,\n"
+            "voz, velocidad, tono y el nombre del asistente.\n"
+            "NO toca el motor, el modelo, la tecla, los permisos ni tus datos: un\n"
+            "perfil que te pasan no puede cambiarte como trabaja el asistente.",
         )
         return t
 
@@ -699,8 +700,13 @@ class Panel(tk.Tk):
     def _perfil_importar(self):
         from tkinter import filedialog, simpledialog
 
+        # Arranca en los perfiles que vienen con el programa. Sin esto el dialogo
+        # abre donde haya quedado la ultima vez y los ocho de ejemplo son
+        # invisibles en la practica: nadie sale a buscarlos dentro de _internal.
+        ejemplos = os.path.join(plataforma.recursos(), "perfiles")
         ruta = filedialog.askopenfilename(
             title="Importar perfil", parent=self,
+            initialdir=ejemplos if os.path.isdir(ejemplos) else None,
             filetypes=[("Perfil de Eve", "*.eveperfil"), ("Todos", "*.*")],
         )
         if not ruta:

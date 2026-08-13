@@ -78,6 +78,10 @@ def _construir(nombre: str, ventana: bool, extra: list[str]) -> None:
         "--noconsole" if ventana else "--console",
         # EVE.md se lee en cada llamada al modelo: tiene que viajar con el binario.
         "--add-data", f"{os.path.join(RAIZ, 'EVE.md')}{sep}.",
+        # Los perfiles de ejemplo. Sin esto existen en el repositorio y no en la
+        # version instalada, que es justo la que los necesita: quien instala no
+        # clona el repo para conseguir un tema.
+        "--add-data", f"{os.path.join(RAIZ, 'perfiles')}{sep}perfiles",
     ]
     for m in OCULTOS:
         cmd += ["--hidden-import", m]

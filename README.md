@@ -162,19 +162,37 @@ los parlantes y el contexto de la conversacion.
 
 ### Perfiles
 
-Un perfil guarda **toda** la configuracion de golpe: motor, tecla, permisos, voz y
-aspecto. Sirve para tener uno para jugar (cartel siempre visible, permitir todo) y otro
-para trabajar (cartel discreto, que pregunte antes de romper algo).
+Un perfil guarda **como se ve y como suena** Eve: colores, forma del cartel, fuente, voz,
+velocidad de habla, tono de personalidad y el nombre del asistente. Sirve para tener uno
+para jugar (cartel siempre visible, voz rapida) y otro para trabajar (cartel discreto,
+tono seco).
+
+Lo que un perfil **no** puede tocar, aunque te lo pase otra persona:
+
+| Queda afuera | Por que |
+|---|---|
+| Motor y modelo | Elegir un tema no tiene por que bajarte de Opus a un modelo local |
+| Tecla y permisos | Cargar un tema no puede apagarte el freno de acciones destructivas |
+| Mail, Discord, Steam, carpetas | Son tuyos, no del modo de trabajo |
+| Posicion del cartel | Es de tu pantalla, no de tu modo |
+
+No es una lista de exclusiones sino al reves: `store.perfilable()` define lo que **si**
+entra, asi que una opcion nueva del programa no empieza a viajar dentro de los perfiles
+sola. Antes era al reves, y por eso cargar un perfil viejo te devolvia los datos de
+contacto que tenias cuando lo guardaste.
 
 Se manejan en **General > Perfiles**, y se cambia sin abrir el panel desde la bandeja
-(clic derecho > Perfiles). La posicion del cartel no entra en el perfil: esa es de tu
-pantalla, no de tu modo de trabajo.
+(clic derecho > Perfiles).
 
 **Exportar e importar** deja pasarle un perfil a otra persona (`.eveperfil`). No viajan ni
 tus claves de API ni tus datos personales: las claves viven en el gestor de credenciales
-del sistema y nunca estuvieron en la config, y el mail, el SteamID, el nombre que le
-pusiste a tu asistente y tus carpetas permitidas se sacan al exportar. Al importar, las
-claves que este programa no conoce se descartan en vez de entrar.
+del sistema y nunca estuvieron en la config, y el mail, el SteamID y tus carpetas
+permitidas se sacan al exportar. Al importar, las claves que este programa no conoce se
+descartan en vez de entrar.
+
+Vienen **ocho perfiles de ejemplo** en la carpeta `perfiles/` (y con el programa
+instalado, en `perfiles` al lado del ejecutable). El boton **Importar** los abre ahi
+directamente.
 
 ---
 
