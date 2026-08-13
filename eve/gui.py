@@ -172,6 +172,35 @@ class Panel(tk.Tk):
         # Y lo que no pasa por ttk.Style se recorre a mano.
         tema_mod.repintar_tk(self, paleta)
 
+    def _rueda(self, lienzo, dentro) -> None:
+        """La rueda del mouse mueve el area que tenes debajo del puntero.
+
+        Antes esto era un `bind_all`, que es global a la ventana: con pestañas
+        adentro de pestañas, todos los canvas escuchaban el mismo evento y el
+        ultimo en registrarse se quedaba con la rueda, asi que en el resto no
+        pasaba nada. Ahora cada area toma la rueda solo mientras el puntero
+        esta encima, y la suelta al salir.
+        """
+        def mover(evento):
+            # delta es 120 por muesca en Windows; en Linux llegan Button-4/5.
+            paso = -1 if getattr(evento, "num", 0) == 4 else 1
+            if getattr(evento, "delta", 0):
+                paso = -evento.delta // 120
+            lienzo.yview_scroll(paso, "units")
+            return "break"
+
+        def tomar(_e=None):
+            for evento in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                lienzo.bind_all(evento, mover)
+
+        def soltar(_e=None):
+            for evento in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                lienzo.unbind_all(evento)
+
+        for widget in (lienzo, dentro):
+            widget.bind("<Enter>", tomar)
+            widget.bind("<Leave>", soltar)
+
     BANNER_ALTO = 76
 
     def _banner_en(self, marco) -> None:
@@ -229,7 +258,7 @@ class Panel(tk.Tk):
 
         dentro.bind("<Configure>", ajustar)
         lienzo.bind("<Configure>", ajustar)
-        lienzo.bind_all("<MouseWheel>", lambda e: lienzo.yview_scroll(-e.delta // 120, "units"))
+        self._rueda(lienzo, dentro)
         lienzo.configure(yscrollcommand=barra.set)
         lienzo.pack(side="left", fill="both", expand=True, padx=(PAD, 0), pady=PAD)
         barra.pack(side="right", fill="y", pady=PAD)
@@ -510,6 +539,7 @@ class Panel(tk.Tk):
         dentro.bind("<Configure>", ajustar)
         lienzo.bind("<Configure>", ajustar)
         lienzo.configure(yscrollcommand=barra.set)
+        self._rueda(lienzo, dentro)
         lienzo.pack(side="left", fill="both", expand=True, pady=8)
         barra.pack(side="right", fill="y", pady=8)
         for bloque in bloques:
@@ -1321,15 +1351,11 @@ class Panel(tk.Tk):
         for clave in ("ui_fuente", "ui_fuente_tam", "hud_fuente", "sub_fuente"):
             self.vars[clave].trace_add("write", self._previa_redibujar)
 
-        caja = self._seccion(t, "Colores del cartel")
-        self._ayuda(
-            caja,
-            "El cartel puede tener su propio tema. Dejalo vacio y usa el del panel.",
-        )
-        self._row(caja, "Tema del cartel", "hud_tema", ["", *tema.NOMBRES])
-        for rol, etiqueta in ROLES_ETIQUETA:
-            self._fila_color(caja, "hud", rol, etiqueta)
-        self.vars["hud_tema"].trace_add("write", self._previa_redibujar)
+        # Los ocho colores del cartel se sacaron de aca: eran una segunda tanda
+        # identica a la de arriba, y para lo unico que servian era para que el
+        # cartel se viera distinto del panel, que ya se resuelve eligiendole
+        # otro tema. Las claves hud_color_* siguen andando si alguien las edita
+        # a mano; lo que se fue es la pared de campos repetidos.
 
         caja = self._seccion(t, "Cabecera del panel")
         fila = ttk.Frame(caja)
@@ -1366,9 +1392,15 @@ class Panel(tk.Tk):
         return t
 
     def _bloque_hud(self, nb):
+        from . import tema
+
         t = ttk.Frame(nb)
         caja = self._seccion(t, "Cartel en pantalla")
         self._row(caja, "Cuando se ve", "overlay_modo", ["auto", "siempre", "nunca"])
+        # El tema del cartel vive aca, junto a lo demas del cartel, y no
+        # mezclado con los colores del panel.
+        self._row(caja, "Tema (vacio = el del panel)", "hud_tema", ["", *tema.NOMBRES])
+        self.vars["hud_tema"].trace_add("write", self._previa_redibujar)
         self._ayuda(
             caja,
             "auto = aparece al hablarle y se va sola. Nunca se lleva el foco de lo que\n"

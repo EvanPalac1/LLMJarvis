@@ -1318,6 +1318,46 @@ def test_salida_del_overlay():
             store.OVERLAY_VIVO_PATH, store.OVERLAY_SALIR_PATH = reales
 
 
+def test_overlay_arranca_escondido():
+    """En modo auto el cartel no puede verse hasta que pase algo.
+
+    Un Toplevel nace mapeado, pero el overlay arrancaba creyendo que estaba
+    escondido. Como no mostrar/ocultar corta cuando no hay cambio, nunca los
+    escondia: quedaba una tarjeta vacia en pantalla sin que nadie la pidiera.
+    """
+    from eve import plataforma
+
+    if not plataforma.WINDOWS:
+        print("    (salteado: necesita pantalla)")
+        return
+    import tkinter as tk
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+
+    from eve import overlay
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.OVERLAY_PATH
+        store.OVERLAY_PATH = os.path.join(raiz, "overlay.json")
+        try:
+            ov = overlay.Overlay()
+            ov.cfg["overlay_modo"] = "auto"
+            ov.raiz.update()
+            try:
+                assert not ov.hud.winfo_ismapped(), "el cartel no puede nacer visible"
+                assert not ov.sub.winfo_ismapped()
+                # Y lo que cree tener tiene que coincidir con lo que hay.
+                assert ov.visible is False and ov._sub_visible is False
+            finally:
+                ov.raiz.destroy()
+        finally:
+            store.OVERLAY_PATH = real
+
+
 def test_colores_del_cartel():
     """El cartel no puede pintar con el color de fondo de la app.
 

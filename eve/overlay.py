@@ -481,8 +481,14 @@ class Overlay:
         self.paleta = tema.resolver(self.cfg, "hud")
         self.hud = Hud(self.raiz, self.cfg, self.paleta)
         self.sub = Subtitulos(self.raiz, self.cfg, self.paleta)
+        # Un Toplevel nace mapeado. Si no se los esconde aca, el estado real y
+        # el que cree tener no coinciden, y como _mostrar corta cuando no hay
+        # cambio, nunca los escondia: quedaba una tarjeta vacia en pantalla
+        # hasta que pasara algo. Se arranca escondido, que es lo que dice auto.
+        for v in (self.hud, self.sub):
+            v.withdraw()
         self.visible = False
-        self._sub_visible = True  # nacen mapeadas; ver _mostrar
+        self._sub_visible = False
         self.nacio = time.time()
         self.ultimo_activo = 0.0
         self.cuadro = 0
