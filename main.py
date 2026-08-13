@@ -152,6 +152,14 @@ def main() -> int:
     from eve import store, tray
 
     cfg = store.load_config()
+
+    # El cartel se lanza ANTES de armar el motor: no depende de el, y armarlo
+    # tarda varios segundos. Medido, asi tardaba nueve en aparecer, y en esa
+    # ventana apretar la tecla no mostraba nada.
+    from eve import overlay
+
+    overlay.asegurar(cfg)  # corre aparte y se cierra solo cuando Eve sale
+
     try:
         lis = listener_mod.Listener(cfg)
     except RuntimeError as exc:
@@ -162,10 +170,6 @@ def main() -> int:
 
     lis.start()
     icono = tray.build(lis)
-
-    from eve import overlay
-
-    overlay.asegurar(cfg)  # el HUD corre aparte y se cierra solo cuando Eve sale
 
     from eve import updater
 
