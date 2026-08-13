@@ -282,9 +282,17 @@ def save_config(cfg: dict) -> None:
 
 
 PERFILES_PATH = os.path.join(BASE, "perfiles.json")
+
+# Lo que es del duenio y no del perfil: no viaja al exportar ni entra al perfil.
+PERSONALES = ("gmail_address", "steam_id", "discord_username", "discord_avatar",
+              "workdirs", "hud_titulo", "assistant_name")
+
 # Lo que NO se guarda en un perfil: la posicion del cartel es de tu pantalla, no
-# de tu modo de trabajo, y el estado de arrastre es momentaneo.
-FUERA_DEL_PERFIL = ("perfil_activo", "hud_x", "hud_y", "overlay_mover")
+# de tu modo de trabajo, y el estado de arrastre es momentaneo. Y quien sos
+# tampoco: un perfil es un modo de trabajo, no una identidad. Guardar el mail,
+# el usuario de Discord o el nombre de la IA adentro hacia que cargar un perfil
+# viejo te devolviera los datos de contacto que tenias cuando lo guardaste.
+FUERA_DEL_PERFIL = ("perfil_activo", "hud_x", "hud_y", "overlay_mover", *PERSONALES)
 
 
 def listar_perfiles() -> dict:
@@ -314,13 +322,21 @@ def borrar_perfil(nombre: str) -> None:
 
 
 def aplicar_perfil(nombre: str) -> dict:
-    """Deja la config del perfil como la activa. Devuelve la config resultante."""
+    """Deja la config del perfil como la activa. Devuelve la config resultante.
+
+    Se parte de la config ACTUAL, no de DEFAULTS: un perfil guardado con una
+    version vieja no conoce las claves que se agregaron despues, y arrancando de
+    DEFAULTS todas esas volvian a su valor de fabrica. Cargar un perfil para
+    cambiar el tema te resetaba la voz, el modelo y media docena de opciones que
+    el perfil ni menciona. El filtro repite FUERA_DEL_PERFIL sobre lo guardado
+    porque los perfiles de antes de este arreglo si traen esas claves adentro.
+    """
     perfil = listar_perfiles().get(nombre)
     if perfil is None:
         raise ValueError(f"No existe el perfil {nombre!r}.")
-    actual = load_config()
-    nueva = {**DEFAULTS, **{k: actual[k] for k in FUERA_DEL_PERFIL if k in actual},
-             **perfil, "perfil_activo": nombre}
+    nueva = {**load_config(),
+             **{k: v for k, v in perfil.items() if k not in FUERA_DEL_PERFIL},
+             "perfil_activo": nombre}
     save_config(nueva)
     return nueva
 
@@ -344,11 +360,6 @@ def exportar_perfil(nombre: str, destino: str) -> str:
         "formato": FORMATO_PERFIL, "version": 1, "nombre": nombre, "config": limpio,
     })
     return f"Perfil {nombre!r} exportado a {destino}"
-
-
-# Lo que es del duenio y no del perfil: no viaja al exportar.
-PERSONALES = ("gmail_address", "steam_id", "discord_username", "discord_avatar",
-              "workdirs", "hud_titulo", "assistant_name")
 
 
 def leer_perfil_archivo(ruta: str) -> tuple[str, dict]:

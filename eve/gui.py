@@ -96,6 +96,13 @@ class Panel(tk.Tk):
         ttk.Button(fila, text="Buscar actualizaciones", command=self.buscar_update).pack(
             side="right", padx=(0, 6)
         )
+        # Al lado del boton de actualizar, que es donde uno se pregunta "cual
+        # tengo?". Sin esto habia que abrir una terminal y correr --version.
+        from eve import __version__
+
+        ttk.Label(fila, text=f"v{__version__}", style="Ayuda.TLabel").pack(
+            side="right", padx=(0, 10)
+        )
         self.after(300, self._refrescar_estado)
 
         nb = ttk.Notebook(self)

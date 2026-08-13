@@ -1193,14 +1193,35 @@ def test_perfiles():
             cfg = store.aplicar_perfil("trabajo")
             assert cfg["hotkey"] == "f12" and cfg["confirm_destructive"] is True
 
-            # Un perfil viejo al que le falta una clave nueva se completa solo.
+            # Un perfil guardado con una version vieja no conoce las claves que
+            # se agregaron despues. Esas tienen que quedarse como las tenias: si
+            # se completaran con DEFAULTS, cargar un perfil para cambiar el tema
+            # te reseteaba la voz y el modelo, que el perfil ni menciona.
             store.PERFILES_PATH = os.path.join(raiz, "viejos.json")
             store._escribir_json(store.PERFILES_PATH, {"antiguo": {"hotkey": "f9"}})
+            store.save_config({**store.load_config(),
+                               "tts_provider": "piper", "piper_voice": "es_MX-claude-high"})
             cfg = store.aplicar_perfil("antiguo")
             assert cfg["hotkey"] == "f9"
-            assert cfg["ui_tema"] == store.DEFAULTS["ui_tema"], "lo que falta lo pone DEFAULTS"
+            assert cfg["tts_provider"] == "piper", "un perfil viejo no resetea lo que no menciona"
+            assert cfg["piper_voice"] == "es_MX-claude-high"
+
+            # Un perfil es un modo de trabajo, no una identidad: quien sos no
+            # entra al guardarlo, y si un perfil viejo lo trae adentro se ignora.
+            store._escribir_json(store.PERFILES_PATH,
+                                 {"antiguo": {"hotkey": "f9", "discord_username": "viejo",
+                                              "gmail_address": "viejo@mail.com"}})
+            store.save_config({**store.load_config(), "discord_username": "yo",
+                               "gmail_address": "yo@mail.com"})
+            cfg = store.aplicar_perfil("antiguo")
+            assert cfg["discord_username"] == "yo", "el perfil no te cambia la identidad"
+            assert cfg["gmail_address"] == "yo@mail.com"
 
             store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+            store.guardar_perfil("mio", {**store.DEFAULTS, "discord_username": "yo"})
+            assert "discord_username" not in store.listar_perfiles()["mio"]
+
+            store.borrar_perfil("mio")
             store.borrar_perfil("juego")
             assert sorted(store.listar_perfiles()) == ["trabajo"]
             store.borrar_perfil("no-existe")  # no puede reventar
