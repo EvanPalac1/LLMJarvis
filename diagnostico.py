@@ -4,6 +4,8 @@
     python diagnostico.py --tecla   -> ademas detecta que manda tu keypad
 """
 
+import glob
+import os
 import shutil
 import subprocess
 import sys
@@ -150,6 +152,27 @@ def check_voces() -> None:
         print(f"{WARN}Ninguna descargada. Panel > Voces (obligatorio fuera de Windows).")
 
 
+def check_recursos() -> None:
+    """Que lo que viaja junto al programa este de verdad en el paquete.
+
+    Es la clase de falla que no se nota corriendo desde el codigo, porque ahi
+    los archivos estan siempre: aparece solo en la version instalada y en el
+    peor momento. Ya paso con el modelo del VAD y con los addons.
+    """
+    print("\n== Archivos que vienen con el programa ==")
+    base = plataforma.recursos()
+    manual = os.path.join(base, "EVE.md")
+    print(f"{OK if os.path.exists(manual) else FAIL}EVE.md"
+          + ("" if os.path.exists(manual) else " - el modelo se queda sin manual"))
+
+    carpeta = os.path.join(base, "perfiles")
+    cuantos = len(glob.glob(os.path.join(carpeta, "*.eveperfil")))
+    if cuantos:
+        print(f"{OK}Perfiles de ejemplo: {cuantos}")
+    else:
+        print(f"{WARN}Sin perfiles de ejemplo. El boton Importar abre en blanco.")
+
+
 def main() -> int:
     cfg = store.load_config()
     print(f"Eve = '{cfg['assistant_name']}' | hotkey '{cfg['hotkey']}'")
@@ -159,6 +182,7 @@ def main() -> int:
     check_mic()
     check_voces()
     check_workdirs(cfg)
+    check_recursos()
 
     # Instalado desde un paquete no hay pip ni requirements.txt, y el ejecutable
     # no se llama python: mandar a correr eso es mandar a la nada.

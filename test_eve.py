@@ -1433,16 +1433,23 @@ def test_titulo_largo_no_se_sale():
         # El hueco real que queda a la derecha del icono.
         hueco = pintor.ancho - (26 + (overlay.ALTO - 24) + 22) - 22
 
+        piso = max(9, int(11 * pintor.esc))
+        # Lo que vale en cualquier sistema: entra, o toco el piso intentandolo.
+        # Cuanto hay que achicar depende de la fuente, y la de macOS es mas
+        # angosta que la de Windows: pedir un tamano concreto ata el test a la
+        # maquina donde lo escribi.
         for titulo in ("EVE", "MAYORDOMO DORADO", "SUPERCALIFRAGILISTICO",
                        "UN NOMBRE ABSURDAMENTE LARGO PARA UN ASISTENTE"):
             tam = pintor._tam_titulo(titulo, hueco)
             ancho = tkfont.Font(family=pintor.fuente, size=tam,
                                 weight="bold").measure(titulo.upper())
-            assert ancho <= hueco or tam == max(9, int(11 * pintor.esc)), (
-                f"{titulo!r} mide {ancho}px en {hueco}px"
+            assert ancho <= hueco or tam == piso, (
+                f"{titulo!r} mide {ancho}px en {hueco}px a {tam}pt"
             )
         assert pintor._tam_titulo("EVE", hueco) == 19, "uno corto no se achica"
-        assert pintor._tam_titulo("MAYORDOMO DORADO", hueco) < 19, "uno largo si"
+        # Cuarenta y cinco caracteres no entran a 19pt con ninguna fuente.
+        assert pintor._tam_titulo(
+            "UN NOMBRE ABSURDAMENTE LARGO PARA UN ASISTENTE", hueco) < 19
     finally:
         raiz.destroy()
 
