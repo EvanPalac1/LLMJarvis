@@ -183,8 +183,16 @@ def precargar(key: str) -> None:
     threading.Thread(target=trabajo, daemon=True).start()
 
 
-def hablar(texto: str, key: str, salida: str = "") -> str:
-    """Sintetiza con Piper y reproduce. Devuelve la ruta del wav."""
+def hablar(texto: str, key: str, salida: str = "", hablante: int = 0,
+           velocidad: float = 1.0) -> str:
+    """Sintetiza con Piper y reproduce. Devuelve la ruta del wav.
+
+    `hablante` elige la voz dentro de un modelo multi-voz; sin esto de
+    es_ES-sharvard-medium (que trae una masculina y una femenina) solo salia la
+    primera. `velocidad` es el length_scale del modelo: mas alto habla mas lento.
+    Es lo que permite que dos personajes compartan modelo sin sonar iguales, y
+    sale gratis: lo hace el sintetizador, no un efecto encima.
+    """
     import wave
 
     if not salida:
@@ -193,39 +201,72 @@ def hablar(texto: str, key: str, salida: str = "") -> str:
         salida = os.path.join(tempfile.gettempdir(), "eve_piper.wav")
 
     voz = _voz(key)
+    ajustes = _ajustes(hablante, velocidad)
     with wave.open(salida, "wb") as wav:
-        voz.synthesize_wav(texto, wav)
+        # Sin ajustes se llama igual que siempre, sin el parametro: la voz por
+        # defecto recorre exactamente el mismo camino que antes de que esto
+        # existiera.
+        if ajustes is None:
+            voz.synthesize_wav(texto, wav)
+        else:
+            voz.synthesize_wav(texto, wav, syn_config=ajustes)
     return salida
+
+
+def _ajustes(hablante: int, velocidad: float):
+    """SynthesisConfig, o None si no hay nada que cambiar.
+
+    None cuando son los valores por defecto: asi las voces de una sola voz a
+    velocidad normal siguen recorriendo exactamente el mismo camino que antes.
+    """
+    if not hablante and abs(velocidad - 1.0) < 1e-6:
+        return None
+    from piper import SynthesisConfig
+
+    return SynthesisConfig(speaker_id=int(hablante) or None,
+                           length_scale=float(velocidad))
 
 
 CACHE_FRASES = os.path.join(store.BASE, "frases")
 
 
-def frase_cacheada(texto: str, key: str) -> str:
-    """Wav ya generado para esa frase y esa voz, o '' si no esta.
+def _firma(texto: str, key: str, hablante: int = 0, velocidad: float = 1.0) -> str:
+    """Identifica un wav cacheado por TODO lo que cambia como suena.
+
+    El hablante y la velocidad van adentro, no solo la voz y el texto: dos
+    personajes pueden compartir modelo y diferenciarse nada mas que por la
+    velocidad, y con la firma vieja el segundo se comia el audio del primero
+    -misma frase, misma voz- y sonaba a la velocidad equivocada.
+    """
+    import hashlib
+
+    crudo = f"{key}|{hablante}|{velocidad:.3f}|{texto.strip().lower()}"
+    return hashlib.sha1(crudo.encode()).hexdigest()[:16]
+
+
+def frase_cacheada(texto: str, key: str, hablante: int = 0,
+                   velocidad: float = 1.0) -> str:
+    """Wav ya generado para esa frase con esa voz, o '' si no esta.
 
     Eve dice siempre lo mismo: "Abriendo Spotify", "Listo", "No te entendi". Son
     pocas y se repiten, asi que guardarlas en disco convierte el sintetizado en
     una lectura de archivo. Lo caro no era el motor sino generar de nuevo algo
     identico a lo de ayer.
     """
-    import hashlib
-
-    firma = hashlib.sha1(f"{key}|{texto.strip().lower()}".encode()).hexdigest()[:16]
-    ruta = os.path.join(CACHE_FRASES, f"{firma}.wav")
+    ruta = os.path.join(CACHE_FRASES, f"{_firma(texto, key, hablante, velocidad)}.wav")
     return ruta if os.path.exists(ruta) else ""
 
 
-def guardar_frase(texto: str, key: str, origen: str) -> None:
+def guardar_frase(texto: str, key: str, origen: str, hablante: int = 0,
+                  velocidad: float = 1.0) -> None:
     """Guarda el wav de una frase corta para la proxima vez."""
-    import hashlib
     import shutil
 
     if len(texto) > 120:
         return  # las largas no se repiten; llenar el disco con ellas no paga
     try:
         os.makedirs(CACHE_FRASES, exist_ok=True)
-        firma = hashlib.sha1(f"{key}|{texto.strip().lower()}".encode()).hexdigest()[:16]
+        firma = _firma(texto, key, hablante, velocidad)
         shutil.copy2(origen, os.path.join(CACHE_FRASES, f"{firma}.wav"))
     except OSError:
         pass

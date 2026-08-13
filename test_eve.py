@@ -1123,8 +1123,8 @@ def test_voz_cacheada():
     llamadas = []
 
     class VozFalsa:
-        def synthesize_wav(self, texto, wav):
-            llamadas.append(texto)
+        def synthesize_wav(self, texto, wav, syn_config=None):
+            llamadas.append((texto, syn_config))
             wav.setnchannels(1)
             wav.setsampwidth(2)
             wav.setframerate(22050)
@@ -1157,13 +1157,22 @@ def test_voz_cacheada():
 
             assert voices.limpiar_cache_frases() >= 1
             assert voices.frase_cacheada("Abriendo Spotify.", "falsa") == ""
+
+            # Voz por defecto: se llama sin syn_config, igual que siempre. Con
+            # velocidad propia se arma uno. Que la voz de siempre no cambie de
+            # camino es lo que hace seguro agregar esto.
+            llamadas.clear()
+            voices.hablar("hola", "falsa", salida)
+            assert llamadas[-1][1] is None, "sin ajustes no se pasa nada"
+            voices.hablar("hola", "falsa", salida, velocidad=1.22)
+            assert abs(llamadas[-1][1].length_scale - 1.22) < 1e-6
         finally:
             voices.CACHE_FRASES = cache_real
             voices._cargadas = real_load
 
 
 def test_perfiles():
-    """Un perfil guarda la config entera y se puede volver a ella."""
+    """Un perfil guarda el aspecto, la voz y el personaje. Nada mas."""
     with tempfile.TemporaryDirectory() as raiz:
         reales = store.CONFIG_PATH, store.PERFILES_PATH
         store.CONFIG_PATH = os.path.join(raiz, "config.json")
@@ -1171,45 +1180,57 @@ def test_perfiles():
         try:
             assert store.listar_perfiles() == {}
 
-            juego = {**store.DEFAULTS, "hotkey": "f13", "overlay_modo": "siempre",
+            juego = {**store.DEFAULTS, "overlay_modo": "siempre", "ui_tema": "magenta",
+                     "assistant_name": "Nova", "hotkey": "f13",
                      "confirm_destructive": False, "hud_x": 999, "hud_y": 888}
             store.guardar_perfil("juego", juego)
-            trabajo = {**store.DEFAULTS, "hotkey": "f12", "overlay_modo": "auto",
-                       "confirm_destructive": True}
+            trabajo = {**store.DEFAULTS, "overlay_modo": "auto", "ui_tema": "claro",
+                       "assistant_name": "Eve"}
             store.guardar_perfil("trabajo", trabajo)
             assert sorted(store.listar_perfiles()) == ["juego", "trabajo"]
 
+            guardado = store.listar_perfiles()["juego"]
             # La posicion del cartel es de la pantalla, no del modo de trabajo.
-            assert "hud_x" not in store.listar_perfiles()["juego"]
+            assert "hud_x" not in guardado
+            # La tecla y el freno de acciones destructivas no son aspecto. Que un
+            # perfil de personaje te apague las confirmaciones sin decirlo es la
+            # misma clase de sorpresa que meterle tus datos de contacto adentro.
+            assert "hotkey" not in guardado
+            assert "confirm_destructive" not in guardado
+            # El nombre del asistente SI: es de quien se pone el perfil.
+            assert guardado["assistant_name"] == "Nova"
 
-            store.save_config({**store.DEFAULTS, "hud_x": 120, "hud_y": 340})
+            store.save_config({**store.DEFAULTS, "hud_x": 120, "hud_y": 340,
+                               "hotkey": "f9", "confirm_destructive": True})
             cfg = store.aplicar_perfil("juego")
-            assert cfg["hotkey"] == "f13" and cfg["overlay_modo"] == "siempre"
-            assert cfg["confirm_destructive"] is False
+            assert cfg["overlay_modo"] == "siempre" and cfg["ui_tema"] == "magenta"
+            assert cfg["assistant_name"] == "Nova"
             assert cfg["perfil_activo"] == "juego"
             assert cfg["hud_x"] == 120 and cfg["hud_y"] == 340, "no la pisa el perfil"
-            assert store.load_config()["hotkey"] == "f13", "queda guardado"
+            assert cfg["hotkey"] == "f9", "la tecla es tuya, no del perfil"
+            assert cfg["confirm_destructive"] is True, "el freno no lo saca un perfil"
+            assert store.load_config()["ui_tema"] == "magenta", "queda guardado"
 
             cfg = store.aplicar_perfil("trabajo")
-            assert cfg["hotkey"] == "f12" and cfg["confirm_destructive"] is True
+            assert cfg["ui_tema"] == "claro" and cfg["assistant_name"] == "Eve"
 
             # Un perfil guardado con una version vieja no conoce las claves que
             # se agregaron despues. Esas tienen que quedarse como las tenias: si
             # se completaran con DEFAULTS, cargar un perfil para cambiar el tema
             # te reseteaba la voz y el modelo, que el perfil ni menciona.
             store.PERFILES_PATH = os.path.join(raiz, "viejos.json")
-            store._escribir_json(store.PERFILES_PATH, {"antiguo": {"hotkey": "f9"}})
+            store._escribir_json(store.PERFILES_PATH, {"antiguo": {"ui_tema": "ambar"}})
             store.save_config({**store.load_config(),
                                "tts_provider": "piper", "piper_voice": "es_MX-claude-high"})
             cfg = store.aplicar_perfil("antiguo")
-            assert cfg["hotkey"] == "f9"
+            assert cfg["ui_tema"] == "ambar"
             assert cfg["tts_provider"] == "piper", "un perfil viejo no resetea lo que no menciona"
             assert cfg["piper_voice"] == "es_MX-claude-high"
 
             # Un perfil es un modo de trabajo, no una identidad: quien sos no
             # entra al guardarlo, y si un perfil viejo lo trae adentro se ignora.
             store._escribir_json(store.PERFILES_PATH,
-                                 {"antiguo": {"hotkey": "f9", "discord_username": "viejo",
+                                 {"antiguo": {"ui_tema": "ambar", "discord_username": "viejo",
                                               "gmail_address": "viejo@mail.com"}})
             store.save_config({**store.load_config(), "discord_username": "yo",
                                "gmail_address": "yo@mail.com"})
@@ -1291,6 +1312,83 @@ def test_menu_bandeja():
             store.PERFILES_PATH = real
 
 
+def test_lista_blanca_de_perfiles():
+    """Una clave nueva del programa NO entra sola a los perfiles.
+
+    Es la regresion que importa: antes se enumeraba lo que habia que excluir, y
+    una opcion nueva nacia viajando dentro de los perfiles sin que nadie lo
+    decidiera. Asi el mail y el usuario de Discord terminaron adentro.
+    """
+    assert store.perfilable("ui_color_fondo")
+    assert store.perfilable("hud_titulo"), "el titulo es del personaje"
+    assert store.perfilable("assistant_name"), "el nombre tambien"
+    assert store.perfilable("persona_tono")
+    assert store.perfilable("piper_velocidad")
+
+    assert not store.perfilable("hud_x"), "la posicion es de tu pantalla"
+    assert not store.perfilable("gmail_address")
+    assert not store.perfilable("workdirs")
+    assert not store.perfilable("hotkey")
+    assert not store.perfilable("confirm_destructive")
+    # Elegir un personaje no tiene por que cambiarte el motor ni el modelo.
+    assert not store.perfilable("model")
+    assert not store.perfilable("engine")
+
+    # Una clave inventada, de las que todavia no existen: la respuesta por
+    # omision tiene que ser NO.
+    assert not store.perfilable("clave_que_todavia_no_existe")
+    assert not store.perfilable("token_secreto_del_futuro")
+
+
+def test_bloque_tono():
+    """La personalidad va subordinada al manual, y acotada."""
+    assert store.bloque_tono({}) == ""
+    assert store.bloque_tono({"persona_tono": "   "}) == "", "en blanco no cuenta"
+
+    texto = store.bloque_tono({"persona_tono": "Seca y condescendiente."})
+    assert "Seca y condescendiente." in texto
+    # Sin este encuadre un personaje verboso se come la disciplina del manual.
+    assert "gana el manual" in texto
+    assert "COMO sonas" in texto and "QUE hacer" in texto
+
+    largo = store.bloque_tono({"persona_tono": "x" * 5000})
+    assert len(largo) < 1200, "un tono gigante no puede inundar el system prompt"
+    assert largo.count("x") == store.TOPE_TONO
+
+    # Los tres motores comparten la costura: si a alguno le falta el hueco, el
+    # format explota. Vale mas que falle un test que la primera orden hablada.
+    from eve import brain, cc_engine
+    for plantilla in (brain.SYSTEM, cc_engine.PERSONA):
+        assert "{tono}" in plantilla
+        plantilla.format(name="Eve", lang="espanol", workdirs="C:/", brief="",
+                         catalog="", catalog_header="", integrations="",
+                         tono=texto)
+
+
+def test_voz_por_personaje():
+    """Hablante y velocidad cambian el audio, y no se pisan en el cache.
+
+    Dos personajes pueden compartir modelo de voz y diferenciarse solo por la
+    velocidad. Con la firma vieja -voz + texto- el segundo se comia el wav del
+    primero y sonaba a la velocidad equivocada.
+    """
+    from eve import voices
+
+    firmas = {voices._firma("hola", "es_AR-daniela-high", 0, v)
+              for v in (0.85, 1.0, 1.22)}
+    assert len(firmas) == 3, "la velocidad tiene que entrar en la firma"
+    assert (voices._firma("hola", "v", 0, 1.0)
+            != voices._firma("hola", "v", 1, 1.0)), "el hablante tambien"
+    assert (voices._firma("hola", "a", 0, 1.0)
+            != voices._firma("hola", "b", 0, 1.0)), "y la voz"
+
+    # Sin nada que cambiar no se arma un SynthesisConfig: las voces de siempre
+    # siguen recorriendo el mismo camino que antes.
+    assert voices._ajustes(0, 1.0) is None
+    ajuste = voices._ajustes(1, 1.25)
+    assert ajuste.speaker_id == 1 and abs(ajuste.length_scale - 1.25) < 1e-6
+
+
 def test_perfiles_compartir():
     """Exportar e importar un perfil, sin filtrar claves ni datos personales."""
     with tempfile.TemporaryDirectory() as raiz:
@@ -1310,13 +1408,18 @@ def test_perfiles_compartir():
                 crudo = f.read()
             assert "yo@privado.com" not in crudo, "no puede viajar el mail"
             assert "76561198000000000" not in crudo, "ni el SteamID"
-            assert "Ivi" not in crudo, "ni como llamaste a tu asistente"
             assert "magenta" in crudo
+            # El nombre del asistente SI viaja: un perfil es un personaje, y sin
+            # el nombre no es ese personaje. No es un dato privado tuyo -como el
+            # mail o el SteamID-, es una preferencia que el que lo reciba cambia
+            # en dos clics si no le gusta.
+            assert "Ivi" in crudo
 
             nombre, config = store.leer_perfil_archivo(destino)
             assert nombre == "juego"
-            assert config["hotkey"] == "f13" and config["ui_tema"] == "magenta"
+            assert config["ui_tema"] == "magenta" and config["assistant_name"] == "Ivi"
             assert "gmail_address" not in config
+            assert "hotkey" not in config, "la tecla es de cada uno"
 
             # Un archivo de otra cosa no se acepta.
             otro = os.path.join(raiz, "otro.json")

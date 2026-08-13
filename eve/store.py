@@ -106,7 +106,16 @@ DEFAULTS = {
     "tts_provider": "sapi" if plataforma.WINDOWS else "piper",  # sapi|piper|elevenlabs
     "tts_voice": "",
     "piper_voice": "",  # clave del catalogo, ej. es_ES-davefx-medium
+    # Hablante dentro de un modelo multi-voz (es_ES-sharvard-medium trae M y F).
+    # En los de una sola voz da igual lo que diga.
+    "piper_hablante": 0,
+    # 1.0 = la velocidad del modelo. Mas alto habla mas lento. Es la forma barata
+    # de que dos personajes con la misma voz no suenen igual.
+    "piper_velocidad": 1.0,
     "elevenlabs_voice_id": "",
+    # Como suena el asistente, no que hace. Va al final del system prompt y
+    # subordinado al manual (ver bloque_tono). Vacio = sin personaje.
+    "persona_tono": "",
     "context_turns": 6,
     "context_minutes": 10,
     # False = "allow all": ni el freno propio ni el de Claude Code preguntan nada.
@@ -269,6 +278,33 @@ def solo_cosmetico(antes: dict, despues: dict) -> bool:
     return True
 
 
+TOPE_TONO = 400
+
+
+def bloque_tono(cfg: dict) -> str:
+    """Seccion de personalidad para el system prompt. '' si no hay ninguna.
+
+    Va ULTIMO en el prompt y con el encuadre pegado adelante. Las dos cosas
+    importan. Ultimo porque el motor de Claude Code recibe todo esto por
+    --append-system-prompt y ahi el orden interno es lo unico que controlo. Y con
+    el encuadre porque sin el, un personaje verboso se come la disciplina del
+    manual: el tono elige las palabras del acuse de recibo, no autoriza a narrar
+    en vez de actuar ni a hablar de mas. Si el personaje no sobrevive a esa
+    restriccion, ese personaje no sirve como asistente.
+    """
+    tono = str(cfg.get("persona_tono", "") or "").strip()
+    if not tono:
+        return ""
+    return (
+        "## Tono\n\n"
+        "Lo que sigue es COMO sonas, no QUE hacer. No cambia ninguna regla del "
+        "manual, no agranda cuantas frases decis, y no te autoriza a narrar en "
+        "vez de actuar. Es la eleccion de palabras dentro del presupuesto que ya "
+        "tenias. Si el tono choca con el manual, gana el manual.\n\n"
+        f"{tono[:TOPE_TONO]}\n"
+    )
+
+
 def load_config() -> dict:
     cfg = dict(DEFAULTS)
     guardado = _leer_json(CONFIG_PATH, {})
@@ -283,16 +319,38 @@ def save_config(cfg: dict) -> None:
 
 PERFILES_PATH = os.path.join(BASE, "perfiles.json")
 
-# Lo que es del duenio y no del perfil: no viaja al exportar ni entra al perfil.
+# Datos del duenio. No entran a un perfil ni viajan al exportar.
 PERSONALES = ("gmail_address", "steam_id", "discord_username", "discord_avatar",
-              "workdirs", "hud_titulo", "assistant_name")
+              "workdirs")
 
-# Lo que NO se guarda en un perfil: la posicion del cartel es de tu pantalla, no
-# de tu modo de trabajo, y el estado de arrastre es momentaneo. Y quien sos
-# tampoco: un perfil es un modo de trabajo, no una identidad. Guardar el mail,
-# el usuario de Discord o el nombre de la IA adentro hacia que cargar un perfil
-# viejo te devolviera los datos de contacto que tenias cuando lo guardaste.
-FUERA_DEL_PERFIL = ("perfil_activo", "hud_x", "hud_y", "overlay_mover", *PERSONALES)
+# Lo que un perfil SI puede tocar, mas alla de lo cosmetico: como se llama el
+# asistente, como suena y con que tono habla. El nombre es del asistente, no
+# tuyo: un perfil de personaje existe justamente para cambiarlo.
+EXTRA_PERFILABLE = ("assistant_name", "persona_tono", "tts_provider", "tts_voice",
+                    "piper_voice", "piper_hablante", "piper_velocidad",
+                    "speak_replies")
+
+# De tu pantalla y del momento, no de tu modo de trabajo. `hud_titulo` no esta
+# aca: empieza con hud_ y es parte del personaje.
+NO_PERFILABLE = ("perfil_activo", "hud_x", "hud_y", "overlay_mover")
+
+
+def perfilable(clave: str) -> bool:
+    """Si esa clave puede vivir dentro de un perfil.
+
+    Lista blanca, no negra. Antes se enumeraba lo que habia que EXCLUIR, y una
+    lista de exclusiones se pudre: cada opcion nueva del programa nacia viajando
+    dentro de los perfiles sin que nadie lo decidiera. Asi fue como el mail y el
+    usuario de Discord terminaron adentro, y cargar un perfil viejo te devolvia
+    los datos de contacto de cuando lo guardaste. Ahora una clave nueva no entra
+    salvo que sea cosmetica o este listada a mano aca.
+
+    El motor y el modelo quedan afuera a proposito: elegir un personaje no tiene
+    por que bajarte de Opus a un modelo local sin avisarte.
+    """
+    if clave in NO_PERFILABLE:
+        return False
+    return clave.startswith(PREFIJOS_COSMETICOS) or clave in EXTRA_PERFILABLE
 
 
 def listar_perfiles() -> dict:
@@ -311,7 +369,7 @@ def guardar_perfil(nombre: str, cfg: dict) -> None:
     if not nombre:
         raise ValueError("El perfil necesita un nombre.")
     perfiles = listar_perfiles()
-    perfiles[nombre] = {k: v for k, v in cfg.items() if k not in FUERA_DEL_PERFIL}
+    perfiles[nombre] = {k: v for k, v in cfg.items() if perfilable(k)}
     _escribir_json(PERFILES_PATH, perfiles)
 
 
@@ -328,14 +386,14 @@ def aplicar_perfil(nombre: str) -> dict:
     version vieja no conoce las claves que se agregaron despues, y arrancando de
     DEFAULTS todas esas volvian a su valor de fabrica. Cargar un perfil para
     cambiar el tema te resetaba la voz, el modelo y media docena de opciones que
-    el perfil ni menciona. El filtro repite FUERA_DEL_PERFIL sobre lo guardado
+    el perfil ni menciona. El filtro se repite al aplicar, no solo al guardar,
     porque los perfiles de antes de este arreglo si traen esas claves adentro.
     """
     perfil = listar_perfiles().get(nombre)
     if perfil is None:
         raise ValueError(f"No existe el perfil {nombre!r}.")
     nueva = {**load_config(),
-             **{k: v for k, v in perfil.items() if k not in FUERA_DEL_PERFIL},
+             **{k: v for k, v in perfil.items() if perfilable(k)},
              "perfil_activo": nombre}
     save_config(nueva)
     return nueva

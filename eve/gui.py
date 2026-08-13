@@ -1209,9 +1209,22 @@ class Panel(tk.Tk):
         self._row(t, "Dispositivo", "stt_device", ["cpu", "cuda"])
         self._row(t, "TTS (voz)", "tts_provider", ["sapi", "piper", "elevenlabs"])
         self._row(t, "Voz de Piper", "piper_voice")
+        self._row(t, "Velocidad (1.0 = normal, mas = mas lento)", "piper_velocidad")
+        self._row(t, "Hablante (solo voces multi-voz)", "piper_hablante")
         self._row(t, "Voz de Windows", "tts_voice", voice.list_sapi_voices() or None)
         self._row(t, "ElevenLabs voice_id", "elevenlabs_voice_id")
         self._check(t, "Leer las respuestas en voz alta", "speak_replies")
+
+        pers = ttk.LabelFrame(t, text="Personalidad")
+        pers.pack(fill="x", padx=12, pady=(12, 4))
+        self._row(pers, "Tono", "persona_tono", width=44)
+        ttk.Label(
+            pers,
+            text="Como habla, no que hace. Va al final del prompt y siempre pierde\n"
+                 "contra el manual: no puede hacerla hablar de mas ni narrar en vez\n"
+                 "de actuar. Vacio = sin personaje. Lo setea cada perfil.",
+            style="Ayuda.TLabel", justify="left",
+        ).pack(anchor="w", padx=12, pady=(0, 8))
 
         box = ttk.LabelFrame(t, text="Programas que Eve conoce")
         box.pack(fill="x", padx=12, pady=(12, 4))
@@ -1746,6 +1759,15 @@ class Panel(tk.Tk):
                     cfg[key] = int(value)
                 except ValueError:
                     messagebox.showerror("Valor invalido", f"'{key}' debe ser un numero entero.")
+                    return
+            elif isinstance(default, float):
+                # Sin esta rama la velocidad se guardaba como texto: funcionaba
+                # igual porque quien la lee la convierte, pero el tipo se iba
+                # cambiando solo en cada guardado.
+                try:
+                    cfg[key] = float(str(value).replace(",", "."))
+                except ValueError:
+                    messagebox.showerror("Valor invalido", f"'{key}' debe ser un numero.")
                     return
             else:
                 cfg[key] = value

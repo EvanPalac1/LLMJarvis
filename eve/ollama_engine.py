@@ -71,6 +71,7 @@ class OllamaEve:
             catalog=apps.catalog(),
             catalog_header=apps.catalog_header(),
             integrations=integrations.prompt_section(),
+            tono=store.bloque_tono(self.cfg),
         )
 
     def _tools(self) -> list[dict]:

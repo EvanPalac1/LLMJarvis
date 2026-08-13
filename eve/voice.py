@@ -206,11 +206,13 @@ def speak(text: str, cfg: dict, progreso=None) -> None:
         avance = None
         if progreso:
             avance = lambda f, nivel: progreso(nivel, hasta(text, f))  # noqa: E731
+        hablante = int(cfg.get("piper_hablante", 0) or 0)
+        velocidad = float(cfg.get("piper_velocidad", 1.0) or 1.0)
         # Lo que Eve repite siempre ya esta generado en disco: se lee y suena.
-        ruta = voices.frase_cacheada(text, clave)
+        ruta = voices.frase_cacheada(text, clave, hablante, velocidad)
         if not ruta:
-            ruta = voices.hablar(text, clave)
-            voices.guardar_frase(text, clave, ruta)
+            ruta = voices.hablar(text, clave, hablante=hablante, velocidad=velocidad)
+            voices.guardar_frase(text, clave, ruta, hablante, velocidad)
         voices.reproducir(ruta, avance)
         return
 

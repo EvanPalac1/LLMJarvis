@@ -32,7 +32,8 @@ lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps
 {catalog}
 
 {integrations}
-"""
+
+{tono}"""
 
 
 def write_settings() -> str:
@@ -98,6 +99,7 @@ class ClaudeCodeEve:
                 catalog=apps.catalog(),
                 catalog_header=apps.catalog_header(),
                 integrations=integrations.prompt_section(),
+                tono=store.bloque_tono(self.cfg),
             ),
             "--settings",
             self.settings,

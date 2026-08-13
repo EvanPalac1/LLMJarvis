@@ -78,7 +78,8 @@ lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps
 {catalog}
 
 {integrations}
-"""
+
+{tono}"""
 
 
 class Eve:
@@ -177,6 +178,7 @@ class Eve:
                         catalog=apps.catalog(),
                         catalog_header=apps.catalog_header(),
                         integrations=integrations.prompt_section(),
+                        tono=store.bloque_tono(self.cfg),
                     ),
                     "cache_control": {"type": "ephemeral"},
                 }
