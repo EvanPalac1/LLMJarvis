@@ -6,6 +6,7 @@ tkinter con el de pystray.
 
 import json
 import math
+import os
 import shutil
 import subprocess
 import threading
@@ -90,6 +91,7 @@ class Panel(tk.Tk):
         nb.add(self._tab_cuentas(nb), text="  Cuentas  ")
         nb.add(self._tab_voz(nb), text="  Voz  ")
         nb.add(self._tab_contactos(nb), text="  Contactos  ")
+        nb.add(self._tab_addons(nb), text="  Addons  ")
         nb.add(self._tab_apariencia(nb), text="  Apariencia  ")
         nb.add(self._tab_actividad(nb), text="  Actividad  ")
 
@@ -340,7 +342,7 @@ class Panel(tk.Tk):
         return self._componer(
             nb, "General",
             "Quien es Eve, quien piensa por ella y hasta donde puede meterse.",
-            [self._bloque_general],
+            [self._bloque_perfiles, self._bloque_general],
         )
 
     def _tab_cuentas(self, nb):
@@ -363,6 +365,67 @@ class Panel(tk.Tk):
             "La agenda que Eve usa cuando nombras a alguien.",
             [self._bloque_contactos],
         )
+
+    def _tab_addons(self, nb):
+        return self._componer(
+            nb, "Addons",
+            "Lo que Eve puede manejar ademas de tu PC. Cada uno trae sus comandos.",
+            [self._bloque_addons],
+        )
+
+    def _bloque_addons(self, nb):
+        from . import addons
+
+        t = ttk.Frame(nb)
+        cfg = store.load_config()
+        cargados = addons.todos(recargar=True)
+
+        caja = self._seccion(t, "Instalados")
+        if not cargados:
+            self._ayuda(caja, "No hay ninguno cargado.")
+        self.addon_vars = {}
+        prendidos = {x.strip() for x in str(cfg.get("addons_activos", "")).split(",") if x.strip()}
+        for nombre, modulo in sorted(cargados.items()):
+            puede, motivo = addons.estado(modulo, cfg)
+            fila = ttk.Frame(caja)
+            fila.pack(fill="x", padx=12, pady=(6, 0))
+            var = tk.BooleanVar(value=(not prendidos) or nombre in prendidos)
+            self.addon_vars[nombre] = var
+            ttk.Checkbutton(fila, text=nombre, variable=var).pack(side="left")
+            estado = "" if puede else f"  —  no disponible: {motivo}"
+            ttk.Label(fila, text=getattr(modulo, "DESCRIPCION", "") + estado,
+                      style="Ayuda.TLabel").pack(side="left", padx=8)
+            # Cada addon dice que claves necesita y el panel las dibuja: agregar
+            # uno no obliga a tocar esta pantalla.
+            for clave, etiqueta, secreta in getattr(modulo, "CLAVES", []):
+                if secreta:
+                    self._campo_clave(caja, clave, etiqueta)
+                else:
+                    self._campo_clave(caja, clave, etiqueta)
+
+        self._ayuda(
+            caja,
+            "Destildar uno lo saca del prompt: deja de gastar tokens y Eve deja de\n"
+            "ofrecerlo. Si no hay ninguno tildado, se usan todos los disponibles.",
+        )
+
+        caja = self._seccion(t, "Agregar los tuyos")
+        self._ayuda(
+            caja,
+            f"Poné archivos .py en:\n  {addons.CARPETA_USUARIO}\n\n"
+            "Cada uno define NOMBRE, un texto para el modelo y una funcion\n"
+            "ejecutar(accion, args, cfg). Ojo: corren dentro de Eve, con los mismos\n"
+            "permisos que el programa. Poné solo cosas en las que confies.",
+        )
+        ttk.Button(caja, text="Abrir la carpeta de addons",
+                   command=self._addons_carpeta).pack(anchor="w", padx=12, pady=(0, 10))
+        return t
+
+    def _addons_carpeta(self):
+        from . import addons
+
+        os.makedirs(addons.CARPETA_USUARIO, exist_ok=True)
+        plataforma.abrir(addons.CARPETA_USUARIO)
 
     def _tab_apariencia(self, nb):
         return self._componer(
@@ -417,6 +480,82 @@ class Panel(tk.Tk):
         ttk.Checkbutton(parent, text=label, variable=var).pack(anchor="w", padx=12, pady=4)
 
     # --- tabs --------------------------------------------------------------
+
+    def _bloque_perfiles(self, nb):
+        t = ttk.Frame(nb)
+        caja = self._seccion(t, "Perfiles")
+        fila = ttk.Frame(caja)
+        fila.pack(fill="x", padx=12, pady=(8, 4))
+        ttk.Label(fila, text="Perfil activo", width=24).pack(side="left")
+        self.perfil_var = tk.StringVar(value=self.cfg.get("perfil_activo", ""))
+        self.perfil_combo = ttk.Combobox(fila, textvariable=self.perfil_var,
+                                         values=sorted(store.listar_perfiles()),
+                                         state="readonly")
+        self.perfil_combo.pack(side="left", fill="x", expand=True)
+
+        fila = ttk.Frame(caja)
+        fila.pack(fill="x", padx=12, pady=(0, 8))
+        ttk.Button(fila, text="Cargar", command=self._perfil_cargar).pack(side="left")
+        ttk.Button(fila, text="Guardar como...",
+                   command=self._perfil_guardar).pack(side="left", padx=6)
+        ttk.Button(fila, text="Borrar", command=self._perfil_borrar).pack(side="left")
+        self._ayuda(
+            caja,
+            "Un perfil guarda TODA la configuracion de golpe: motor, tecla, permisos,\n"
+            "voz y aspecto. Sirve para tener uno para jugar y otro para trabajar.\n"
+            "La posicion del cartel no entra: esa es de tu pantalla, no de tu modo.",
+        )
+        return t
+
+    def _perfil_cargar(self):
+        nombre = self.perfil_var.get()
+        if not nombre:
+            messagebox.showinfo("Perfiles", "Elegi un perfil de la lista.")
+            return
+        if not messagebox.askyesno(
+            "Cargar perfil",
+            f"Se va a aplicar el perfil {nombre!r} y se pierden los cambios sin guardar.\n\n"
+            "Seguir?",
+        ):
+            return
+        store.aplicar_perfil(nombre)
+        messagebox.showinfo(
+            "Perfiles",
+            f"Perfil {nombre!r} aplicado.\n\nCerra y volve a abrir el panel para verlo.",
+        )
+        self.destroy()
+
+    def _perfil_guardar(self):
+        from tkinter import simpledialog
+
+        sugerido = self.perfil_var.get() or "nuevo"
+        nombre = simpledialog.askstring("Guardar perfil", "Nombre del perfil:",
+                                        initialvalue=sugerido, parent=self)
+        if not nombre or not nombre.strip():
+            return
+        nombre = nombre.strip()
+        if nombre in store.listar_perfiles() and not messagebox.askyesno(
+            "Ya existe", f"Ya hay un perfil {nombre!r}. Lo pisamos?"
+        ):
+            return
+        # Se guarda lo que hay en pantalla, no lo ultimo guardado en disco.
+        self.save(avisar=False)
+        store.guardar_perfil(nombre, store.load_config())
+        cfg = store.load_config()
+        cfg["perfil_activo"] = nombre
+        store.save_config(cfg)
+        self.perfil_var.set(nombre)
+        self.perfil_combo["values"] = sorted(store.listar_perfiles())
+        messagebox.showinfo("Perfiles", f"Guardado como {nombre!r}.")
+
+    def _perfil_borrar(self):
+        nombre = self.perfil_var.get()
+        if not nombre:
+            return
+        if messagebox.askyesno("Borrar perfil", f"Borrar el perfil {nombre!r}?"):
+            store.borrar_perfil(nombre)
+            self.perfil_var.set("")
+            self.perfil_combo["values"] = sorted(store.listar_perfiles())
 
     def _bloque_general(self, nb):
         t = ttk.Frame(nb)
@@ -1328,7 +1467,7 @@ class Panel(tk.Tk):
 
     # --- guardar -----------------------------------------------------------
 
-    def save(self):
+    def save(self, avisar: bool = True):
         cfg = dict(self.cfg)
         for key, var in self.vars.items():
             value = var.get()
@@ -1369,6 +1508,14 @@ class Panel(tk.Tk):
                 return
         cfg["confirm_destructive"] = not allow_all
 
+        # Los addons se guardan como lista de nombres. Si estan todos tildados
+        # se guarda vacio, que significa "todos": asi uno nuevo aparece solo en
+        # vez de quedar apagado por no estar en una lista escrita antes.
+        elegidos = [n for n, v in getattr(self, "addon_vars", {}).items() if v.get()]
+        cfg["addons_activos"] = (
+            "" if len(elegidos) == len(getattr(self, "addon_vars", {})) else ",".join(elegidos)
+        )
+
         store.save_config(cfg)
 
         for provider, var in self.key_vars.items():
@@ -1391,11 +1538,13 @@ class Panel(tk.Tk):
                 value = value.replace(" ", "")
             store.set_key(provider, value.replace(" ", "") if provider == "gmail" else value)
         self.cfg = cfg
-        messagebox.showinfo(
-            "Guardado",
-            "Configuracion guardada.\n\nSi el listener esta corriendo, se reinicia solo\n"
-            "en unos segundos con los cambios aplicados.",
-        )
+        if avisar:
+            messagebox.showinfo(
+                "Guardado",
+                "Configuracion guardada.\n\nSi el listener esta corriendo, aplica los\n"
+                "cambios solo en unos segundos. Los de aspecto no le cortan la\n"
+                "conversacion; los de motor o tecla si lo rearman.",
+            )
 
 
 if __name__ == "__main__":

@@ -65,11 +65,17 @@ KEY_NAMES = {
     "gmail": "GMAIL_APP_PASSWORD",
     "discord_webhook": "DISCORD_WEBHOOK_URL",
     "steam": "STEAM_API_KEY",
+    # De addons. get_key igual funciona con cualquier nombre via keyring; estan
+    # aca para que tambien se puedan poner por variable de entorno.
+    "spotify_client_id": "SPOTIFY_CLIENT_ID",
+    "spotify_client_secret": "SPOTIFY_CLIENT_SECRET",
 }
 
 DEFAULTS = {
     "assistant_name": "Eve",
     "language": "es",
+    # Juego de opciones activo. Los perfiles viven en perfiles.json.
+    "perfil_activo": "",
     # "api"         -> Messages API directa. Necesita ANTHROPIC_API_KEY.
     # "claude-code" -> CLI de Claude Code headless. Usa tu suscripcion, sin key.
     # "ollama"      -> modelo local. Sin key, sin nube, pero peor con tools.
@@ -116,6 +122,8 @@ DEFAULTS = {
     # Nombre y foto con los que aparecen los mensajes del webhook.
     "discord_username": "",
     "discord_avatar": "",
+    # Addons prendidos, separados por coma. Vacio = todos los que se puedan usar.
+    "addons_activos": "",
 
     # --- aspecto ----------------------------------------------------------
     # Planas y no anidadas a proposito: Panel.save() decide el tipo de cada
@@ -213,6 +221,22 @@ def _leer_json(ruta: str, por_defecto):
         return por_defecto
 
 
+# Todo lo que solo cambia como se ve. Cambiar esto no justifica rearmar el motor
+# ni, por lo tanto, perder la conversacion que venias teniendo.
+PREFIJOS_COSMETICOS = ("ui_", "hud_", "sub_", "overlay_")
+
+
+def solo_cosmetico(antes: dict, despues: dict) -> bool:
+    """True si entre las dos configs lo unico distinto es el aspecto."""
+    claves = set(antes) | set(despues)
+    for clave in claves:
+        if clave.startswith(PREFIJOS_COSMETICOS):
+            continue
+        if antes.get(clave) != despues.get(clave):
+            return False
+    return True
+
+
 def load_config() -> dict:
     cfg = dict(DEFAULTS)
     guardado = _leer_json(CONFIG_PATH, {})
@@ -223,6 +247,50 @@ def load_config() -> dict:
 
 def save_config(cfg: dict) -> None:
     _escribir_json(CONFIG_PATH, cfg)
+
+
+PERFILES_PATH = os.path.join(BASE, "perfiles.json")
+# Lo que NO se guarda en un perfil: la posicion del cartel es de tu pantalla, no
+# de tu modo de trabajo, y el estado de arrastre es momentaneo.
+FUERA_DEL_PERFIL = ("perfil_activo", "hud_x", "hud_y", "overlay_mover")
+
+
+def listar_perfiles() -> dict:
+    """{nombre: config}. Un perfil es una config entera, no un parche.
+
+    Entera para que se pueda mirar y editar a mano, y para que agregar una clave
+    nueva al programa no deje los perfiles viejos a medio aplicar: lo que no
+    tengan lo completa DEFAULTS al cargarlos.
+    """
+    datos = _leer_json(PERFILES_PATH, {})
+    return datos if isinstance(datos, dict) else {}
+
+
+def guardar_perfil(nombre: str, cfg: dict) -> None:
+    nombre = nombre.strip()
+    if not nombre:
+        raise ValueError("El perfil necesita un nombre.")
+    perfiles = listar_perfiles()
+    perfiles[nombre] = {k: v for k, v in cfg.items() if k not in FUERA_DEL_PERFIL}
+    _escribir_json(PERFILES_PATH, perfiles)
+
+
+def borrar_perfil(nombre: str) -> None:
+    perfiles = listar_perfiles()
+    if perfiles.pop(nombre, None) is not None:
+        _escribir_json(PERFILES_PATH, perfiles)
+
+
+def aplicar_perfil(nombre: str) -> dict:
+    """Deja la config del perfil como la activa. Devuelve la config resultante."""
+    perfil = listar_perfiles().get(nombre)
+    if perfil is None:
+        raise ValueError(f"No existe el perfil {nombre!r}.")
+    actual = load_config()
+    nueva = {**DEFAULTS, **{k: actual[k] for k in FUERA_DEL_PERFIL if k in actual},
+             **perfil, "perfil_activo": nombre}
+    save_config(nueva)
+    return nueva
 
 
 CONTACTS_PATH = os.path.join(BASE, "contactos.json")

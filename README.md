@@ -147,6 +147,83 @@ un pedido de voz en curso — reintenta cuando termina.
 
 **Reiniciar listener** sigue en el menu de la bandeja para forzarlo a mano.
 
+Cambiar solo cosas de aspecto (colores, contorno, posicion del cartel) **no rearma el
+motor**: se aplican en caliente y la conversacion sigue. Cambiar el motor, la tecla o los
+permisos si lo rearma, y ahi el contexto arranca de cero.
+
+### Se le puede hablar mientras piensa
+
+Apretas, hablas, y si vuelve a hacer falta apretas de nuevo aunque todavia este pensando:
+lo que grabes queda en cola y se procesa cuando termine lo anterior. El cartel muestra
+cuantas esperan turno.
+
+La cola se atiende de a una a proposito. Dos pedidos a la vez se pisarian el microfono,
+los parlantes y el contexto de la conversacion.
+
+### Perfiles
+
+Un perfil guarda **toda** la configuracion de golpe: motor, tecla, permisos, voz y
+aspecto. Sirve para tener uno para jugar (cartel siempre visible, permitir todo) y otro
+para trabajar (cartel discreto, que pregunte antes de romper algo).
+
+Se manejan en **General > Perfiles**, y se cambia sin abrir el panel desde la bandeja
+(clic derecho > Perfiles). La posicion del cartel no entra en el perfil: esa es de tu
+pantalla, no de tu modo de trabajo.
+
+---
+
+## Addons
+
+Comandos que se le agregan al agente sin tocar el nucleo. Eve los llama con
+`E addon NOMBRE ACCION ...`: un solo subcomando generico, asi sumar uno no obliga a tocar
+el parser ni el despachador.
+
+Se manejan en la pestaña **Addons**, que dibuja sola los campos que cada addon declara
+necesitar. Destildar uno lo saca del prompt: deja de gastar tokens en cada llamada y Eve
+deja de ofrecerlo.
+
+### El de Spotify
+
+Viene incluido. Poner musica, pausar, saltar, volumen y saber que suena.
+
+**No usa OAuth de usuario.** Controlar la reproduccion por la Web API exige que autorices
+la app, guardar y refrescar tokens, y ademas Premium. En vez de eso maneja el Spotify de
+escritorio que ya tenes abierto: reproducir es abrir una URI `spotify:` y pausar es
+mandarle un comando a su ventana.
+
+**Los comandos van a la ventana de Spotify, no como teclas multimedia globales.** Una
+tecla multimedia se la lleva el reproductor que el sistema tenga en foco, que puede ser el
+navegador con un video de fondo. `WM_APPCOMMAND` a su ventana le pega solo a Spotify.
+
+Que suena sale de **leer el titulo de su ventana**, que Spotify deja como "Artista - Tema".
+Es informacion que ya esta en pantalla: no hace falta API ni permisos.
+
+Lo unico que necesita claves es **buscar**, y son de aplicacion (client id y secret en
+https://developer.spotify.com/dashboard), sin login tuyo. Sin ellas, "poné X" abre la
+busqueda en la app y elegis vos, y Eve lo dice en vez de fingir que quedo sonando.
+
+### Escribir uno propio
+
+Archivos `.py` en `<datos>/addons/`. El minimo es:
+
+```python
+NOMBRE = "loquesea"
+PROMPT = "  E addon loquesea hacer ALGO"     # lo que ve el modelo
+
+def ejecutar(accion, args, cfg):
+    return "lo que Eve le dice al usuario"
+```
+
+Opcionales: `DESCRIPCION`, `CLAVES` (para que el panel dibuje sus campos) y
+`disponible(cfg) -> (bool, motivo)` para que no se ofrezca cuando le falta algo.
+
+**Corren dentro de Eve, con los mismos permisos que el programa.** Poné ahi solo cosas en
+las que confies. Uno que no importe o que reviente se reporta y se saltea, sin llevarse
+puesto al resto.
+
+Para **MCP**: con el motor `claude-code`, los servidores MCP se agregan por la
+configuracion del propio Claude Code y quedan disponibles sin pasar por aca.
+
 ### El cartel en pantalla
 
 Cuando le hablas aparece un cartel encima de todo con el nombre, en que anda y la onda

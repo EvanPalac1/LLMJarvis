@@ -83,6 +83,10 @@ def _construir(nombre: str, ventana: bool, extra: list[str]) -> None:
         cmd += ["--hidden-import", m]
     for paquete in CON_DATOS:
         cmd += ["--collect-data", paquete]
+    # Los addons se importan por nombre en tiempo de ejecucion, asi que el
+    # analisis estatico de PyInstaller no los ve y quedarian afuera: el addon
+    # existiria corriendo desde el codigo y faltaria en la version instalada.
+    cmd += ["--collect-submodules", "eve.addons"]
     cmd += _icono() + extra + [os.path.join(RAIZ, "main.py")]
 
     print(f"\n=== {nombre} ===")

@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 
 from eve import safety, store
@@ -856,6 +857,276 @@ def test_overlay():
             assert vuelta["ui_pintar_panel"] is True
         finally:
             store.CONFIG_PATH = real
+
+
+def test_cola_y_pulso():
+    """Se le puede hablar mientras piensa, y el overlay no se va en las largas."""
+    from eve import plataforma
+
+    if not plataforma.WINDOWS:
+        print("    (salteado: necesita el backend de teclado)")
+        return
+    try:
+        import keyboard  # noqa: F401
+    except ImportError:
+        print("    (salteado: keyboard no instalado)")
+        return
+
+    import numpy as np
+
+    from eve.listener import Listener
+
+    from eve import voice as voz
+
+    with tempfile.TemporaryDirectory() as raiz:
+        reales = store.CONFIG_PATH, store.OVERLAY_PATH
+        # Parchear estos dos es global: sin restaurarlos, los tests que corren
+        # despues creen que transcribir no construye ningun modelo.
+        voz_real = voz.transcribe, voz.speak
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.OVERLAY_PATH = os.path.join(raiz, "overlay.json")
+        try:
+            cfg = dict(store.DEFAULTS)
+            cfg["hotkey"] = "f13"
+            store.save_config(cfg)
+
+            dichos, lento = [], threading.Event()
+
+            class MotorLento:
+                """Tarda hasta que se lo suelte, como un pedido grande de verdad."""
+
+                def ask(self, texto):
+                    dichos.append(texto)
+                    lento.wait(timeout=10)
+                    return f"listo: {texto}"
+
+                def reset_context(self):
+                    pass
+
+            Listener._build_engine = lambda self: MotorLento()
+            lis = Listener(store.load_config())
+            lis.start()
+
+            # Nada de esto tiene que tocar el microfono ni los parlantes.
+            voz.transcribe = lambda audio, cfg: f"pedido {int(audio[0])}"
+            voz.speak = lambda *a, **k: None
+
+            for n in (1, 2, 3):
+                lis.cola.put(np.array([n], dtype="float32"))
+
+            for _ in range(60):  # esperar a que agarre el primero
+                if dichos:
+                    break
+                time.sleep(0.05)
+            assert dichos == ["pedido 1"], dichos
+            assert lis.ocupada
+            assert lis.cola.qsize() == 2, "las otras dos esperan turno"
+            assert "2 EN COLA" in lis._con_cola("PENSANDO")
+
+            # El pulso: el motor no avisa nada mientras piensa, pero la señal
+            # tiene que seguir fresca o el overlay se esconde a los 3 segundos.
+            primera = store.estado_overlay()
+            assert primera and primera["estado"] == "pensando"
+            time.sleep(4)
+            despues = store.estado_overlay()
+            assert despues is not None, "sin pulso el overlay se va en las largas"
+            assert despues["ts"] > primera["ts"], "la señal tiene que refrescarse"
+
+            lento.set()  # que terminen las tres
+            for _ in range(120):
+                if len(dichos) == 3 and not lis.ocupada:
+                    break
+                time.sleep(0.05)
+            assert dichos == ["pedido 1", "pedido 2", "pedido 3"], dichos
+            assert store.estado_overlay()["estado"] == "reposo"
+            lis.stop()
+        finally:
+            store.CONFIG_PATH, store.OVERLAY_PATH = reales
+            voz.transcribe, voz.speak = voz_real
+
+
+def test_addons():
+    """Cargarlos, filtrarlos, y que ninguno roto pueda tumbar a Eve."""
+    from eve import addons
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = addons.CARPETA_USUARIO
+        addons.CARPETA_USUARIO = raiz
+        try:
+            # Un addon del usuario: un .py suelto en su carpeta.
+            with open(os.path.join(raiz, "prueba.py"), "w", encoding="utf-8") as f:
+                f.write(
+                    'NOMBRE = "prueba"\n'
+                    'DESCRIPCION = "de mentira"\n'
+                    'PROMPT = "  E addon prueba saludar"\n'
+                    'def ejecutar(accion, args, cfg):\n'
+                    '    if accion == "romper":\n'
+                    '        raise RuntimeError("explote")\n'
+                    '    return f"hice {accion} con {args}"\n'
+                )
+            # Y uno que ni siquiera importa: no puede llevarse puesto al resto.
+            with open(os.path.join(raiz, "roto.py"), "w", encoding="utf-8") as f:
+                f.write("esto no es python valido ][\n")
+
+            cargados = addons.todos(recargar=True)
+            assert "prueba" in cargados
+            assert "spotify" in cargados, "los integrados tambien"
+            assert "roto" not in cargados, "el que no importa se saltea"
+
+            cfg = dict(store.DEFAULTS)
+            assert "prueba" in addons.activos(cfg), "sin lista, todos los disponibles"
+
+            # La lista blanca deja pasar solo lo elegido.
+            solo = addons.activos({**cfg, "addons_activos": "prueba"})
+            assert list(solo) == ["prueba"]
+            assert addons.activos({**cfg, "addons_activos": "ninguno"}) == {}
+
+            # El prompt viaja en cada llamada al modelo: sin addons, ni titulo.
+            assert addons.prompt({**cfg, "addons_activos": "ninguno"}) == ""
+            texto = addons.prompt({**cfg, "addons_activos": "prueba"})
+            assert "E addon prueba saludar" in texto and "## Addons" in texto
+
+            assert addons.ejecutar("prueba", "saludar", ["a"], cfg) == "hice saludar con ['a']"
+
+            # Un addon que revienta devuelve el error, no tumba nada.
+            salida = addons.ejecutar("prueba", "romper", [], cfg)
+            assert "ERROR en el addon prueba" in salida and "explote" in salida
+
+            assert "No existe el addon" in addons.ejecutar("nada", "x", [], cfg)
+
+            # Uno que se declara no disponible no se ofrece.
+            with open(os.path.join(raiz, "apagado.py"), "w", encoding="utf-8") as f:
+                f.write(
+                    'NOMBRE = "apagado"\n'
+                    'PROMPT = "no deberia aparecer"\n'
+                    'def disponible(cfg):\n'
+                    '    return False, "falta la clave"\n'
+                    'def ejecutar(a, b, c):\n'
+                    '    return "no"\n'
+                )
+            addons.todos(recargar=True)
+            assert "apagado" not in addons.activos(cfg)
+            assert "no deberia aparecer" not in addons.prompt(cfg)
+            assert "falta la clave" in addons.ejecutar("apagado", "x", [], cfg)
+        finally:
+            addons.CARPETA_USUARIO = real
+            addons.todos(recargar=True)
+
+
+def test_spotify():
+    """El addon de Spotify sin necesitar a Spotify abierto."""
+    from eve import plataforma
+    from eve.addons import spotify
+
+    # El bug que tuvo: _credenciales() devuelve una tupla, y ('', '') es
+    # verdadero, asi que el prompt prometia una busqueda que no existia.
+    real = spotify._credenciales
+    spotify._credenciales = lambda: ("", "")
+    try:
+        assert not spotify._hay_credenciales()
+        texto = spotify.prompt({})
+        assert "buscar necesita las claves" in texto
+        assert 'E addon spotify buscar' not in texto
+        assert spotify.buscar("lo que sea") == [], "sin claves no llama a la API"
+        assert "necesita las claves" in spotify.ejecutar("buscar", ["abba"], {})
+
+        spotify._credenciales = lambda: ("id", "secreto")
+        assert spotify._hay_credenciales()
+        assert 'E addon spotify buscar' in spotify.prompt({})
+    finally:
+        spotify._credenciales = real
+
+    assert "No conozco la accion" in spotify.ejecutar("bailar", [], {})
+    assert "Decime que poner" in spotify.ejecutar("poner", [], {})
+    assert spotify.disponible({})[0] == plataforma.WINDOWS
+
+    # El titulo de la ventana es de donde sale que suena.
+    quieto = spotify.TITULOS_QUIETOS
+    assert "spotify" in quieto and "spotify premium" in quieto
+
+
+def test_perfiles():
+    """Un perfil guarda la config entera y se puede volver a ella."""
+    with tempfile.TemporaryDirectory() as raiz:
+        reales = store.CONFIG_PATH, store.PERFILES_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+        try:
+            assert store.listar_perfiles() == {}
+
+            juego = {**store.DEFAULTS, "hotkey": "f13", "overlay_modo": "siempre",
+                     "confirm_destructive": False, "hud_x": 999, "hud_y": 888}
+            store.guardar_perfil("juego", juego)
+            trabajo = {**store.DEFAULTS, "hotkey": "f12", "overlay_modo": "auto",
+                       "confirm_destructive": True}
+            store.guardar_perfil("trabajo", trabajo)
+            assert sorted(store.listar_perfiles()) == ["juego", "trabajo"]
+
+            # La posicion del cartel es de la pantalla, no del modo de trabajo.
+            assert "hud_x" not in store.listar_perfiles()["juego"]
+
+            store.save_config({**store.DEFAULTS, "hud_x": 120, "hud_y": 340})
+            cfg = store.aplicar_perfil("juego")
+            assert cfg["hotkey"] == "f13" and cfg["overlay_modo"] == "siempre"
+            assert cfg["confirm_destructive"] is False
+            assert cfg["perfil_activo"] == "juego"
+            assert cfg["hud_x"] == 120 and cfg["hud_y"] == 340, "no la pisa el perfil"
+            assert store.load_config()["hotkey"] == "f13", "queda guardado"
+
+            cfg = store.aplicar_perfil("trabajo")
+            assert cfg["hotkey"] == "f12" and cfg["confirm_destructive"] is True
+
+            # Un perfil viejo al que le falta una clave nueva se completa solo.
+            store.PERFILES_PATH = os.path.join(raiz, "viejos.json")
+            store._escribir_json(store.PERFILES_PATH, {"antiguo": {"hotkey": "f9"}})
+            cfg = store.aplicar_perfil("antiguo")
+            assert cfg["hotkey"] == "f9"
+            assert cfg["ui_tema"] == store.DEFAULTS["ui_tema"], "lo que falta lo pone DEFAULTS"
+
+            store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+            store.borrar_perfil("juego")
+            assert sorted(store.listar_perfiles()) == ["trabajo"]
+            store.borrar_perfil("no-existe")  # no puede reventar
+
+            try:
+                store.aplicar_perfil("fantasma")
+                raise AssertionError("aplicar uno que no existe deberia avisar")
+            except ValueError as exc:
+                assert "fantasma" in str(exc)
+            try:
+                store.guardar_perfil("   ", {})
+                raise AssertionError("un perfil sin nombre deberia avisar")
+            except ValueError:
+                pass
+        finally:
+            store.CONFIG_PATH, store.PERFILES_PATH = reales
+
+
+def test_recarga_cosmetica():
+    """Cambiar un color no puede costarte la conversacion que venias teniendo."""
+    assert store.solo_cosmetico({"ui_tema": "a"}, {"ui_tema": "b"})
+    assert store.solo_cosmetico({"hud_x": 1, "sub_tam": 9}, {"hud_x": 500, "sub_tam": 20})
+    assert not store.solo_cosmetico({"engine": "api"}, {"engine": "ollama"})
+    assert not store.solo_cosmetico({"hotkey": "f12"}, {"hotkey": "f13"})
+    # Una clave que aparece o desaparece tambien cuenta.
+    assert not store.solo_cosmetico({}, {"engine": "api"})
+    assert store.solo_cosmetico({}, {"hud_onda": "puntos"})
+
+    from eve.listener import Listener
+
+    creados = []
+    Listener._build_engine = lambda self: creados.append(1) or object()
+    lis = Listener({**store.DEFAULTS, "ui_tema": "tactico"})
+    assert len(creados) == 1
+
+    lis.restart({**store.DEFAULTS, "ui_tema": "ambar"})
+    assert len(creados) == 1, "un cambio de tema no rearma el motor"
+    assert lis.cfg["ui_tema"] == "ambar", "pero si se aplica"
+
+    lis.stop = lambda: None
+    lis.start = lambda: None
+    lis.restart({**store.DEFAULTS, "engine": "ollama"})
+    assert len(creados) == 2, "cambiar de motor si lo rearma"
 
 
 def test_fondos():

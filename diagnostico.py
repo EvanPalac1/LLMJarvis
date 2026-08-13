@@ -164,6 +164,21 @@ def main() -> int:
     # no se llama python: mandar a correr eso es mandar a la nada.
     yo = "eve --check" if plataforma.congelado() else "python diagnostico.py"
 
+    # Los addons se importan por nombre: si el empaquetado los dejo afuera, esto
+    # es lo unico que lo delata antes de que el usuario los pida por voz.
+    print("\n== Addons ==")
+    try:
+        from eve import addons
+
+        cargados = addons.todos(recargar=True)
+        if not cargados:
+            print(f"{WARN}Ninguno cargado.")
+        for nombre, modulo in sorted(cargados.items()):
+            puede, motivo = addons.estado(modulo, cfg)
+            print(f"{OK if puede else WARN}{nombre}" + ("" if puede else f" - {motivo}"))
+    except Exception as exc:  # noqa: BLE001
+        print(f"{FAIL} no pude cargarlos: {exc}")
+
     print("\n== Resumen ==")
     if missing:
         if plataforma.congelado():
