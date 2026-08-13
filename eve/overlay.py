@@ -218,12 +218,37 @@ class Pintor:
             self._icono(c, cx, cy, alto_icono / 2, activo=estado != "reposo")
             x = 26 * e + alto_icono + 22 * e
         _texto(c, x, self.alto * 0.30, titulo.upper(), p["acento"],
-               (self.fuente, int(19 * e), "bold"), tema.contraste(p["acento"]),
-               anchor="w")
+               (self.fuente, self._tam_titulo(titulo, self.ancho - x - 22 * e), "bold"),
+               tema.contraste(p["acento"]), anchor="w")
         _texto(c, x, self.alto * 0.50, linea2, p["texto_tenue"],
                (self.fuente, int(10 * e)), tema.contraste(p["texto_tenue"]),
                anchor="w")
         self._onda(c, x, self.alto * 0.74, self.ancho - x - 22 * e, 30 * e)
+
+    def _tam_titulo(self, titulo: str, ancho: float) -> int:
+        """El tamano mas grande con el que el titulo entra en la tarjeta.
+
+        Antes era fijo, asi que un nombre largo se salia por el costado sin
+        aviso: la tarjeta mide lo mismo siempre y el texto no se recorta solo.
+        Le pasaba a cualquiera que le pusiera a su asistente un nombre de mas de
+        catorce letras. Se achica hasta que entra, y no mas alla de 11 para que
+        no termine ilegible.
+        """
+        from tkinter import font as tkfont
+
+        base = int(19 * self.esc)
+        piso = max(9, int(11 * self.esc))
+        texto = titulo.upper()
+        for tam in range(base, piso - 1, -1):
+            try:
+                medida = tkfont.Font(family=self.fuente, size=tam, weight="bold")
+                if medida.measure(texto) <= ancho:
+                    return tam
+            except tk.TclError:
+                # Sin un root vivo no se puede medir: mejor el de siempre que
+                # tirar el cartel abajo por un tamano de letra.
+                return base
+        return piso
 
     # --- piezas ------------------------------------------------------------
 

@@ -1389,6 +1389,64 @@ def test_voz_por_personaje():
     assert ajuste.speaker_id == 1 and abs(ajuste.length_scale - 1.25) < 1e-6
 
 
+def test_perfiles_de_ejemplo():
+    """Los .eveperfil que se publican entran por el lector y no traen nada de mas."""
+    import glob
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    archivos = sorted(glob.glob(os.path.join(raiz, "perfiles", "*.eveperfil")))
+    assert archivos, "no hay perfiles de ejemplo"
+
+    for ruta in archivos:
+        nombre, config = store.leer_perfil_archivo(ruta)
+        assert nombre and config, ruta
+        # Un tema que alguien se baja no puede renombrarle el asistente ni
+        # apuntarlo a una voz que quiza no tenga descargada.
+        for prohibida in ("assistant_name", "piper_voice", "tts_provider"):
+            assert prohibida not in config, f"{nombre} trae {prohibida}"
+        for clave in config:
+            assert store.perfilable(clave), f"{nombre}: {clave} no va en un perfil"
+            assert clave not in store.PERSONALES, f"{nombre}: {clave} es personal"
+            assert type(config[clave]) is type(store.DEFAULTS[clave]), clave
+
+
+def test_titulo_largo_no_se_sale():
+    """El titulo del cartel se achica hasta entrar.
+
+    Era fijo, asi que cualquier nombre largo -el de un tema o el que vos le
+    pongas a tu asistente- se salia por el costado sin ningun aviso.
+    """
+    import tkinter as tk
+
+    from eve import overlay, tema
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        return  # sin escritorio no hay fuentes que medir
+    raiz.withdraw()
+    try:
+        from tkinter import font as tkfont
+
+        cfg = dict(store.DEFAULTS)
+        pintor = overlay.Pintor(cfg, tema.resolver(cfg, "hud"))
+        # El hueco real que queda a la derecha del icono.
+        hueco = pintor.ancho - (26 + (overlay.ALTO - 24) + 22) - 22
+
+        for titulo in ("EVE", "MAYORDOMO DORADO", "SUPERCALIFRAGILISTICO",
+                       "UN NOMBRE ABSURDAMENTE LARGO PARA UN ASISTENTE"):
+            tam = pintor._tam_titulo(titulo, hueco)
+            ancho = tkfont.Font(family=pintor.fuente, size=tam,
+                                weight="bold").measure(titulo.upper())
+            assert ancho <= hueco or tam == max(9, int(11 * pintor.esc)), (
+                f"{titulo!r} mide {ancho}px en {hueco}px"
+            )
+        assert pintor._tam_titulo("EVE", hueco) == 19, "uno corto no se achica"
+        assert pintor._tam_titulo("MAYORDOMO DORADO", hueco) < 19, "uno largo si"
+    finally:
+        raiz.destroy()
+
+
 def test_perfiles_compartir():
     """Exportar e importar un perfil, sin filtrar claves ni datos personales."""
     with tempfile.TemporaryDirectory() as raiz:
