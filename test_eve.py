@@ -1353,6 +1353,16 @@ def test_salida_del_overlay():
             assert store.toca_salir_overlay() is True
             assert store.toca_salir_overlay() is False
             assert not os.path.exists(store.OVERLAY_SALIR_PATH)
+
+            # Un pedido anterior al nacimiento del cartel NO es para el. Sin
+            # esto, una Eve que se estaba cerrando mataba al cartel de la Eve
+            # que acababa de arrancar, que es lo que pasaba al actualizar.
+            store.pedir_salida_overlay(esperar=0.1)
+            nacio_despues = time.time() + 1
+            assert store.toca_salir_overlay(nacio_despues) is False
+            assert os.path.exists(store.OVERLAY_SALIR_PATH), "no la consume"
+            # Y uno posterior si.
+            assert store.toca_salir_overlay(time.time() - 60) is True
         finally:
             store.OVERLAY_VIVO_PATH, store.OVERLAY_SALIR_PATH = reales
 

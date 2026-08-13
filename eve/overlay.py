@@ -615,7 +615,7 @@ class Overlay:
             # Que Eve se haya ido de verdad ya lo cubre _sobra() con el latido.
             self.estado = store.estado_overlay(max_edad=TOLERANCIA) or {}
             self._releer_config()
-        if self.cuadro % 30 == 0 and store.toca_salir_overlay():
+        if self.cuadro % 30 == 0 and store.toca_salir_overlay(self.nacio):
             # Se lo pidio el actualizador o el asistente al salir.
             self.raiz.quit()
             return

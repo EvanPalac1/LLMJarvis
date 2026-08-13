@@ -694,10 +694,24 @@ def pedir_salida_overlay(esperar: float = 3.0) -> bool:
     return False
 
 
-def toca_salir_overlay() -> bool:
-    """Lo consulta el overlay. Consume la señal para no repetirla."""
+def toca_salir_overlay(desde: float = 0.0) -> bool:
+    """Lo consulta el overlay. Consume la señal para no repetirla.
+
+    `desde` es cuando nacio quien pregunta: un pedido de salida anterior a eso
+    no era para el. Sin esa comprobacion, una Eve que se estaba cerrando mataba
+    al cartel de la Eve que acababa de arrancar, que es lo que pasaba al
+    actualizar: el instalador reinicia Eve, la vieja termina de morir y su
+    pedido de salida se lo comia el cartel nuevo.
+    """
     if not os.path.exists(OVERLAY_SALIR_PATH):
         return False
+    try:
+        with open(OVERLAY_SALIR_PATH, encoding="utf-8") as f:
+            cuando = float(f.read().strip() or 0)
+    except (OSError, ValueError):
+        cuando = time.time()  # ilegible: se le hace caso, por las dudas
+    if cuando < desde:
+        return False  # es de antes de que existieramos; no es para nosotros
     try:
         os.remove(OVERLAY_SALIR_PATH)
     except OSError:
