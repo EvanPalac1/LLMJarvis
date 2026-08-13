@@ -144,6 +144,20 @@ DEFAULTS = {
     # controles de ttk pintan su propio fondo opaco y taparian la imagen.
     "ui_banner": "",
     "ui_banner_opacidad": 100,
+    "ui_fuente": "",       # vacio = la del sistema
+    "ui_fuente_tam": 0,    # 0 = la que traiga la fuente
+    # El cartel puede tener su propio tema; vacio = hereda el del panel.
+    "hud_tema": "",
+    "hud_color_fondo": "",
+    "hud_color_panel": "",
+    "hud_color_texto": "",
+    "hud_color_texto_tenue": "",
+    "hud_color_acento": "",
+    "hud_color_acento2": "",
+    "hud_color_borde": "",
+    "hud_color_alerta": "",
+    "hud_fuente": "",
+    "sub_fuente": "",
 
     # --- overlay ----------------------------------------------------------
     "overlay_modo": "auto",  # auto (aparece y se va) | siempre | nunca
@@ -168,6 +182,21 @@ DEFAULTS = {
     # "caja" = rectangulo relleno. "recortado" = solo la forma del contorno, y lo
     # de afuera deja ver el escritorio.
     "hud_forma": "caja",
+    # Degradado de fondo cuando no hay imagen.
+    "hud_grad": "ninguno",   # ninguno|vertical|horizontal|diagonal|radial
+    "hud_grad_a": "",        # vacio = el color del panel
+    "hud_grad_b": "",        # vacio = el acento
+    "sub_grad": "ninguno",
+    "sub_grad_a": "",
+    "sub_grad_b": "",
+    # El marco del icono es parametrico: lados, giro, redondeo y grosor. Las
+    # "formas" del panel son nada mas que valores guardados de estos cuatro.
+    "hud_marco_lados": 6,      # menos de 3 = circulo
+    "hud_marco_rot": 0,        # grados
+    "hud_marco_redondeo": 0,   # 0 = vertices en punta
+    "hud_marco_grosor": 2,
+    # Los GIF quietos, para quien no tolera el movimiento en pantalla.
+    "ui_sin_animacion": False,
     "sub_muestra": "ambos",      # ambos | eve | usuario
     "sub_tam": 15,
     "sub_lineas": 2,
@@ -291,6 +320,52 @@ def aplicar_perfil(nombre: str) -> dict:
              **perfil, "perfil_activo": nombre}
     save_config(nueva)
     return nueva
+
+
+FORMATO_PERFIL = "eveperfil"
+
+
+def exportar_perfil(nombre: str, destino: str) -> str:
+    """Deja el perfil en un archivo para pasarselo a alguien.
+
+    Las claves de API NO viajan: viven en el gestor de credenciales del sistema,
+    no en la config, asi que mandar un perfil no puede filtrar una key sin
+    querer. Los datos personales que si estan en la config (mail, telefono,
+    SteamID) se sacan explicitamente.
+    """
+    perfil = listar_perfiles().get(nombre)
+    if perfil is None:
+        raise ValueError(f"No existe el perfil {nombre!r}.")
+    limpio = {k: v for k, v in perfil.items() if k not in PERSONALES}
+    _escribir_json(destino, {
+        "formato": FORMATO_PERFIL, "version": 1, "nombre": nombre, "config": limpio,
+    })
+    return f"Perfil {nombre!r} exportado a {destino}"
+
+
+# Lo que es del duenio y no del perfil: no viaja al exportar.
+PERSONALES = ("gmail_address", "steam_id", "discord_username", "discord_avatar",
+              "workdirs", "hud_titulo", "assistant_name")
+
+
+def leer_perfil_archivo(ruta: str) -> tuple[str, dict]:
+    """(nombre, config) de un .eveperfil validado. ValueError si no sirve."""
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            datos = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"No pude leer el archivo: {exc}") from exc
+    if not isinstance(datos, dict) or datos.get("formato") != FORMATO_PERFIL:
+        raise ValueError("Eso no es un perfil de Eve.")
+    config = datos.get("config")
+    if not isinstance(config, dict) or not config:
+        raise ValueError("El archivo no tiene ninguna configuracion.")
+    # Solo claves que el programa conoce: un perfil de una version futura no
+    # mete basura en la config ni pisa nada raro.
+    limpio = {k: v for k, v in config.items() if k in DEFAULTS and k not in PERSONALES}
+    if not limpio:
+        raise ValueError("El perfil no trae ninguna opcion que este programa entienda.")
+    return str(datos.get("nombre") or os.path.basename(ruta).rsplit(".", 1)[0]), limpio
 
 
 CONTACTS_PATH = os.path.join(BASE, "contactos.json")

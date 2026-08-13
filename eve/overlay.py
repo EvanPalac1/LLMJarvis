@@ -56,6 +56,66 @@ def _alto_item(lienzo, item) -> float:
     return y1 - y0
 
 
+def marco(cx: float, cy: float, r: float, lados: int, rotacion: float) -> list[float]:
+    """Los vertices de un poligono regular, aplanados para create_polygon.
+
+    Un formulario de tres numeros en vez de un catalogo de formas fijas: con
+    lados y rotacion salen el triangulo, el rombo, el pentagono, el hexagono de
+    punta o de lado, el octogono... y el circulo es lados alto. Las "formas"
+    guardadas del panel son nada mas que valores de estos parametros.
+    """
+    lados = max(3, int(lados))
+    paso = 360 / lados
+    puntos = []
+    for i in range(lados):
+        a = math.radians(rotacion - 90 + i * paso)
+        puntos += [cx + r * math.cos(a), cy + r * math.sin(a)]
+    return puntos
+
+
+FORMAS = {
+    #  nombre        lados rot  redondeo
+    "circulo":      (0,    0,   0),
+    "triangulo":    (3,    0,   0),
+    "rombo":        (4,    0,   0),
+    "cuadrado":     (4,    45,  0),
+    "pentagono":    (5,    0,   0),
+    "hexagono":     (6,    0,   0),
+    "hexagono2":    (6,    30,  0),
+    "heptagono":    (7,    0,   0),
+    "octogono":     (8,    22,  0),
+    "decagono":     (10,   0,   0),
+    "gota":         (3,    0,   6),
+    "escudo":       (5,    0,   4),
+    "piedra":       (7,    12,  5),
+    "sello":        (8,    22,  3),
+}
+
+
+def fuente_de(cfg: dict, clave: str) -> str:
+    """La familia elegida, o la de siempre si no eligieron ninguna."""
+    familia = str(cfg.get(clave, "")).strip()
+    from . import tema
+
+    return familia if familia and familia != tema.FUENTE_POR_DEFECTO else "Segoe UI"
+
+
+def _texto(c, x, y, texto, color, fuente, halo, **kw):
+    """Texto con un halo del color del fondo detras.
+
+    El halo va SIEMPRE, no solo cuando el contraste da mal. Sobre un cartel
+    flotante el fondo real es el escritorio, que no controlamos, asi que medir
+    contraste daria un numero contra el fondo equivocado. Cuatro copias
+    desplazadas un pixel resuelven foto, degradado y GIF de una sola vez, y no
+    cuestan nada. Es lo mismo que hacen los subtitulos de cualquier reproductor.
+    """
+    if not texto:
+        return None
+    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        c.create_text(x + dx, y + dy, text=texto, fill=halo, font=fuente, **kw)
+    return c.create_text(x, y, text=texto, fill=color, font=fuente, **kw)
+
+
 class Ventana(tk.Toplevel):
     """Toplevel sin borde, encima de todo y transparente a los clics."""
 
@@ -106,7 +166,7 @@ class Pintor:
     def __init__(self, cfg: dict, paleta: dict):
         self.niveles = deque([0.0] * MUESTRAS, maxlen=MUESTRAS)
         self.nivel = 0.0
-        self.imagen = None  # referencia viva: tk descarta las que no se guardan
+        self.icono = imagenes.Fondo()  # el icono propio, si cargaron uno
         self.fondo = imagenes.Fondo()
         self.aplicar(cfg, paleta)
 
@@ -114,24 +174,25 @@ class Pintor:
         self.cfg, self.paleta = cfg, paleta
         self.esc = _num(cfg, "hud_escala", 50, 300) / 100
         self.ancho, self.alto = int(ANCHO * self.esc), int(ALTO * self.esc)
+        self.fuente = fuente_de(cfg, "hud_fuente")
+        # Quien no tolera el movimiento en pantalla deja el GIF quieto.
+        self.animar = not cfg.get("ui_sin_animacion", False)
         self.fondo.aplicar(
             str(cfg.get("hud_fondo", "")), self.ancho, self.alto,
             str(cfg.get("hud_fondo_ajuste", "recortar")),
             int(_num(cfg, "hud_fondo_opacidad", 0, 100)),
             int(_num(cfg, "hud_fondo_tinte", 0, 100)),
             paleta["panel"], paleta["acento"],
+            grad=(str(cfg.get("hud_grad", "ninguno")),
+                  str(cfg.get("hud_grad_a", "")), str(cfg.get("hud_grad_b", ""))),
         )
-        self.imagen = None
+        # El icono tambien puede ser un GIF animado, no solo un PNG quieto.
         ruta = str(cfg.get("hud_icono", ""))
+        lado = int((ALTO - 34) * self.esc)
+        self.icono = imagenes.Fondo()
         if ruta.lower().endswith((".png", ".gif")) and os.path.exists(ruta):
-            try:
-                # PhotoImage de tk lee PNG desde Tk 8.6: no hace falta PIL, que
-                # ademas habria que empaquetar aparte para el binario.
-                img = tk.PhotoImage(file=ruta)
-                factor = max(1, round(img.width() / (72 * self.esc)))
-                self.imagen = img.subsample(factor, factor)
-            except tk.TclError:
-                self.imagen = None  # archivo raro: se cae al dibujo de siempre
+            self.icono.aplicar(ruta, lado, lado, "recortar", 100, 0,
+                               paleta["fondo"], paleta["acento"])
 
     def avanzar(self, objetivo: float) -> None:
         """Suaviza hacia el ultimo nivel leido y corre la onda un lugar.
@@ -149,16 +210,16 @@ class Pintor:
         self._contorno(c)
 
         alto_icono = self.alto - 24 * e
-        if self.cfg.get("hud_icono") == "ninguno" and self.imagen is None:
+        if self.cfg.get("hud_icono") == "ninguno" and not self.icono.hay:
             x = 26 * e  # sin icono no se deja el hueco donde iria
         else:
             cx, cy = 26 * e + alto_icono / 2, self.alto / 2
             self._icono(c, cx, cy, alto_icono / 2, activo=estado != "reposo")
             x = 26 * e + alto_icono + 22 * e
-        c.create_text(x, self.alto * 0.30, text=titulo.upper(), anchor="w",
-                      fill=p["acento"], font=("Segoe UI", int(19 * e), "bold"))
-        c.create_text(x, self.alto * 0.50, text=linea2, anchor="w",
-                      fill=p["texto_tenue"], font=("Segoe UI", int(10 * e)))
+        _texto(c, x, self.alto * 0.30, titulo.upper(), p["acento"],
+               (self.fuente, int(19 * e), "bold"), p["fondo"], anchor="w")
+        _texto(c, x, self.alto * 0.50, linea2, p["texto_tenue"],
+               (self.fuente, int(10 * e)), p["fondo"], anchor="w")
         self._onda(c, x, self.alto * 0.74, self.ancho - x - 22 * e, 30 * e)
 
     # --- piezas ------------------------------------------------------------
@@ -171,7 +232,7 @@ class Pintor:
         m = 3 * e
 
         # El relleno: la imagen si hay, el color del panel si no.
-        cuadro = self.fondo.actual()
+        cuadro = self.fondo.actual(self.animar)
         if cuadro is not None:
             c.create_image(0, 0, image=cuadro, anchor="nw")
         else:
@@ -228,26 +289,28 @@ class Pintor:
         p = self.paleta
         forma = str(self.cfg.get("hud_icono", "hexagono"))
         color = p["acento"] if activo else p["acento2"]
-        grosor = max(1, int(1.6 * self.esc))
+        grosor = max(1, int(_num(self.cfg, "hud_marco_grosor", 1, 12) * self.esc))
+        lados = int(_num(self.cfg, "hud_marco_lados", 0, 12))
+        rotacion = _num(self.cfg, "hud_marco_rot", -180, 180)
+        redondeo = int(_num(self.cfg, "hud_marco_redondeo", 0, 10))
 
-        if forma == "hexagono" or self.imagen is not None or forma not in (
-            "circulo", "cuadrado", "ninguno"
-        ):
-            puntos = [
-                (cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a)))
-                for a in range(-90, 270, 60)
-            ]
-            c.create_polygon([v for xy in puntos for v in xy],
-                             outline=color, width=grosor, fill=p["fondo"])
-        elif forma == "circulo":
+        if forma == "ninguno" and not self.icono.hay:
+            return
+        if lados < 3:
             c.create_oval(cx - r, cy - r, cx + r, cy + r,
                           outline=color, width=grosor, fill=p["fondo"])
-        elif forma == "cuadrado":
-            c.create_rectangle(cx - r, cy - r, cx + r, cy + r,
-                               outline=color, width=grosor, fill=p["fondo"])
+        else:
+            puntos = marco(cx, cy, r, lados, rotacion)
+            # smooth=True redondea los vertices con splines: es el "radio de
+            # esquina" gratis, sin calcular ni un arco. splinesteps regula
+            # cuanto se redondea.
+            c.create_polygon(puntos, outline=color, width=grosor, fill=p["fondo"],
+                             smooth=redondeo > 0,
+                             splinesteps=max(1, redondeo * 3))
 
-        if self.imagen is not None:
-            c.create_image(cx, cy, image=self.imagen)
+        cuadro = self.icono.actual(self.animar)
+        if cuadro is not None:
+            c.create_image(cx, cy, image=cuadro)
             return
         if forma == "ninguno":
             return
@@ -327,6 +390,8 @@ class Subtitulos(Ventana):
         self.esc = _num(cfg, "hud_escala", 50, 300) / 100
         self.tam = int(_num(cfg, "sub_tam", 8, 48) * self.esc)
         self.lineas = int(_num(cfg, "sub_lineas", 1, 6))
+        self.fuente = fuente_de(cfg, "sub_fuente")
+        self.animar = not cfg.get("ui_sin_animacion", False)
         self.ancho = int(ANCHO * self.esc)
         self.alto = self._alto_de(self.lineas)
         self.attributes("-alpha", _num(cfg, "sub_opacidad", 10, 100) / 100)
@@ -339,6 +404,8 @@ class Subtitulos(Ventana):
             int(_num(cfg, "sub_fondo_opacidad", 0, 100)),
             int(_num(cfg, "sub_fondo_tinte", 0, 100)),
             paleta["panel"], paleta["acento"],
+            grad=(str(cfg.get("sub_grad", "ninguno")),
+                  str(cfg.get("sub_grad_a", "")), str(cfg.get("sub_grad_b", ""))),
         )
         self._ultimo = None  # forzar redibujo con los valores nuevos
 
@@ -377,7 +444,7 @@ class Subtitulos(Ventana):
         c.delete("all")
         # El fondo va primero para que quede debajo, y se le corrige el alto al
         # final, cuando ya se sabe cuanto ocupo el texto envuelto.
-        cuadro = self.fondo.actual()
+        cuadro = self.fondo.actual(self.animar)
         fondo = c.create_rectangle(0, 0, self.ancho, tope, fill=p["panel"], outline="")
         if cuadro is not None:
             c.create_image(0, 0, image=cuadro, anchor="nw")
@@ -386,8 +453,8 @@ class Subtitulos(Ventana):
 
         y = 8 * self.esc
         for texto, color in filas:
-            item = c.create_text(margen, y, text=texto, anchor="nw", fill=color,
-                                 width=ancho_texto, font=("Segoe UI", self.tam))
+            item = _texto(c, margen, y, texto, color, (self.fuente, self.tam),
+                          p["fondo"], anchor="nw", width=ancho_texto)
             # Cuantos renglones ocupa no se sabe hasta dibujarlo. Si no entra, se
             # sacan palabras del principio: en un subtitulo importa el final.
             palabras = texto.split()
@@ -408,7 +475,7 @@ class Overlay:
         self.raiz = tk.Tk()
         self.raiz.withdraw()
         self.cfg = store.load_config()
-        self.paleta = tema.resolver(self.cfg)
+        self.paleta = tema.resolver(self.cfg, "hud")
         self.hud = Hud(self.raiz, self.cfg, self.paleta)
         self.sub = Subtitulos(self.raiz, self.cfg, self.paleta)
         self.visible = False
@@ -494,7 +561,7 @@ class Overlay:
             return
         self.mtime_cfg = actual
         self.cfg = store.load_config()
-        self.paleta = tema.resolver(self.cfg)
+        self.paleta = tema.resolver(self.cfg, "hud")
         self.hud.aplicar(self.cfg, self.paleta)
         self.sub.aplicar(self.cfg, self.paleta)
         self._ubicar()

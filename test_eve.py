@@ -1102,6 +1102,105 @@ def test_perfiles():
             store.CONFIG_PATH, store.PERFILES_PATH = reales
 
 
+def test_perfiles_compartir():
+    """Exportar e importar un perfil, sin filtrar claves ni datos personales."""
+    with tempfile.TemporaryDirectory() as raiz:
+        reales = store.PERFILES_PATH, store.CONFIG_PATH
+        store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        try:
+            store.guardar_perfil("juego", {
+                **store.DEFAULTS, "hotkey": "f13", "ui_tema": "magenta",
+                "gmail_address": "yo@privado.com", "steam_id": "76561198000000000",
+                "assistant_name": "Ivi",
+            })
+            destino = os.path.join(raiz, "juego.eveperfil")
+            store.exportar_perfil("juego", destino)
+
+            with open(destino, encoding="utf-8") as f:
+                crudo = f.read()
+            assert "yo@privado.com" not in crudo, "no puede viajar el mail"
+            assert "76561198000000000" not in crudo, "ni el SteamID"
+            assert "Ivi" not in crudo, "ni como llamaste a tu asistente"
+            assert "magenta" in crudo
+
+            nombre, config = store.leer_perfil_archivo(destino)
+            assert nombre == "juego"
+            assert config["hotkey"] == "f13" and config["ui_tema"] == "magenta"
+            assert "gmail_address" not in config
+
+            # Un archivo de otra cosa no se acepta.
+            otro = os.path.join(raiz, "otro.json")
+            with open(otro, "w", encoding="utf-8") as f:
+                json.dump({"formato": "otra-cosa"}, f)
+            for malo, error in ((otro, "no es un perfil"),
+                                (os.path.join(raiz, "nada.eveperfil"), "No pude leer")):
+                try:
+                    store.leer_perfil_archivo(malo)
+                    raise AssertionError(f"deberia rechazar {malo}")
+                except ValueError as exc:
+                    assert error in str(exc), exc
+
+            # Claves que este programa no conoce se descartan en vez de entrar.
+            futuro = os.path.join(raiz, "futuro.eveperfil")
+            with open(futuro, "w", encoding="utf-8") as f:
+                json.dump({"formato": "eveperfil", "version": 9, "nombre": "x",
+                           "config": {"ui_tema": "ambar", "cosa_del_futuro": 1}}, f)
+            _, config = store.leer_perfil_archivo(futuro)
+            assert config == {"ui_tema": "ambar"}
+
+            try:
+                store.exportar_perfil("no-existe", destino)
+                raise AssertionError("exportar uno que no existe deberia avisar")
+            except ValueError:
+                pass
+        finally:
+            store.PERFILES_PATH, store.CONFIG_PATH = reales
+
+
+def test_marco_y_degradado():
+    """El marco parametrico y el degradado generado."""
+    from PIL import Image
+
+    from eve import imagenes, overlay
+
+    # Poligono regular: pares de coordenadas, y el primer vertice arriba.
+    pts = overlay.marco(100, 100, 50, 6, 0)
+    assert len(pts) == 12, "6 lados = 6 pares"
+    assert abs(pts[0] - 100) < 0.01 and abs(pts[1] - 50) < 0.01, "arranca arriba"
+    # Todos a la misma distancia del centro: es regular.
+    import math
+
+    for i in range(0, len(pts), 2):
+        r = math.hypot(pts[i] - 100, pts[i + 1] - 100)
+        assert abs(r - 50) < 0.01, r
+    # Girarlo mueve los vertices pero no la cantidad.
+    assert len(overlay.marco(100, 100, 50, 6, 30)) == 12
+    assert overlay.marco(0, 0, 10, 1, 0) == overlay.marco(0, 0, 10, 3, 0), "minimo 3"
+
+    # Los atajos de forma son valores de los mismos parametros, no formas aparte.
+    for nombre, (lados, _rot, _red) in overlay.FORMAS.items():
+        assert lados == 0 or lados >= 3, nombre
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previo = imagenes._DIR
+        imagenes._DIR = raiz
+        try:
+            for direccion in ("vertical", "horizontal", "diagonal", "radial"):
+                ruta = imagenes.degradado(40, 40, "#000000", "#ffffff", direccion)
+                assert ruta and os.path.exists(ruta), direccion
+                with Image.open(ruta) as im:
+                    assert im.size == (40, 40)
+                    esquinas = [im.getpixel(p) for p in ((0, 0), (39, 39))]
+                    assert esquinas[0] != esquinas[1], f"{direccion} no degrada"
+            # Vertical: arriba oscuro, abajo claro.
+            with Image.open(imagenes.degradado(40, 40, "#000000", "#ffffff")) as im:
+                assert im.getpixel((20, 0))[0] < im.getpixel((20, 39))[0]
+            assert imagenes.degradado(0, 0, "#000", "#fff") == ""
+        finally:
+            imagenes._DIR = previo
+
+
 def test_recarga_cosmetica():
     """Cambiar un color no puede costarte la conversacion que venias teniendo."""
     assert store.solo_cosmetico({"ui_tema": "a"}, {"ui_tema": "b"})

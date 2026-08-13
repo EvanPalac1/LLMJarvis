@@ -170,6 +170,12 @@ Se manejan en **General > Perfiles**, y se cambia sin abrir el panel desde la ba
 (clic derecho > Perfiles). La posicion del cartel no entra en el perfil: esa es de tu
 pantalla, no de tu modo de trabajo.
 
+**Exportar e importar** deja pasarle un perfil a otra persona (`.eveperfil`). No viajan ni
+tus claves de API ni tus datos personales: las claves viven en el gestor de credenciales
+del sistema y nunca estuvieron en la config, y el mail, el SteamID, el nombre que le
+pusiste a tu asistente y tus carpetas permitidas se sacan al exportar. Al importar, las
+claves que este programa no conoce se descartan en vez de entrar.
+
 ---
 
 ## Addons
@@ -272,6 +278,36 @@ se pinta de ese color.
 En el **panel** hay imagen de cabecera por pestaña, pero no fondo para toda la ventana:
 los controles de ttk pintan su propio fondo opaco y lo taparian. Medido: un `ttk.Label`
 sobre una imagen roja da `(220,218,187)` donde la imagen da `(220,30,30)`.
+
+### Degradados, fuentes y el marco
+
+Sin imagen, el fondo puede ser un **degradado** de dos colores (vertical, horizontal,
+diagonal o radial). Se genera con PIL y se carga como una imagen: simularlo con mil lineas
+de un pixel en el canvas serian mil items que tk redibuja en cada cuadro.
+
+Las **fuentes** se eligen por separado para el panel, el cartel y los subtitulos. La del
+panel se aplica en vivo porque las fuentes con nombre de tk son objetos compartidos:
+reconfigurar `TkDefaultFont` repinta todos los widgets que la usan, sin recorrer nada.
+
+El **marco del icono es parametrico**: lados, giro, redondeo y grosor. Las "formas" del
+panel son atajos que llenan esos cuatro numeros, no formas aparte. El redondeo no se
+calcula con arcos: `create_polygon(..., smooth=True, splinesteps=N)` redondea los vertices
+con splines, que es el radio de esquina gratis.
+
+### Legibilidad
+
+**El texto lleva halo siempre**, no solo cuando el contraste da mal. Sobre un cartel que
+flota, el fondo real es tu escritorio, que el programa no controla: medir contraste WCAG
+daria un numero contra el fondo equivocado. Cuatro copias del texto desplazadas un pixel
+resuelven foto, degradado y GIF de una sola vez y no cuestan nada, que es lo que hacen los
+subtitulos de cualquier reproductor.
+
+Hay un **"no animar los GIF"** para quien no tolera el movimiento en pantalla: deja el
+primer cuadro fijo.
+
+Este diseño salio de pasar las tres decisiones por un concilio de asesores. La conclusion
+que cambio el rumbo fue descartar el medidor de contraste: era infraestructura para una
+decision que se toma una vez.
 
 En juegos a **pantalla completa exclusiva** no se ve ningun overlay: es como funciona
 DirectX, no un problema de Eve. En modo ventana o ventana sin bordes si.

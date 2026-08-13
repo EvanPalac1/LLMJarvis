@@ -119,6 +119,61 @@ def cargar(ruta: str, ancho: int, alto: int, ajuste: str = "recortar",
         return [], []
 
 
+def degradado(ancho: int, alto: int, color_a: str, color_b: str,
+              direccion: str = "vertical") -> str:
+    """Genera el degradado como PNG y devuelve su ruta. '' si no se pudo.
+
+    Se dibuja con PIL y se carga como imagen en vez de simularlo con lineas en
+    el canvas: mil lineas de un pixel por cada cuadro serian mil items que tk
+    tiene que redibujar, y aca es una sola imagen.
+    """
+    if ancho < 1 or alto < 1:
+        return ""
+    firma = hashlib.sha1(
+        f"grad|{ancho}x{alto}|{color_a}|{color_b}|{direccion}".encode()
+    ).hexdigest()[:12]
+    destino = os.path.join(_carpeta(), f"{firma}.png")
+    if os.path.exists(destino):
+        return destino
+    try:
+        from PIL import Image
+
+        a, b = _rgb(color_a), _rgb(color_b)
+        if direccion == "radial":
+            import math
+
+            img = Image.new("RGB", (ancho, alto))
+            px = img.load()
+            cx, cy = ancho / 2, alto / 2
+            maximo = math.hypot(cx, cy) or 1
+            for y in range(alto):
+                for x in range(ancho):
+                    t = min(1.0, math.hypot(x - cx, y - cy) / maximo)
+                    px[x, y] = tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
+        else:
+            # Se dibuja chico y se agranda: un degradado lineal es exactamente lo
+            # que hace un resize bilineal, y cuesta nada.
+            if direccion == "horizontal":
+                chico = Image.new("RGB", (2, 1))
+                chico.putpixel((0, 0), a)
+                chico.putpixel((1, 0), b)
+            elif direccion == "diagonal":
+                chico = Image.new("RGB", (2, 2))
+                chico.putpixel((0, 0), a)
+                chico.putpixel((1, 0), tuple((a[i] + b[i]) // 2 for i in range(3)))
+                chico.putpixel((0, 1), tuple((a[i] + b[i]) // 2 for i in range(3)))
+                chico.putpixel((1, 1), b)
+            else:  # vertical
+                chico = Image.new("RGB", (1, 2))
+                chico.putpixel((0, 0), a)
+                chico.putpixel((0, 1), b)
+            img = chico.resize((ancho, alto), Image.BILINEAR)
+        img.save(destino)
+        return destino
+    except Exception:  # noqa: BLE001 - sin degradado se usa el color liso
+        return ""
+
+
 class Fondo:
     """Guarda los cuadros y sabe cual toca segun el reloj."""
 
@@ -129,14 +184,20 @@ class Fondo:
         self._desde = 0.0
 
     def aplicar(self, ruta: str, ancho: int, alto: int, ajuste: str, opacidad: int,
-                tinte: int, color_base: str, color_tinte: str) -> None:
-        clave = (ruta, ancho, alto, ajuste, opacidad, tinte, color_base, color_tinte)
+                tinte: int, color_base: str, color_tinte: str, grad: tuple = ()) -> None:
+        """`grad` es (direccion, color_a, color_b) y se usa si no hay imagen."""
+        clave = (ruta, ancho, alto, ajuste, opacidad, tinte, color_base, color_tinte, grad)
         if clave == self._clave:
             return  # ya esta cargado: recargar en cada cuadro seria absurdo
         self._clave = clave
+        if not ruta and grad and grad[0] and grad[0] != "ninguno":
+            # La imagen gana si hay las dos: es lo que el usuario eligio ultimo.
+            ruta = degradado(ancho, alto, grad[1] or color_base,
+                             grad[2] or color_tinte, grad[0])
+            ajuste, opacidad, tinte = "estirar", 100, 0
         self.cuadros, self.tiempos = cargar(
             ruta, ancho, alto, ajuste, opacidad, tinte, color_base, color_tinte
-        )
+        ) if ruta else ([], [])
         import time
 
         self._desde = time.monotonic()
@@ -145,11 +206,11 @@ class Fondo:
     def hay(self) -> bool:
         return bool(self.cuadros)
 
-    def actual(self):
+    def actual(self, animar: bool = True):
         """El cuadro que corresponde ahora. None si no hay fondo."""
         if not self.cuadros:
             return None
-        if len(self.cuadros) == 1:
+        if len(self.cuadros) == 1 or not animar:
             return self.cuadros[0]
         import time
 

@@ -54,18 +54,24 @@ NOMBRES = [*PALETAS, "personalizado"]
 BASE_PERSONALIZADO = "tactico"
 
 
-def resolver(cfg: dict) -> dict:
+def resolver(cfg: dict, prefijo: str = "ui") -> dict:
     """Paleta final: el preset elegido, con los colores propios encima.
+
+    `prefijo` elige de que juego de claves leer: "ui" es el del panel y "hud" el
+    del cartel, que pueden tener temas distintos. Si el del cartel no esta
+    definido, hereda el del panel para no obligar a configurar dos veces.
 
     Devuelve siempre los ocho roles. Si el usuario dejo un campo vacio o puso
     cualquier cosa, se queda el del preset: un color invalido en un canvas de tk
     es una excepcion, y no vale la pena tirar el overlay por una letra de mas.
     """
-    nombre = cfg.get("ui_tema", "tactico")
+    nombre = str(cfg.get(f"{prefijo}_tema", "") or cfg.get("ui_tema", "tactico"))
     paleta = dict(PALETAS.get(nombre, PALETAS[BASE_PERSONALIZADO]))
     if nombre == "personalizado":
         for rol in ROLES:
-            valor = str(cfg.get(f"ui_color_{rol}", "")).strip()
+            valor = str(cfg.get(f"{prefijo}_color_{rol}", "")).strip()
+            if not _color_valido(valor) and prefijo != "ui":
+                valor = str(cfg.get(f"ui_color_{rol}", "")).strip()
             if _color_valido(valor):
                 paleta[rol] = valor
     return paleta
@@ -110,8 +116,75 @@ def pinta_panel(cfg: dict) -> bool:
     return bool(cfg.get("ui_pintar_panel", False))
 
 
+FUENTE_POR_DEFECTO = "(la del sistema)"
+
+
+def fuentes_disponibles() -> list[str]:
+    """Las familias instaladas, sin las privadas que empiezan con @."""
+    from tkinter import font as tkfont
+
+    try:
+        familias = sorted({f for f in tkfont.families() if not f.startswith("@")})
+    except Exception:  # noqa: BLE001 - sin display no hay fuentes
+        familias = []
+    return [FUENTE_POR_DEFECTO, *familias]
+
+
+def aplicar_fuente(raiz, familia: str, tamaño: int = 0) -> None:
+    """Cambia la tipografia de TODA la ventana, en vivo.
+
+    Las fuentes con nombre de tk son objetos compartidos: los widgets ya creados
+    apuntan al mismo objeto, asi que reconfigurarlo los repinta a todos sin
+    recorrer nada. `option_add`, en cambio, no es retroactivo y no serviria.
+    """
+    from tkinter import font as tkfont
+
+    for nombre in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
+        try:
+            fuente = tkfont.nametofont(nombre, root=raiz)
+        except Exception:  # noqa: BLE001 - alguna puede no existir en este Tk
+            continue
+        cambios = {}
+        if familia and familia != FUENTE_POR_DEFECTO:
+            cambios["family"] = familia
+        if tamaño:
+            cambios["size"] = tamaño
+        if cambios:
+            fuente.configure(**cambios)
+
+
+def repintar_tk(widget, paleta: dict) -> None:
+    """Pinta los widgets que NO pasan por ttk.Style.
+
+    Canvas, Text, Listbox, Frame de tk puro y los Toplevel tienen su color
+    propio y el motor de estilos no los toca nunca. Se recorren a mano.
+    """
+    opciones = {
+        "background": paleta["fondo"],
+        "bg": paleta["fondo"],
+    }
+    clase = widget.winfo_class()
+    if clase in ("Text", "Listbox", "Entry"):
+        opciones = {"background": paleta["panel"], "foreground": paleta["texto"],
+                    "insertbackground": paleta["texto"]}
+    elif clase in ("Label", "Checkbutton", "Radiobutton"):
+        opciones = {"background": paleta["fondo"], "foreground": paleta["texto"]}
+    for clave, valor in opciones.items():
+        try:
+            widget.configure(**{clave: valor})
+        except Exception:  # noqa: BLE001 - el widget no tiene esa opcion; se sigue
+            pass
+    for hijo in widget.winfo_children():
+        repintar_tk(hijo, paleta)
+
+
 def aplicar_ttk(style, paleta: dict) -> None:
-    """Pinta los widgets ttk con la paleta. Requiere el tema `clam`."""
+    """Pinta los widgets ttk con la paleta. Requiere el tema `clam`.
+
+    Se puede volver a llamar sobre widgets ya creados: los ttk consultan el motor
+    de estilos en cada redibujado, asi que cambia el color en vivo. Lo que NO hay
+    que hacer es volver a llamar `theme_use`, que resetea todos los estilos.
+    """
     fondo, panel = paleta["fondo"], paleta["panel"]
     texto, tenue = paleta["texto"], paleta["texto_tenue"]
     acento, borde = paleta["acento"], paleta["borde"]
