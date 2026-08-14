@@ -1312,6 +1312,44 @@ def test_menu_bandeja():
             store.PERFILES_PATH = real
 
 
+def test_icono_con_transparencia():
+    """Un PNG con alpha no se convierte en un cuadrado opaco.
+
+    procesar() hacia convert('RGB') siempre, asi que lo transparente terminaba
+    en negro y el icono se traia un recuadro oscuro pegado que desentonaba con
+    toda la tarjeta. Los fondos SI se aplanan -ocupan el cartel entero y no hay
+    nada detras que dejar ver-, por eso el modo es una decision y no un default.
+    """
+    from PIL import Image
+
+    from eve import imagenes
+
+    with tempfile.TemporaryDirectory() as raiz:
+        ruta = os.path.join(raiz, "ico.png")
+        img = Image.new("RGBA", (80, 80), (0, 0, 0, 0))   # todo transparente
+        img.paste((255, 0, 0, 255), (20, 20, 60, 60))     # menos el centro
+        img.save(ruta)
+
+        for ajuste in ("recortar", "estirar", "mosaico"):
+            rutas, _ = imagenes.procesar(ruta, 40, 40, ajuste, 100, 0,
+                                         "#0a2130", "#4fc3f7", conservar_alpha=True)
+            salida = Image.open(rutas[0]).convert("RGBA")
+            assert salida.getpixel((1, 1))[3] == 0, f"{ajuste}: la esquina quedo opaca"
+            assert salida.getpixel((20, 20))[3] == 255, f"{ajuste}: se perdio el dibujo"
+
+        # Un fondo sigue aplanandose, que es lo que corresponde.
+        rutas, _ = imagenes.procesar(ruta, 40, 40, "recortar", 100, 0,
+                                     "#0a2130", "#4fc3f7")
+        assert Image.open(rutas[0]).mode == "RGB"
+
+        # La opacidad sobre algo con alpha atenua, no mezcla contra un color.
+        rutas, _ = imagenes.procesar(ruta, 40, 40, "recortar", 50, 0,
+                                     "#0a2130", "#4fc3f7", conservar_alpha=True)
+        salida = Image.open(rutas[0]).convert("RGBA")
+        assert salida.getpixel((1, 1))[3] == 0, "lo transparente sigue transparente"
+        assert 100 < salida.getpixel((20, 20))[3] < 160, "lo opaco se atenua"
+
+
 def test_una_sola_eve():
     """Arrancar Eve dos veces no deja dos listeners.
 

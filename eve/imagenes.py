@@ -48,7 +48,8 @@ def _encajar(img, ancho: int, alto: int, ajuste: str):
     if ajuste == "estirar":
         return img.resize((ancho, alto), Image.LANCZOS)
     if ajuste == "mosaico":
-        salida = Image.new("RGB", (ancho, alto))
+        # El modo de la fuente, no RGB fijo: si viene con alpha hay que mantenerlo.
+        salida = Image.new(img.mode, (ancho, alto))
         for x in range(0, ancho, img.width):
             for y in range(0, alto, img.height):
                 salida.paste(img, (x, y))
@@ -63,7 +64,8 @@ def _encajar(img, ancho: int, alto: int, ajuste: str):
 
 def procesar(ruta: str, ancho: int, alto: int, ajuste: str = "recortar",
              opacidad: int = 100, tinte: int = 0, color_base: str = "#000000",
-             color_tinte: str = "#000000") -> tuple[list[str], list[int]]:
+             color_tinte: str = "#000000",
+             conservar_alpha: bool = False) -> tuple[list[str], list[int]]:
     """(rutas de los PNG ya listos, milisegundos de cada uno).
 
     Todo el trabajo de imagen vive aca, sin tocar tkinter, para poder probarlo
@@ -79,7 +81,7 @@ def procesar(ruta: str, ancho: int, alto: int, ajuste: str = "recortar",
 
         firma = hashlib.sha1(
             f"{ruta}|{os.path.getmtime(ruta)}|{ancho}x{alto}|{ajuste}|"
-            f"{opacidad}|{tinte}|{color_base}|{color_tinte}".encode()
+            f"{opacidad}|{tinte}|{color_base}|{color_tinte}|{conservar_alpha}".encode()
         ).hexdigest()[:12]
 
         rutas, tiempos = [], []
@@ -89,16 +91,29 @@ def procesar(ruta: str, ancho: int, alto: int, ajuste: str = "recortar",
                 destino = os.path.join(_carpeta(), f"{firma}-{i}.png")
                 animada.seek(i)
                 if not os.path.exists(destino):
-                    cuadro = _encajar(animada.convert("RGB"), ancho, alto, ajuste)
+                    # Un fondo se aplana contra el color del panel: ocupa la
+                    # tarjeta entera y no hay nada detras que dejar ver. Un icono
+                    # NO: convertirlo a RGB tira el alpha y lo que era
+                    # transparente termina en negro, o sea un cuadrado oscuro
+                    # alrededor del dibujo. Tk compone PNG con alpha solo.
+                    modo = "RGBA" if conservar_alpha else "RGB"
+                    cuadro = _encajar(animada.convert(modo), ancho, alto, ajuste)
                     if tinte > 0:
-                        capa = Image.new("RGB", cuadro.size, _rgb(color_tinte))
+                        capa = Image.new(modo, cuadro.size, _rgb(color_tinte))
+                        if conservar_alpha:
+                            capa.putalpha(cuadro.getchannel("A"))
                         cuadro = Image.blend(cuadro, capa, min(100, tinte) / 100)
                     if opacidad < 100:
                         # Mezclar contra el color del panel imita la
                         # transparencia sin tocar el alpha de la ventana, que se
                         # llevaria puesto tambien al texto.
-                        fondo = Image.new("RGB", cuadro.size, _rgb(color_base))
-                        cuadro = Image.blend(fondo, cuadro, max(0, opacidad) / 100)
+                        if conservar_alpha:
+                            alfa = cuadro.getchannel("A").point(
+                                lambda v: int(v * max(0, opacidad) / 100))
+                            cuadro.putalpha(alfa)
+                        else:
+                            fondo = Image.new("RGB", cuadro.size, _rgb(color_base))
+                            cuadro = Image.blend(fondo, cuadro, max(0, opacidad) / 100)
                     cuadro.save(destino)
                 rutas.append(destino)
                 tiempos.append(int(animada.info.get("duration") or MS_POR_DEFECTO))
@@ -109,10 +124,11 @@ def procesar(ruta: str, ancho: int, alto: int, ajuste: str = "recortar",
 
 def cargar(ruta: str, ancho: int, alto: int, ajuste: str = "recortar",
            opacidad: int = 100, tinte: int = 0, color_base: str = "#000000",
-           color_tinte: str = "#000000") -> tuple[list, list[int]]:
+           color_tinte: str = "#000000",
+           conservar_alpha: bool = False) -> tuple[list, list[int]]:
     """Lo mismo que `procesar` pero ya convertido a imagenes de tk."""
     rutas, tiempos = procesar(ruta, ancho, alto, ajuste, opacidad, tinte,
-                              color_base, color_tinte)
+                              color_base, color_tinte, conservar_alpha)
     try:
         return [tk.PhotoImage(file=r) for r in rutas], tiempos
     except tk.TclError:
@@ -184,9 +200,11 @@ class Fondo:
         self._desde = 0.0
 
     def aplicar(self, ruta: str, ancho: int, alto: int, ajuste: str, opacidad: int,
-                tinte: int, color_base: str, color_tinte: str, grad: tuple = ()) -> None:
+                tinte: int, color_base: str, color_tinte: str, grad: tuple = (),
+                conservar_alpha: bool = False) -> None:
         """`grad` es (direccion, color_a, color_b) y se usa si no hay imagen."""
-        clave = (ruta, ancho, alto, ajuste, opacidad, tinte, color_base, color_tinte, grad)
+        clave = (ruta, ancho, alto, ajuste, opacidad, tinte, color_base,
+                 color_tinte, grad, conservar_alpha)
         if clave == self._clave:
             return  # ya esta cargado: recargar en cada cuadro seria absurdo
         self._clave = clave
@@ -196,7 +214,8 @@ class Fondo:
                              grad[2] or color_tinte, grad[0])
             ajuste, opacidad, tinte = "estirar", 100, 0
         self.cuadros, self.tiempos = cargar(
-            ruta, ancho, alto, ajuste, opacidad, tinte, color_base, color_tinte
+            ruta, ancho, alto, ajuste, opacidad, tinte, color_base, color_tinte,
+            conservar_alpha
         ) if ruta else ([], [])
         import time
 

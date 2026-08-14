@@ -192,8 +192,13 @@ class Pintor:
         lado = int((ALTO - 34) * self.esc)
         self.icono = imagenes.Fondo()
         if ruta.lower().endswith((".png", ".gif")) and os.path.exists(ruta):
+            # conservar_alpha: un icono con transparencia tiene que dejar ver la
+            # tarjeta, no traerse un recuadro pegado. Y la base es `panel`, que
+            # es de lo que esta pintada la tarjeta; con `fondo` -casi negro- lo
+            # que quedara opaco desentonaria con todo lo de alrededor.
             self.icono.aplicar(ruta, lado, lado, "recortar", 100, 0,
-                               paleta["fondo"], paleta["acento"])
+                               paleta["panel"], paleta["acento"],
+                               conservar_alpha=True)
 
     def avanzar(self, objetivo: float) -> None:
         """Suaviza hacia el ultimo nivel leido y corre la onda un lugar.
