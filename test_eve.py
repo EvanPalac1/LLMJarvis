@@ -1312,6 +1312,38 @@ def test_menu_bandeja():
             store.PERFILES_PATH = real
 
 
+def test_una_sola_eve():
+    """Arrancar Eve dos veces no deja dos listeners.
+
+    Dos listeners son dos hooks globales sobre la misma tecla: apretas una vez,
+    se graban dos, contestan dos voces encima. Y a simple vista hay un solo
+    icono en la bandeja, asi que el sintoma parece de otra cosa.
+    """
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.LATIDO_PATH
+        store.LATIDO_PATH = os.path.join(raiz, "latido.json")
+        try:
+            assert store.otro_asistente() == 0, "sin latido, arranca"
+
+            # El latido propio no cuenta: si contara, Eve no arrancaria nunca
+            # despues de la primera vez.
+            store.latir({"motor": "api"})
+            assert store.otro_asistente() == 0
+
+            ajeno = os.getpid() + 1
+            with open(store.LATIDO_PATH, "w", encoding="utf-8") as f:
+                json.dump({"ts": time.time(), "pid": ajeno}, f)
+            assert store.otro_asistente() == ajeno
+
+            # Si la anterior murio mal, el latido queda viejo y NO puede trabar
+            # el arranque siguiente: si no, un cierre sucio deja a Eve muerta.
+            with open(store.LATIDO_PATH, "w", encoding="utf-8") as f:
+                json.dump({"ts": time.time() - 3600, "pid": ajeno}, f)
+            assert store.otro_asistente() == 0, "un latido viejo no traba nada"
+        finally:
+            store.LATIDO_PATH = real
+
+
 def test_lista_blanca_de_perfiles():
     """Una clave nueva del programa NO entra sola a los perfiles.
 

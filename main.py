@@ -153,6 +153,14 @@ def main() -> int:
 
     cfg = store.load_config()
 
+    # Una sola Eve por maquina. El cartel ya tenia su guarda; el asistente no, y
+    # es el que importa: dos listeners son dos hooks globales sobre la misma
+    # tecla. Va antes de lanzar el cartel para no dejar procesos sueltos.
+    otro = store.otro_asistente()
+    if otro:
+        print(f"Eve ya esta corriendo (pid {otro}). Usa el icono de la bandeja.")
+        return 0
+
     # El cartel se lanza ANTES de armar el motor: no depende de el, y armarlo
     # tarda varios segundos. Medido, asi tardaba nueve en aparecer, y en esa
     # ventana apretar la tecla no mostraba nada.

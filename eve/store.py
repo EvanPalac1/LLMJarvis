@@ -813,6 +813,24 @@ def latido(max_edad: float = 20.0) -> dict | None:
     return datos if time.time() - datos.get("ts", 0) < max_edad else None
 
 
+def otro_asistente(max_edad: float = 20.0) -> int:
+    """PID de otro asistente vivo, o 0 si este es el unico.
+
+    Sin esta guarda arrancar Eve dos veces -el acceso directo mas el autostart,
+    o dos clics seguidos- deja dos listeners con un hook global cada uno sobre
+    la misma tecla: apretas una vez y se graban dos, se mandan dos pedidos y
+    contestan dos voces encima. Se nota tarde, porque a simple vista hay un solo
+    icono en la bandeja y el sintoma parece de otra cosa.
+
+    El latido caduca solo, asi que si el anterior murio mal esto no traba el
+    arranque siguiente: a los 20 segundos deja de contar.
+    """
+    vivo = latido(max_edad)
+    if vivo and vivo.get("pid") and vivo["pid"] != os.getpid():
+        return int(vivo["pid"])
+    return 0
+
+
 def clear_history(also_actions: bool = False) -> int:
     """Borra la conversacion guardada. El log de auditoria se conserva salvo que
     se pida lo contrario: es el registro de lo que Eve ejecuto en la PC."""
