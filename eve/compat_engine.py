@@ -44,6 +44,15 @@ PROVEEDORES = {
 
 GRATIS = ("gemini", "groq", "openrouter", "lmstudio")
 
+# Codigos que se arreglan solos: el servicio esta saturado o nos frena un rato.
+# Sin reintentar, un 503 pasajero de Gemini contesta "gemini fallo: 503" y ahi
+# se termina la orden que el usuario acaba de decir en voz alta.
+REINTENTABLES = (429, 500, 502, 503, 504)
+# Mas que esto no se espera: el usuario ya hablo y esta parado ahi. Un 429 por
+# tope de tokens por minuto pide 60s, y aguantar 60s callado es peor que decir
+# que no se pudo.
+ESPERA_MAX = 8.0
+
 
 class CompatEve(OllamaEve):
     """Misma interfaz que los otros motores: .ask(texto) -> respuesta."""
@@ -74,18 +83,25 @@ class CompatEve(OllamaEve):
         cabeceras = {"Content-Type": "application/json"}
         if self.clave:
             cabeceras["Authorization"] = f"Bearer {self.clave}"
-        r = requests.post(
-            f"{self.host}/chat/completions",
-            headers=cabeceras,
-            json={
-                "model": self.modelo,
-                "messages": mensajes,
-                "tools": self._tools(),
-                "max_tokens": int(self.cfg.get("max_tokens", 8000)),
-                "temperature": 0.4,
-            },
-            timeout=300,
-        )
+        cuerpo = {
+            "model": self.modelo,
+            "messages": mensajes,
+            "tools": self._tools(),
+            "max_tokens": int(self.cfg.get("max_tokens", 8000)),
+            "temperature": 0.4,
+        }
+        for intento in range(3):
+            r = requests.post(
+                f"{self.host}/chat/completions", headers=cabeceras, json=cuerpo, timeout=300
+            )
+            if r.status_code not in REINTENTABLES or intento == 2:
+                break
+            # El servicio suele decir cuanto esperar; si no, se sube de a poco.
+            espera = float(r.headers.get("Retry-After", 0) or 0) or 1.5 * (intento + 1)
+            if espera > ESPERA_MAX:
+                break
+            self.on_status(f"{self.proveedor} saturado, reintento en {espera:.0f}s...")
+            time.sleep(espera)
         if r.status_code >= 400:
             # El cuerpo dice el motivo real (cuota, modelo inexistente, clave
             # mala). Sin esto el usuario ve "400 Bad Request" y no sabe cual.

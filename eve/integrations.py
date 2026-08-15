@@ -111,7 +111,7 @@ def contacto(nombre: str) -> str:
 
 def prompt_section() -> str:
     """Lo que el modelo necesita saber para usar estas conexiones."""
-    from . import addons
+    from eve import addons
 
     contactos_prompt = contactos_prompt_texto()
     extra = addons.prompt(store.load_config())
@@ -1098,6 +1098,11 @@ def main(argv=None) -> int:
 
     sub.add_parser("steam-info")
 
+    # Diagnostico, no una conexion con una app: no va en el prompt. Existe
+    # porque el bug de las DLL de NVIDIA solo se ve en el ejecutable, y desde
+    # afuera no habia forma de preguntarle al binario congelado si las encontro.
+    sub.add_parser("probar-gpu")
+
     # Un unico subcomando para todos los addons: cada uno define sus acciones y
     # sus argumentos, asi agregar uno no obliga a tocar este parser.
     ad = sub.add_parser("addon", help="comandos que agregan los addons")
@@ -1137,8 +1142,12 @@ def main(argv=None) -> int:
             print(discord_postear(a.texto))
         elif a.cmd == "steam-info":
             print(steam_info())
+        elif a.cmd == "probar-gpu":
+            from eve import voice
+
+            print(voice.probar_gpu(store.load_config()))
         elif a.cmd == "addon":
-            from . import addons
+            from eve import addons
 
             print(addons.ejecutar(a.nombre, a.accion, a.resto, store.load_config()))
     except Exception as exc:  # noqa: BLE001 - el texto del error vuelve al modelo

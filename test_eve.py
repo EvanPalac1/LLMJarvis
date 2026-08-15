@@ -1437,6 +1437,57 @@ def test_motor_compat():
     assert o.host == "http://localhost:11434" and o.modelo == "qwen3:8b"
 
 
+def test_compat_reintenta():
+    """Un 503 pasajero no puede terminar la orden que el usuario acaba de decir.
+
+    Gemini contesta 503 cuando esta saturado. Sin reintentar, la respuesta era
+    "gemini fallo: 503 ..." leida en voz alta, y a rehacer el pedido a mano.
+    """
+    from eve import compat_engine
+
+    class Respuesta:
+        def __init__(self, codigo, cabeceras=None):
+            self.status_code, self.headers = codigo, cabeceras or {}
+            self.text = "saturado"
+
+        def json(self):
+            return {"choices": [{"message": {"content": "listo"}}]}
+
+    motor = compat_engine.CompatEve.__new__(compat_engine.CompatEve)
+    motor.cfg, motor.proveedor = {"max_tokens": 100}, "gemini"
+    motor.host, motor.modelo, motor.clave = "http://x/v1", "m", "k"
+    motor.on_status = lambda _: None
+
+    real_post, real_sleep = compat_engine.requests.post, compat_engine.time.sleep
+    compat_engine.time.sleep = lambda _s: None
+    try:
+        codigos = [503, 503, 200]
+        llamadas = []
+
+        def post(*_a, **_k):
+            llamadas.append(1)
+            return Respuesta(codigos[len(llamadas) - 1])
+
+        compat_engine.requests.post = post
+        assert motor._pedir([])["content"] == "listo"
+        assert len(llamadas) == 3, f"reintentos: {len(llamadas)}"
+
+        # Pero un freno de un minuto no se espera callado: mas vale decir que no
+        # se pudo que dejar al usuario parado ahi.
+        llamadas.clear()
+        compat_engine.requests.post = lambda *_a, **_k: (
+            llamadas.append(1) or Respuesta(429, {"Retry-After": "60"}))
+        try:
+            motor._pedir([])
+            raise AssertionError("un 429 con espera larga tiene que fallar")
+        except compat_engine.requests.RequestException:
+            pass
+        assert len(llamadas) == 1, f"no tenia que reintentar: {len(llamadas)}"
+    finally:
+        compat_engine.requests.post = real_post
+        compat_engine.time.sleep = real_sleep
+
+
 def test_una_sola_eve():
     """Arrancar Eve dos veces no deja dos listeners.
 
