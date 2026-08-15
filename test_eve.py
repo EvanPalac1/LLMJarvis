@@ -1963,4 +1963,9 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print(f"ok  {name}")
-    print("\nTodo verde.")
+    print("\nTodo verde.", flush=True)
+    # Salida inmediata, sin correr los atexit. Una libreria de terceros
+    # (filelock) revienta en el suyo al apagar el interprete y deja el proceso
+    # en codigo 1: los 55 tests pasaban y CI lo leia como fallo igual. Aca ya
+    # esta todo reportado y no hay nada nuestro que cerrar.
+    os._exit(0)
