@@ -379,11 +379,75 @@ class Panel(tk.Tk):
             )
             estilo = "Ayuda.TLabel"
         self.estado.config(text=f"{texto}   |   {plataforma.NOMBRE}", style=estilo)
+        self._releer_si_cambio()
 
         try:
             self.after(3000, self._refrescar_estado)
         except tk.TclError:
             pass
+
+    def _mtimes(self) -> tuple:
+        def cuando(ruta):
+            try:
+                return os.path.getmtime(ruta)
+            except OSError:
+                return 0.0
+
+        return (cuando(store.CONFIG_PATH), cuando(store.CONTACTS_PATH))
+
+    def _releer_si_cambio(self) -> None:
+        """Recarga si config.json o la agenda cambiaron por fuera del panel.
+
+        El panel se sacaba una foto al abrirse y despues escribia esa foto
+        entera de vuelta. Con el panel abierto, cambiar de perfil desde la
+        bandeja te pintaba el cartel del personaje, y el primer Guardar lo
+        revertia a lo que el panel tenia cargado de antes: por eso a veces
+        salian los personajes y a veces los colores por defecto. Con la agenda
+        pasaba lo mismo — un contacto que Eve agregaba por voz desaparecia al
+        editar cualquier otro desde el panel.
+
+        No se pisa lo que el usuario este editando ahora mismo: si toco algo y
+        todavia no guardo, se avisa y se respeta lo suyo.
+        """
+        ahora = self._mtimes()
+        if ahora == getattr(self, "_visto", ahora):
+            self._visto = ahora
+            return
+        self._visto = ahora
+        if self._hay_cambios_sin_guardar():
+            self.estado.config(
+                text="La configuracion cambio por fuera. Guarda o cerra para recargarla.",
+                style="Ayuda.TLabel")
+            return
+        self.recargar_de_disco()
+
+    def _hay_cambios_sin_guardar(self) -> bool:
+        for clave, var in self.vars.items():
+            if clave not in self.cfg:
+                continue
+            if str(var.get()) != str(self.cfg[clave]):
+                return True
+        return False
+
+    def recargar_de_disco(self) -> None:
+        """Trae config y agenda del disco a los widgets. Idempotente."""
+        self.cfg = store.load_config()
+        for clave, var in self.vars.items():
+            if clave in self.cfg:
+                valor = self.cfg[clave]
+                try:
+                    var.set(valor if isinstance(var, tk.BooleanVar) else str(valor))
+                except tk.TclError:
+                    pass
+        self.contactos = store.load_contacts()
+        for refrescar in ("_contactos_refrescar", "_refrescar_contactos", "_listar_contactos"):
+            fn = getattr(self, refrescar, None)
+            if callable(fn):
+                fn()
+                break
+        if hasattr(self, "perfil_var"):
+            self.perfil_var.set(self.cfg.get("perfil_activo", ""))
+        self.repintar()
 
     def _seccion(self, padre, titulo: str):
         caja = ttk.LabelFrame(padre, text=titulo, style="Seccion.TLabelframe")
@@ -970,6 +1034,10 @@ class Panel(tk.Tk):
         if not datos["nombre"]:
             messagebox.showerror("Falta el nombre", "El nombre no puede estar vacio.")
             return
+        # Se relee del disco antes de tocar nada: si Eve agrego un contacto por
+        # voz mientras el panel estaba abierto, escribir la lista que el panel
+        # tenia cargada lo borraba sin decir nada.
+        self.contactos = store.load_contacts()
         # Mismo nombre = actualizar, no duplicar.
         for i, c in enumerate(self.contactos):
             if store._plano(c.get("nombre", "")) == store._plano(datos["nombre"]):
@@ -1040,8 +1108,11 @@ class Panel(tk.Tk):
             return
         if not messagebox.askyesno("Borrar", f"Borrar a {nombre} de la agenda?"):
             return
+        # Del disco, por lo mismo que al guardar: borrar uno no puede llevarse
+        # puestos los que aparecieron mientras el panel estaba abierto.
         self.contactos = [
-            c for c in self.contactos if store._plano(c.get("nombre", "")) != store._plano(nombre)
+            c for c in store.load_contacts()
+            if store._plano(c.get("nombre", "")) != store._plano(nombre)
         ]
         store.save_contacts(self.contactos)
         self._contactos_refrescar()
@@ -1785,9 +1856,22 @@ class Panel(tk.Tk):
     # --- guardar -----------------------------------------------------------
 
     def save(self, avisar: bool = True):
-        cfg = dict(self.cfg)
+        # La base sale del DISCO, no de la foto que el panel tomo al abrirse.
+        # Con el panel abierto, cambiar de perfil desde la bandeja escribia el
+        # personaje en config.json y el primer Guardar lo revertia entero,
+        # porque partia de lo que el panel tenia cargado de antes. Lo que el
+        # usuario esta editando gana igual: se aplica encima, clave por clave.
+        cfg = {**store.load_config(), **{k: v for k, v in self.cfg.items()
+                                         if k not in store.DEFAULTS}}
         for key, var in self.vars.items():
             value = var.get()
+            # Si el widget sigue mostrando lo mismo que cuando el panel leyo la
+            # config, el usuario NO toco ese campo: gana lo que haya en disco.
+            # Sin esto, guardar cualquier cosa reescribia las noventa y pico de
+            # claves con la foto vieja, y ahi se perdia el perfil que hubieras
+            # cargado desde la bandeja mientras el panel estaba abierto.
+            if key in self.cfg and str(value) == str(self.cfg[key]):
+                continue
             default = store.DEFAULTS.get(key)
             if isinstance(default, bool):
                 cfg[key] = bool(value)
@@ -1843,6 +1927,18 @@ class Panel(tk.Tk):
         )
 
         store.save_config(cfg)
+        # Los widgets y self.cfg tienen que quedar iguales a lo que se acaba de
+        # escribir. Si no, el guardado siguiente ve que un widget difiere de
+        # self.cfg, lo toma como "el usuario lo edito" y lo escribe encima: bastaba
+        # con guardar dos veces para revertir el perfil que se habia cargado.
+        self.cfg = cfg
+        self._visto = self._mtimes()
+        for clave, var in self.vars.items():
+            if clave in cfg:
+                try:
+                    var.set(cfg[clave] if isinstance(var, tk.BooleanVar) else str(cfg[clave]))
+                except tk.TclError:
+                    pass
 
         for provider, var in self.key_vars.items():
             value = var.get()
