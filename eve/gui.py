@@ -759,6 +759,21 @@ class Panel(tk.Tk):
         self._row(t, "Modelo (motor api)", "model", MODELS)
         self._row(t, "Modelo (motor claude-code)", "cc_model", CC_MODELS)
         self._row(t, "Permisos (motor claude-code)", "cc_permission_mode", CC_MODES)
+        from .compat_engine import GRATIS, PROVEEDORES
+
+        caja = ttk.LabelFrame(t, text="Motor 'compat' (protocolo de OpenAI)")
+        caja.pack(fill="x", padx=12, pady=(10, 4))
+        self._row(caja, "Proveedor", "compat_proveedor", list(PROVEEDORES))
+        self._row(caja, "Modelo (vacio = el sugerido)", "compat_modelo")
+        self._row(caja, "URL propia (vacio = la del proveedor)", "compat_url", width=40)
+        ttk.Label(
+            caja,
+            text="Con capa gratuita: " + ", ".join(GRATIS) + ".\n"
+            "La clave de cada uno va en la pestania Cuentas. 'propio' sirve para\n"
+            "cualquier servidor que hable /chat/completions.",
+            style="Ayuda.TLabel", justify="left",
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
         self._row(t, "Ollama: host", "ollama_host")
         self._row(t, "Ollama: modelo", "ollama_model")
         self._row(t, "Effort", "effort", EFFORTS)
@@ -817,6 +832,11 @@ class Panel(tk.Tk):
             ("anthropic", "Anthropic API key (motor 'api')"),
             ("openai", "OpenAI API key (STT en la nube)"),
             ("elevenlabs", "ElevenLabs API key (TTS en la nube)"),
+            ("gemini", "Gemini API key (gratis en aistudio.google.com)"),
+            ("groq", "Groq API key (gratis en console.groq.com)"),
+            ("openrouter", "OpenRouter API key (tiene modelos :free)"),
+            ("deepseek", "DeepSeek API key"),
+            ("xai", "xAI API key"),
         ]:
             self._campo_clave(t, provider, label)
 
@@ -1213,9 +1233,20 @@ class Panel(tk.Tk):
         self._row(t, "STT (reconocimiento)", "stt_provider", ["faster-whisper", "openai"])
         self._row(t, "Modelo Whisper local", "stt_model", ["tiny", "base", "small", "medium"])
         self._row(t, "Dispositivo", "stt_device", ["cpu", "cuda"])
+        self._row(t, "Tipo de computo", "stt_computo",
+                  ["auto", "int8", "int8_float32", "int8_float16", "float16", "float32"])
+        self._check(t, "Recortar silencios antes de transcribir (VAD)", "stt_vad")
+        ttk.Label(
+            t,
+            text="cuda necesita las librerias de NVIDIA instaladas; si faltan, cae a cpu\n"
+            "solo y avisa. Medido en una GTX 1660 SUPER: 3.42s por orden en cpu\n"
+            "contra 0.71s en gpu. 'auto' elige int8 en cpu e int8_float16 en gpu.",
+            style="Ayuda.TLabel", justify="left",
+        ).pack(anchor="w", padx=12, pady=(0, 6))
         self._row(t, "TTS (voz)", "tts_provider", ["sapi", "piper", "elevenlabs"])
         self._row(t, "Voz de Piper", "piper_voice")
         self._row(t, "Velocidad (1.0 = normal, mas = mas lento)", "piper_velocidad")
+        self._row(t, "Volumen (1.0 = como sale del sintetizador)", "volumen")
         self._row(t, "Hablante (solo voces multi-voz)", "piper_hablante")
         self._row(t, "Voz de Windows", "tts_voice", voice.list_sapi_voices() or None)
         self._row(t, "ElevenLabs voice_id", "elevenlabs_voice_id")
