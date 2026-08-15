@@ -98,6 +98,65 @@ def _computo(cfg: dict) -> str:
 _dlls_cuda = False
 
 
+def _sitios_python() -> list[str]:
+    """Los site-packages del Python del SISTEMA, no del que viaja en el .exe.
+
+    Congelado, `site.getsitepackages()` devuelve el interprete empaquetado, donde
+    los wheels de NVIDIA no estan ni van a estar. Por eso activar la GPU en la
+    version instalada no hacia nada aunque las librerias estuvieran bajadas en la
+    maquina. Y estan: son ~2 GB, asi que encontrarlas es mucho mejor negocio que
+    volver a bajarlas.
+    """
+    import json
+    import shutil
+    import subprocess
+
+    for nombre in ("python", "python3", "py"):
+        ruta = shutil.which(nombre)
+        # El stub de la Microsoft Store no es un Python: al ejecutarlo abre la
+        # tienda. Con esto no le damos la oportunidad.
+        if not ruta or "WindowsApps" in ruta:
+            continue
+        try:
+            salida = subprocess.run(
+                [ruta, "-c", "import json,site;print(json.dumps(site.getsitepackages()))"],
+                capture_output=True, text=True, timeout=20,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            rutas = json.loads(salida.stdout.strip())
+            if rutas:
+                return [str(r) for r in rutas]
+        except Exception:  # noqa: BLE001 - cualquier python roto se saltea
+            continue
+    return []
+
+
+def _carpetas_cuda() -> list[str]:
+    """Todas las carpetas donde pueden estar las DLL de NVIDIA, sin repetir."""
+    import glob
+    import site
+
+    bases = list(site.getsitepackages())
+    try:
+        bases.append(site.getusersitepackages())
+    except AttributeError:
+        pass
+
+    def nvidia(donde: list[str]) -> list[str]:
+        return [d for b in donde for d in glob.glob(os.path.join(b, "nvidia", "*", "bin"))]
+
+    carpetas = nvidia(bases)
+    # Solo si las propias no dieron nada: correr desde el codigo fuente ya las
+    # encuentra y no vale la pena pagar un subproceso en cada arranque.
+    if not carpetas:
+        carpetas = nvidia(_sitios_python())
+
+    propias = os.path.join(store.BASE, "cuda")
+    sueltas = glob.glob(os.path.join(propias, "**", "*.dll"), recursive=True)
+    carpetas += sorted({os.path.dirname(x) for x in sueltas})
+    return list(dict.fromkeys(carpetas))
+
+
 def _preparar_cuda() -> None:
     """Deja las DLL de NVIDIA donde ctranslate2 las pueda encontrar.
 
@@ -113,23 +172,7 @@ def _preparar_cuda() -> None:
     if _dlls_cuda:
         return
     _dlls_cuda = True
-    import glob
-    import site
-
-    bases = list(site.getsitepackages())
-    try:
-        bases.append(site.getusersitepackages())
-    except AttributeError:
-        pass
-    carpetas = [d for b in bases for d in glob.glob(os.path.join(b, "nvidia", "*", "bin"))]
-    # Y las de la carpeta de datos del usuario. Empaquetado, `site` apunta al
-    # Python que viaja adentro del ejecutable y nunca a donde pip dejo los
-    # wheels de NVIDIA: sin esta rama, activar la GPU en la version instalada
-    # no puede funcionar por mucho que las libs esten en la maquina.
-    propias = os.path.join(store.BASE, "cuda")
-    carpetas += sorted(glob.glob(os.path.join(propias, "**", "*.dll"), recursive=True)
-                       and {os.path.dirname(x) for x in
-                            glob.glob(os.path.join(propias, "**", "*.dll"), recursive=True)})
+    carpetas = _carpetas_cuda()
     if not carpetas:
         return
     os.environ["PATH"] = os.pathsep.join(carpetas) + os.pathsep + os.environ.get("PATH", "")
@@ -160,6 +203,49 @@ def _abrir_whisper(modelo: str, device: str, computo: str):
             raise
         print(f"[stt] la GPU no esta disponible ({str(exc)[:80]}); sigo en CPU")
         return WhisperModel(modelo, device="cpu", compute_type="int8")
+
+
+def probar_gpu(cfg: dict) -> str:
+    """Dice si la GPU va a servir, para no enterarse recien en la primera orden.
+
+    Transcribe de verdad un segundo de silencio. El error de CUDA no salta al
+    construir el modelo sino al correr el encoder por primera vez: una prueba
+    que solo cargue el modelo diria que esta todo bien y despues fallaria con la
+    primera cosa que le digas.
+    """
+    import time as reloj
+
+    carpetas = _carpetas_cuda()
+    if not carpetas:
+        return (
+            "No encontre las librerias de NVIDIA.\n\n"
+            "Instalalas con:\n"
+            "    pip install nvidia-cublas-cu12 nvidia-cudnn-cu12\n\n"
+            "o copia sus DLL adentro de:\n"
+            f"    {os.path.join(store.BASE, 'cuda')}"
+        )
+    _preparar_cuda()
+    computo = _computo({**cfg, "stt_device": "cuda"})
+    from faster_whisper import WhisperModel
+
+    try:
+        desde = reloj.perf_counter()
+        modelo = WhisperModel(cfg["stt_model"], device="cuda", compute_type=computo)
+        segmentos, _ = modelo.transcribe(
+            np.zeros(SAMPLE_RATE, dtype="float32"), language=cfg["language"], beam_size=1
+        )
+        list(segmentos)
+    except Exception as exc:  # noqa: BLE001 - vale cualquier falla del backend
+        return (
+            f"La GPU todavia no sirve:\n{str(exc)[:240]}\n\n"
+            "Busque las librerias en:\n    " + "\n    ".join(carpetas[:4]) + "\n\n"
+            "Eve sigue andando en CPU mientras tanto."
+        )
+    return (
+        f"La GPU anda. Modelo {cfg['stt_model']} en {computo}, "
+        f"cargado y probado en {reloj.perf_counter() - desde:.1f}s.\n\n"
+        f"Librerias tomadas de:\n    {carpetas[0]}"
+    )
 
 
 def transcribe(audio: np.ndarray, cfg: dict) -> str:

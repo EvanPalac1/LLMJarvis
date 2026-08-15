@@ -1314,6 +1314,9 @@ class Panel(tk.Tk):
             "contra 0.71s en gpu. 'auto' elige int8 en cpu e int8_float16 en gpu.",
             style="Ayuda.TLabel", justify="left",
         ).pack(anchor="w", padx=12, pady=(0, 6))
+        ttk.Button(t, text="Probar GPU", command=self.gpu_probar).pack(anchor="w", padx=12)
+        self.gpu_label = ttk.Label(t, text="", style="Ayuda.TLabel", justify="left")
+        self.gpu_label.pack(anchor="w", padx=12, pady=(4, 8))
         self._row(t, "TTS (voz)", "tts_provider", ["sapi", "piper", "elevenlabs"])
         self._row(t, "Voz de Piper", "piper_voice")
         self._row(t, "Velocidad (1.0 = normal, mas = mas lento)", "piper_velocidad")
@@ -1815,6 +1818,21 @@ class Panel(tk.Tk):
 
             texto = integrations.gmail_probar()
             self._ui(lambda: self.gmail_label.config(text=texto))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def gpu_probar(self):
+        """Carga el modelo en la GPU y transcribe algo, en un hilo.
+
+        Elegir 'cuda' en el desplegable no daba ninguna senal: si faltaba una
+        DLL, Eve caia a CPU sola y en silencio, y la unica pista era que seguia
+        tardando lo mismo. Esto contesta antes de hablarle.
+        """
+        self.gpu_label.config(text="probando, puede tardar unos segundos...")
+
+        def work():
+            texto = voice.probar_gpu(store.load_config())
+            self._ui(lambda: self.gpu_label.config(text=texto))
 
         threading.Thread(target=work, daemon=True).start()
 

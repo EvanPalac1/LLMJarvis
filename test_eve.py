@@ -1117,6 +1117,55 @@ def test_obs():
     assert isinstance(obs._config_obs(), dict)
 
 
+def test_carpetas_cuda():
+    """Las DLL de NVIDIA se buscan tambien fuera del Python empaquetado.
+
+    Congelado, `site.getsitepackages()` devuelve el interprete que viaja adentro
+    del .exe, donde los wheels de NVIDIA no estan ni pueden estar. Elegir 'cuda'
+    en la version instalada caia a CPU en silencio aunque las librerias
+    estuvieran bajadas en la maquina, y la unica senal era que seguia tardando
+    lo mismo.
+    """
+    from eve import voice
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.BASE
+        store.BASE = raiz
+        try:
+            propia = os.path.join(raiz, "cuda", "cublas", "bin")
+            os.makedirs(propia)
+            for nombre in ("cublas64_12.dll", "cublasLt64_12.dll"):
+                open(os.path.join(propia, nombre), "wb").close()
+
+            carpetas = voice._carpetas_cuda()
+            assert propia in carpetas, carpetas
+            # Dos DLL en la misma carpeta son una sola entrada del PATH.
+            assert len(carpetas) == len(set(carpetas)), f"repetidas: {carpetas}"
+
+            # Y ahora la situacion del ejecutable: un site-packages sin nvidia
+            # adentro. En esta maquina la rama no corre sola porque el Python
+            # que ejecuta los tests SI las tiene instaladas, asi que se la
+            # fuerza; es justo la rama que estaba rota en la version instalada.
+            import site
+
+            vacio, sitios = site.getsitepackages, os.path.join(raiz, "vacio")
+            os.makedirs(sitios)
+            del_sistema = os.path.join(raiz, "sistema", "nvidia", "cudnn", "bin")
+            os.makedirs(del_sistema)
+            site.getsitepackages = lambda: [sitios]
+            fuera = voice._sitios_python
+            voice._sitios_python = lambda: [os.path.join(raiz, "sistema")]
+            try:
+                carpetas = voice._carpetas_cuda()
+                assert del_sistema in carpetas, carpetas
+                assert propia in carpetas, "la carpeta de datos no se pierde"
+            finally:
+                site.getsitepackages = vacio
+                voice._sitios_python = fuera
+        finally:
+            store.BASE = real
+
+
 def test_voz_cacheada():
     """La voz de Piper se carga una vez y las frases repetidas no se regeneran."""
     from eve import voices
