@@ -1483,6 +1483,29 @@ def test_compat_reintenta():
         except compat_engine.requests.RequestException:
             pass
         assert len(llamadas) == 1, f"no tenia que reintentar: {len(llamadas)}"
+
+        # Y si el servicio tarda mucho en fallar, tampoco se reintenta: medido
+        # contra Gemini saturado, tres intentos de ~50s daban la respuesta
+        # correcta a los 159 segundos. Eso no es una respuesta hablada.
+        llamadas.clear()
+        reloj = [0.0]
+        real_time = compat_engine.time.time
+        compat_engine.time.time = lambda: reloj[0]
+
+        def lenta(*_a, **_k):
+            llamadas.append(1)
+            reloj[0] += 50.0  # cada pedido tarda 50s en fallar
+            return Respuesta(503)
+
+        compat_engine.requests.post = lenta
+        try:
+            motor._pedir([])
+            raise AssertionError("tenia que fallar")
+        except compat_engine.requests.RequestException:
+            pass
+        finally:
+            compat_engine.time.time = real_time
+        assert len(llamadas) == 1, f"no tenia que insistir tan lento: {len(llamadas)}"
     finally:
         compat_engine.requests.post = real_post
         compat_engine.time.sleep = real_sleep

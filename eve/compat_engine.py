@@ -52,6 +52,12 @@ REINTENTABLES = (429, 500, 502, 503, 504)
 # tope de tokens por minuto pide 60s, y aguantar 60s callado es peor que decir
 # que no se pudo.
 ESPERA_MAX = 8.0
+# Y un techo para la vuelta entera. Reintentar sirve cuando el servicio falla
+# RAPIDO, que es el 503 tipico. Medido contra Gemini un dia saturado: cada
+# pedido tardaba ~50s en fallar y los tres intentos dieron una respuesta
+# correcta a los 159 segundos. Para un asistente de voz eso no es una respuesta,
+# es un cuelgue: mejor avisar y que lo vuelvan a pedir.
+LIMITE_TOTAL = 45.0
 
 
 class CompatEve(OllamaEve):
@@ -90,6 +96,7 @@ class CompatEve(OllamaEve):
             "max_tokens": int(self.cfg.get("max_tokens", 8000)),
             "temperature": 0.4,
         }
+        arranque = time.time()
         for intento in range(3):
             r = requests.post(
                 f"{self.host}/chat/completions", headers=cabeceras, json=cuerpo, timeout=300
@@ -98,7 +105,7 @@ class CompatEve(OllamaEve):
                 break
             # El servicio suele decir cuanto esperar; si no, se sube de a poco.
             espera = float(r.headers.get("Retry-After", 0) or 0) or 1.5 * (intento + 1)
-            if espera > ESPERA_MAX:
+            if espera > ESPERA_MAX or time.time() - arranque + espera > LIMITE_TOTAL:
                 break
             self.on_status(f"{self.proveedor} saturado, reintento en {espera:.0f}s...")
             time.sleep(espera)
