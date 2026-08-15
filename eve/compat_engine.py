@@ -24,8 +24,12 @@ from .ollama_engine import OllamaEve
 
 # nombre -> (url base, nombre de la clave en el llavero, modelo sugerido)
 PROVEEDORES = {
+    # El alias `-latest` y no un numero de version: Google va sacando modelos
+    # concretos de circulacion y una cuenta nueva se come un 404 diciendo "this
+    # model is no longer available to new users". El alias siempre apunta a uno
+    # vigente.
     "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai",
-               "gemini", "gemini-2.5-flash"),
+               "gemini", "gemini-flash-latest"),
     "openai": ("https://api.openai.com/v1", "openai", "gpt-5-mini"),
     "groq": ("https://api.groq.com/openai/v1", "groq", "llama-3.3-70b-versatile"),
     "deepseek": ("https://api.deepseek.com/v1", "deepseek", "deepseek-chat"),
