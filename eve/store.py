@@ -634,7 +634,15 @@ def get_key(provider: str) -> str:
         return env
     import keyring  # import perezoso: los tests de logica no lo necesitan
 
-    return keyring.get_password(SERVICE, provider) or ""
+    try:
+        return keyring.get_password(SERVICE, provider) or ""
+    except Exception:  # noqa: BLE001 - keyring tira su propia jerarquia de errores
+        # Un Linux sin escritorio no tiene llavero, y ahi keyring no devuelve
+        # vacio: revienta. Sin esta red, cualquier consulta de clave -no solo la
+        # del motor- tumbaba a Eve entera en vez de comportarse como si la clave
+        # no estuviera cargada, que es lo que de hecho pasa. La variable de
+        # entorno de arriba sigue siendo la salida para esas maquinas.
+        return ""
 
 
 def set_key(provider: str, value: str) -> None:
