@@ -59,6 +59,35 @@ ESPERA_MAX = 8.0
 # es un cuelgue: mejor avisar y que lo vuelvan a pedir.
 LIMITE_TOTAL = 45.0
 
+# Lo que devuelve el servicio cuando falla es JSON, y esto se lee en voz alta:
+# "gemini fallo: 429: [{ "error": { "code": 429, "message": ..." sintetizado tal
+# cual. Una frase por codigo, en el idioma en el que Eve habla.
+MOTIVOS = {
+    401: "la clave no sirve o esta vencida",
+    403: "la clave no tiene permiso para este modelo",
+    404: "ese modelo no existe para esta cuenta",
+    413: "el pedido es mas grande de lo que acepta el plan",
+    429: "te frenaron por cuota, proba mas tarde",
+    500: "el servicio tuvo un error interno",
+    503: "el servicio esta saturado",
+}
+
+
+def _motivo(r) -> str:  # noqa: ANN001
+    """Por que fallo, en una frase que se pueda escuchar."""
+    corto = MOTIVOS.get(r.status_code)
+    if corto:
+        return corto
+    # Codigo que no esta en la tabla: al menos la frase del servicio y no el
+    # JSON entero con llaves y corchetes.
+    try:
+        error = r.json().get("error")
+        if isinstance(error, dict) and error.get("message"):
+            return str(error["message"])[:200]
+    except (ValueError, AttributeError):
+        pass
+    return f"error {r.status_code}"
+
 
 class CompatEve(OllamaEve):
     """Misma interfaz que los otros motores: .ask(texto) -> respuesta."""
@@ -110,9 +139,10 @@ class CompatEve(OllamaEve):
             self.on_status(f"{self.proveedor} saturado, reintento en {espera:.0f}s...")
             time.sleep(espera)
         if r.status_code >= 400:
-            # El cuerpo dice el motivo real (cuota, modelo inexistente, clave
-            # mala). Sin esto el usuario ve "400 Bad Request" y no sabe cual.
-            raise requests.RequestException(f"{r.status_code}: {r.text[:200]}")
+            # El detalle completo va a la consola, que es donde sirve para
+            # arreglarlo; en voz alta va la frase corta.
+            print(f"[{self.proveedor}] {r.status_code}: {r.text[:400]}")
+            raise requests.RequestException(_motivo(r))
         opciones = r.json().get("choices") or [{}]
         return opciones[0].get("message", {}) or {}
 

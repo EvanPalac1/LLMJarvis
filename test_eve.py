@@ -1506,6 +1506,14 @@ def test_compat_reintenta():
         finally:
             compat_engine.time.time = real_time
         assert len(llamadas) == 1, f"no tenia que insistir tan lento: {len(llamadas)}"
+
+        # Y lo que se dice en voz alta es una frase, no el JSON del servicio.
+        # Antes salia por el parlante "429: [{ "error": { "code": 429, ...".
+        crudo = Respuesta(429)
+        crudo.text = '[{"error": {"code": 429, "message": "You exceeded your quota"}}]'
+        dicho = compat_engine._motivo(crudo)
+        assert "cuota" in dicho, dicho
+        assert "{" not in dicho and "error" not in dicho, dicho
     finally:
         compat_engine.requests.post = real_post
         compat_engine.time.sleep = real_sleep
