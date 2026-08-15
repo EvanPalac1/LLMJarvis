@@ -82,6 +82,78 @@ def _to_wav_bytes(audio: np.ndarray) -> bytes:
     return buf.getvalue()
 
 
+def _computo(cfg: dict) -> str:
+    """Tipo de computo a usar. 'auto' elige el mejor para el dispositivo.
+
+    Estaba fijo en "int8" sin mirar el device, asi que poner la GPU en el panel
+    la usaba con el tipo pensado para CPU. En Turing el que corresponde es
+    int8_float16; en CPU no existe y hay que quedarse en int8.
+    """
+    elegido = str(cfg.get("stt_computo", "auto") or "auto").strip()
+    if elegido != "auto":
+        return elegido
+    return "int8_float16" if str(cfg.get("stt_device", "cpu")) == "cuda" else "int8"
+
+
+_dlls_cuda = False
+
+
+def _preparar_cuda() -> None:
+    """Deja las DLL de NVIDIA donde ctranslate2 las pueda encontrar.
+
+    Los wheels `nvidia-*-cu12` las instalan dentro de site-packages, que no esta
+    en el PATH. `os.add_dll_directory` NO alcanza: ctranslate2 es una extension
+    compilada y resuelve sus dependencias con LoadLibrary, que mira el PATH del
+    proceso. Medido: con las libs instaladas y sin esto, seguia tirando
+    "Library cublas64_12.dll is not found" igual que si no estuvieran.
+
+    Tiene que correr ANTES de importar faster_whisper.
+    """
+    global _dlls_cuda
+    if _dlls_cuda:
+        return
+    _dlls_cuda = True
+    import glob
+    import site
+
+    bases = list(site.getsitepackages())
+    try:
+        bases.append(site.getusersitepackages())
+    except AttributeError:
+        pass
+    carpetas = [d for b in bases for d in glob.glob(os.path.join(b, "nvidia", "*", "bin"))]
+    if not carpetas:
+        return
+    os.environ["PATH"] = os.pathsep.join(carpetas) + os.pathsep + os.environ.get("PATH", "")
+    for carpeta in carpetas:
+        try:
+            os.add_dll_directory(carpeta)
+        except (OSError, AttributeError):
+            pass
+
+
+def _abrir_whisper(modelo: str, device: str, computo: str):
+    """El modelo, cayendo a CPU si la GPU no esta lista.
+
+    Las librerias de CUDA no vienen con el programa: son casi un giga y la
+    mayoria de las maquinas no tiene NVIDIA. Si el usuario pidio GPU y falta
+    alguna DLL, faster-whisper tira RuntimeError recien al transcribir la
+    primera frase; sin esta red, la primera cosa que le decis a Eve se pierde
+    con una excepcion en vez de contestarte mas lento.
+    """
+    if device != "cpu":
+        _preparar_cuda()
+    from faster_whisper import WhisperModel
+
+    try:
+        return WhisperModel(modelo, device=device, compute_type=computo)
+    except Exception as exc:  # noqa: BLE001 - vale cualquier falla del backend
+        if device == "cpu":
+            raise
+        print(f"[stt] la GPU no esta disponible ({str(exc)[:80]}); sigo en CPU")
+        return WhisperModel(modelo, device="cpu", compute_type="int8")
+
+
 def transcribe(audio: np.ndarray, cfg: dict) -> str:
     if audio.size < SAMPLE_RATE // 4:  # menos de 250 ms: fue un toque, no una frase
         return ""
@@ -106,13 +178,9 @@ def transcribe(audio: np.ndarray, cfg: dict) -> str:
     # Cargar el modelo cuesta segundos, asi que se cachea; pero atado a con que
     # se cargo. Sin esto, cambiar el modelo o el device en el panel no hacia
     # nada: el listener se rearmaba y seguia usando el que ya estaba en memoria.
-    quiere = (cfg["stt_model"], cfg["stt_device"])
+    quiere = (cfg["stt_model"], cfg["stt_device"], _computo(cfg))
     if _whisper is None or _whisper_para != quiere:
-        from faster_whisper import WhisperModel
-
-        _whisper = WhisperModel(
-            cfg["stt_model"], device=cfg["stt_device"], compute_type="int8"
-        )
+        _whisper = _abrir_whisper(*quiere)
         _whisper_para = quiere
     # Sin initial_prompt, decodificar en espanol destroza los nombres propios en
     # ingles. Pasarle los programas instalados es lo que hace que "abre rainbow
@@ -123,7 +191,10 @@ def transcribe(audio: np.ndarray, cfg: dict) -> str:
         audio,
         language=cfg["language"],
         initial_prompt=apps.vocabulary(cfg.get("stt_vocabulary", "")),
-        vad_filter=True,
+        # Recortar los silencios acelera (medido: 1.19x -> 1.09x de tiempo real)
+        # y no cambia el texto. Se puede apagar porque el detector a veces se
+        # come palabras dichas muy bajo, y ahi es peor el remedio.
+        vad_filter=bool(cfg.get("stt_vad", True)),
         # Medido sobre una orden tipica: beam 5 tarda 4.4s y beam 1 tarda 3.5s,
         # con el MISMO texto. La busqueda por haz sirve para dictado largo; una
         # orden de ocho palabras no cambia de resultado por explorar cinco ramas.
@@ -146,13 +217,13 @@ def precargar_stt(cfg: dict) -> None:
     global _whisper, _whisper_para
     if cfg.get("stt_provider") != "faster-whisper":
         return
-    quiere = (cfg["stt_model"], cfg["stt_device"])
+    # La misma clave de tres partes que usa transcribe(): con dos, precargar
+    # dejaba listo un modelo que transcribe descartaba por no coincidir, y se
+    # pagaba la carga dos veces justo en la primera orden.
+    quiere = (cfg["stt_model"], cfg["stt_device"], _computo(cfg))
     if _whisper is not None and _whisper_para == quiere:
         return
-    from faster_whisper import WhisperModel
-
-    _whisper = WhisperModel(cfg["stt_model"], device=cfg["stt_device"],
-                            compute_type="int8")
+    _whisper = _abrir_whisper(*quiere)
     _whisper_para = quiere
 
 
@@ -213,7 +284,7 @@ def speak(text: str, cfg: dict, progreso=None) -> None:
         if not ruta:
             ruta = voices.hablar(text, clave, hablante=hablante, velocidad=velocidad)
             voices.guardar_frase(text, clave, ruta, hablante, velocidad)
-        voices.reproducir(ruta, avance)
+        voices.reproducir(ruta, avance, float(cfg.get("volumen", 1.0) or 1.0))
         return
 
     if not plataforma.WINDOWS:

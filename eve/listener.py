@@ -81,6 +81,12 @@ class Listener:
         motor = self.cfg.get("engine")
         if motor == "claude-code":
             return cc_engine.ClaudeCodeEve(self.cfg, on_status=self._estado)
+        if motor == "compat":
+            from . import compat_engine
+
+            return compat_engine.CompatEve(
+                self.cfg, confirm=self._confirm, on_status=self._estado
+            )
         if motor == "ollama":
             from . import ollama_engine
 

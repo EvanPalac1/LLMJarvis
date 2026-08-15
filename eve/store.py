@@ -65,6 +65,14 @@ KEY_NAMES = {
     "gmail": "GMAIL_APP_PASSWORD",
     "discord_webhook": "DISCORD_WEBHOOK_URL",
     "steam": "STEAM_API_KEY",
+    # Motores compatibles con OpenAI. Cada proveedor guarda la suya aparte para
+    # poder tener varias cargadas y cambiar de motor sin volver a pegarlas.
+    "gemini": "GEMINI_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "xai": "XAI_API_KEY",
+    "compat": "COMPAT_API_KEY",
     # De addons. get_key igual funciona con cualquier nombre via keyring; estan
     # aca para que tambien se puedan poner por variable de entorno.
     "spotify_client_id": "SPOTIFY_CLIENT_ID",
@@ -80,6 +88,12 @@ DEFAULTS = {
     # "claude-code" -> CLI de Claude Code headless. Usa tu suscripcion, sin key.
     # "ollama"      -> modelo local. Sin key, sin nube, pero peor con tools.
     "engine": "api",
+    # "compat" -> cualquier servicio con el protocolo de OpenAI. Un solo motor
+    # para Gemini, Groq, DeepSeek, OpenRouter, xAI, LM Studio y OpenAI: todos
+    # hablan el mismo /chat/completions y solo cambian URL, clave y modelo.
+    "compat_proveedor": "gemini",  # ver compat_engine.PROVEEDORES
+    "compat_url": "",              # vacio = la del proveedor elegido
+    "compat_modelo": "",           # vacio = el sugerido del proveedor
     "ollama_host": "http://localhost:11434",
     "ollama_model": "qwen3:8b",
     # Opus 5 por defecto. Cambialo a claude-sonnet-5 o claude-haiku-4-5 desde
@@ -95,7 +109,13 @@ DEFAULTS = {
     # 'base' destroza los nombres propios en ingles ("rainbow six siege" ->
     # "Haberé en Vox XC"). 'small' con vocabulario los acierta.
     "stt_model": "small",
-    "stt_device": "cpu",
+    "stt_device": "cpu",   # cpu | cuda. Con cuda hacen falta las libs de NVIDIA.
+    # auto = int8 en CPU, int8_float16 en GPU. Estaba fijo en int8 aunque
+    # pusieras la GPU, o sea usandola con el tipo pensado para procesador.
+    "stt_computo": "auto",  # auto|int8|int8_float32|int8_float16|float16|float32
+    # Recorta los silencios antes de transcribir. Medido: 1.19x -> 1.09x de
+    # tiempo real sobre el mismo audio, sin cambiar el texto.
+    "stt_vad": True,
     "stt_vocabulary": "",  # palabras extra que el STT suele errar
     # 1 = greedy. Medido: beam 5 tarda 4.4s y beam 1 tarda 3.5s con el mismo
     # texto en una orden corta. Subilo solo si dictas frases largas.
@@ -116,6 +136,10 @@ DEFAULTS = {
     # Como suena el asistente, no que hace. Va al final del system prompt y
     # subordinado al manual (ver bloque_tono). Vacio = sin personaje.
     "persona_tono": "",
+    # Ganancia al reproducir. 1.0 = como salio del sintetizador. Se aplica sobre
+    # el audio ya generado y NO en la sintesis: horneado en el wav invalidaria
+    # el cache de frases del disco cada vez que movieras el control.
+    "volumen": 1.0,
     "context_turns": 6,
     "context_minutes": 10,
     # False = "allow all": ni el freno propio ni el de Claude Code preguntan nada.

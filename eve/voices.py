@@ -287,7 +287,7 @@ def limpiar_cache_frases() -> int:
     return n
 
 
-def reproducir(ruta: str, progreso=None) -> None:
+def reproducir(ruta: str, progreso=None, volumen: float = 1.0) -> None:
     """Reproduce un wav por la placa de sonido, sin abrir ningun reproductor.
 
     Se usa `sounddevice`, que ya esta instalado para grabar el microfono: evita
@@ -311,6 +311,13 @@ def reproducir(ruta: str, progreso=None) -> None:
     audio = np.frombuffer(datos, dtype="<i2").astype("float32") / 32768.0
     if canales > 1:
         audio = audio.reshape(-1, canales)
+    if abs(volumen - 1.0) > 1e-3:
+        # El volumen va aca y no en la sintesis. Piper sabe hacerlo, pero ahi
+        # queda horneado en el wav y por lo tanto en el cache de frases del
+        # disco: mover el control invalidaria todo lo guardado y no se podria
+        # cambiar mientras habla. Multiplicar el array es instantaneo y no toca
+        # nada de lo que ya esta escrito. El clip evita que subirlo distorsione.
+        audio = np.clip(audio * max(0.0, volumen), -1.0, 1.0)
     sd.play(audio, rate)
     if progreso is None:
         sd.wait()
