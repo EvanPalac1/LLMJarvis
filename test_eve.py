@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 
 from eve import safety, store
 
@@ -1405,7 +1406,11 @@ def test_una_sola_eve():
             store.latir({"motor": "api"})
             assert store.otro_asistente() == 0
 
-            ajeno = os.getpid() + 1
+            # El proceso padre: seguro que esta vivo y seguro que no somos
+            # nosotros. Antes decia `os.getpid() + 1`, que da por sentado que ese
+            # pid existe: en el runner de macOS ARM no existia y el test se caia
+            # sin que el producto tuviera nada malo.
+            ajeno = os.getppid()
             with open(store.LATIDO_PATH, "w", encoding="utf-8") as f:
                 json.dump({"ts": time.time(), "pid": ajeno}, f)
             assert store.otro_asistente() == ajeno
@@ -1959,13 +1964,25 @@ def test_listener_no_hook_leak():
 
 
 if __name__ == "__main__":
+    fallo = ""
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
-            fn()
+            try:
+                fn()
+            except BaseException:  # noqa: BLE001
+                # El traceback va por stdout a proposito. En CI stderr sale sin
+                # buffer y stdout en bloque, asi que el error aparecia arriba de
+                # todo, entre los `ok` de tests que ya habian pasado, y parecia
+                # de otro test. Perdi un rato buscandolo al final del log.
+                print(f"FALLO en {name}:\n{traceback.format_exc()}")
+                fallo = name
+                break
             print(f"ok  {name}")
-    print("\nTodo verde.", flush=True)
+    print("\nTodo verde." if not fallo else f"\nRojo: fallo {fallo}.")
+    # os._exit no vacia los buffers de stdio, de ahi el flush.
+    sys.stdout.flush()
     # Salida inmediata, sin correr los atexit. Una libreria de terceros
     # (filelock) revienta en el suyo al apagar el interprete y deja el proceso
     # en codigo 1: los 55 tests pasaban y CI lo leia como fallo igual. Aca ya
     # esta todo reportado y no hay nada nuestro que cerrar.
-    os._exit(0)
+    os._exit(1 if fallo else 0)

@@ -62,8 +62,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      # bash tambien en Windows: con el pwsh por defecto el paso daba 1 con los
+      # 55 tests en verde y sin una sola excepcion en el log. El `echo` deja el
+      # codigo real a la vista, que es justo lo que no se veia.
       - name: Tests
-        run: python test_eve.py
+        shell: bash
+        run: |
+          python test_eve.py; codigo=$?
+          echo "codigo de salida: $codigo"
+          exit $codigo
 
       - name: Build + paquete
         run: python build.py --paquete
