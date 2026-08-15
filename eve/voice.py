@@ -122,6 +122,14 @@ def _preparar_cuda() -> None:
     except AttributeError:
         pass
     carpetas = [d for b in bases for d in glob.glob(os.path.join(b, "nvidia", "*", "bin"))]
+    # Y las de la carpeta de datos del usuario. Empaquetado, `site` apunta al
+    # Python que viaja adentro del ejecutable y nunca a donde pip dejo los
+    # wheels de NVIDIA: sin esta rama, activar la GPU en la version instalada
+    # no puede funcionar por mucho que las libs esten en la maquina.
+    propias = os.path.join(store.BASE, "cuda")
+    carpetas += sorted(glob.glob(os.path.join(propias, "**", "*.dll"), recursive=True)
+                       and {os.path.dirname(x) for x in
+                            glob.glob(os.path.join(propias, "**", "*.dll"), recursive=True)})
     if not carpetas:
         return
     os.environ["PATH"] = os.pathsep.join(carpetas) + os.pathsep + os.environ.get("PATH", "")
@@ -187,7 +195,26 @@ def transcribe(audio: np.ndarray, cfg: dict) -> str:
     # six siege" no salga como "Haberé en Vox XC".
     from . import apps
 
-    segments, _ = _whisper.transcribe(
+    try:
+        return _decodificar(_whisper, audio, cfg)
+    except RuntimeError as exc:
+        # La GPU no falla al construir el modelo sino al correr el primer
+        # encoder: ahi recien se cargan cuBLAS y cuDNN. Capturarlo solo en el
+        # constructor dejaba pasar el error hasta aca y se perdia la primera
+        # frase que le decias, que es exactamente lo que la caida a CPU tenia
+        # que evitar. Se reintenta una vez, ya en CPU.
+        if cfg.get("stt_device") == "cpu":
+            raise
+        print(f"[stt] la GPU fallo transcribiendo ({str(exc)[:80]}); paso a CPU")
+        _whisper = _abrir_whisper(cfg["stt_model"], "cpu", "int8")
+        _whisper_para = (cfg["stt_model"], "cpu", "int8")
+        return _decodificar(_whisper, audio, cfg)
+
+
+def _decodificar(modelo, audio: np.ndarray, cfg: dict) -> str:
+    from . import apps
+
+    segments, _ = modelo.transcribe(
         audio,
         language=cfg["language"],
         initial_prompt=apps.vocabulary(cfg.get("stt_vocabulary", "")),
