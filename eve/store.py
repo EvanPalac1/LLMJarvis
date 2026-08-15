@@ -850,9 +850,30 @@ def otro_asistente(max_edad: float = 20.0) -> int:
     arranque siguiente: a los 20 segundos deja de contar.
     """
     vivo = latido(max_edad)
-    if vivo and vivo.get("pid") and vivo["pid"] != os.getpid():
-        return int(vivo["pid"])
-    return 0
+    if not vivo or not vivo.get("pid") or vivo["pid"] == os.getpid():
+        return 0
+    return int(vivo["pid"]) if _proceso_vivo(int(vivo["pid"])) else 0
+
+
+def _proceso_vivo(pid: int) -> bool:
+    """Si ese PID sigue existiendo.
+
+    No alcanza con que el latido sea reciente: Eve lo borra al salir bien, pero
+    matarla a la fuerza o un cuelgue no ejecutan ese `finally`. Sin comprobar el
+    proceso, cerrarla mal la dejaba sin poder arrancar durante veinte segundos,
+    diciendo que ya estaba corriendo cuando no habia nada.
+    """
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # existe, es de otro usuario
+    except OSError:
+        return False
+    return True
 
 
 def clear_history(also_actions: bool = False) -> int:

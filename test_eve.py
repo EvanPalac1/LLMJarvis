@@ -1378,6 +1378,17 @@ def test_una_sola_eve():
             with open(store.LATIDO_PATH, "w", encoding="utf-8") as f:
                 json.dump({"ts": time.time() - 3600, "pid": ajeno}, f)
             assert store.otro_asistente() == 0, "un latido viejo no traba nada"
+
+            # Y matarla a la fuerza deja un latido RECIENTE de un proceso que ya
+            # no existe: Eve borra el archivo al salir bien, pero un kill no
+            # ejecuta ese finally. Sin comprobar el pid, cerrarla mal la dejaba
+            # sin arrancar veinte segundos diciendo que ya estaba corriendo.
+            muerto = 999_999_999
+            with open(store.LATIDO_PATH, "w", encoding="utf-8") as f:
+                json.dump({"ts": time.time(), "pid": muerto}, f)
+            assert store.otro_asistente() == 0, "un pid muerto no traba el arranque"
+            assert not store._proceso_vivo(muerto)
+            assert store._proceso_vivo(os.getpid()), "el propio proceso existe"
         finally:
             store.LATIDO_PATH = real
 
