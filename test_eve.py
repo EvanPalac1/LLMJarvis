@@ -1350,6 +1350,43 @@ def test_icono_con_transparencia():
         assert 100 < salida.getpixel((20, 20))[3] < 160, "lo opaco se atenua"
 
 
+def test_motor_compat():
+    """El motor compat apunta a su proveedor, no al de Ollama.
+
+    CompatEve hereda de OllamaEve, y OllamaEve seteaba host y modelo dentro de
+    __init__: lo que la subclase pusiera antes de llamar a super() quedaba
+    pisado. El motor decia estar en Gemini y mandaba los pedidos a
+    localhost:11434, que contestaba 404. No se veia en ninguna prueba local
+    porque construir el motor validaba bien; fallaba recien contra el servicio.
+    """
+    from eve import compat_engine
+
+    for proveedor, trozo_url, trozo_modelo in (
+        ("gemini", "generativelanguage.googleapis.com", "gemini"),
+        ("groq", "api.groq.com", "llama"),
+        ("openrouter", "openrouter.ai", "/"),
+        ("lmstudio", "localhost:1234", "local"),
+    ):
+        m = compat_engine.CompatEve.__new__(compat_engine.CompatEve)
+        m._destino({"compat_proveedor": proveedor, "compat_url": "", "compat_modelo": ""})
+        assert trozo_url in m.host, f"{proveedor}: {m.host}"
+        assert trozo_modelo in m.modelo, f"{proveedor}: {m.modelo}"
+        assert "11434" not in m.host, f"{proveedor} quedo apuntando a Ollama"
+
+    # Lo que el usuario escriba gana sobre el preset.
+    m = compat_engine.CompatEve.__new__(compat_engine.CompatEve)
+    m._destino({"compat_proveedor": "gemini", "compat_url": "http://mio:9/v1",
+                "compat_modelo": "mimodelo"})
+    assert m.host == "http://mio:9/v1" and m.modelo == "mimodelo"
+
+    # Y Ollama sigue yendo a lo suyo.
+    from eve import ollama_engine
+
+    o = ollama_engine.OllamaEve.__new__(ollama_engine.OllamaEve)
+    o._destino({"ollama_host": "http://localhost:11434", "ollama_model": "qwen3:8b"})
+    assert o.host == "http://localhost:11434" and o.modelo == "qwen3:8b"
+
+
 def test_una_sola_eve():
     """Arrancar Eve dos veces no deja dos listeners.
 

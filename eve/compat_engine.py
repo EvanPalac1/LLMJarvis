@@ -44,14 +44,13 @@ GRATIS = ("gemini", "groq", "openrouter", "lmstudio")
 class CompatEve(OllamaEve):
     """Misma interfaz que los otros motores: .ask(texto) -> respuesta."""
 
-    def __init__(self, cfg: dict, confirm=None, on_status=None):
+    def _destino(self, cfg: dict) -> None:
         proveedor = str(cfg.get("compat_proveedor", "gemini") or "gemini").lower()
         url, nombre_clave, modelo = PROVEEDORES.get(proveedor, PROVEEDORES["propio"])
         self.proveedor = proveedor
         self.host = (str(cfg.get("compat_url", "")).strip() or url).rstrip("/")
         self.modelo = str(cfg.get("compat_modelo", "")).strip() or modelo
         self.clave = store.get_key(nombre_clave) if nombre_clave else ""
-        super().__init__(cfg, confirm=confirm, on_status=on_status)
 
     def comprobar(self) -> tuple[bool, str]:
         """Se llama en el constructor: sin esto el error aparece recien al hablar."""

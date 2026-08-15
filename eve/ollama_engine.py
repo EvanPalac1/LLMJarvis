@@ -28,8 +28,7 @@ class OllamaEve:
     def __init__(self, cfg: dict, confirm=None, on_status=None):
         self.cfg = cfg
         self.on_status = on_status or (lambda _: None)
-        self.host = cfg.get("ollama_host", "http://localhost:11434").rstrip("/")
-        self.modelo = cfg.get("ollama_model", "qwen3:8b")
+        self._destino(cfg)
         # La ejecucion de tools, el freno y el log se delegan en brain.Eve para
         # no tener dos implementaciones del mismo control de seguridad.
         self.runner = brain.Eve.__new__(brain.Eve)
@@ -41,6 +40,17 @@ class OllamaEve:
         disponible, detalle = self.comprobar()
         if not disponible:
             raise RuntimeError(detalle)
+
+    def _destino(self, cfg: dict) -> None:
+        """A donde se manda el pedido. Lo reemplaza CompatEve con lo suyo.
+
+        Va en un metodo y no suelto en __init__ porque una subclase que setee
+        host y modelo antes de llamar a super() se los encuentra pisados por
+        estos: asi le paso a compat_engine, que quedo apuntando a Ollama y
+        contestando 404 aunque estuviera configurado para Gemini.
+        """
+        self.host = cfg.get("ollama_host", "http://localhost:11434").rstrip("/")
+        self.modelo = cfg.get("ollama_model", "qwen3:8b")
 
     def comprobar(self) -> tuple[bool, str]:
         try:
