@@ -32,6 +32,11 @@ ARCH = "arm64" if _M in ("arm64", "aarch64") else "x64"
 OCULTOS = [
     "pystray._win32" if WINDOWS else "pystray._darwin" if MACOS else "pystray._appindicator",
     "comtypes", "piper", "onnxruntime",
+    # El puente PIL->tkinter. Nada lo importa a nivel de modulo, asi que
+    # PyInstaller no lo ve solo, y sin el no hay compositor de modulos. Que
+    # viaje se comprueba corriendo el binario (`_verificar_imports`), no
+    # mirando si existe un archivo.
+    "PIL.ImageTk",
     "eve.brain", "eve.cc_engine", "eve.ollama_engine", "eve.voices",
     "eve.integrations", "eve.hook_gate", "eve.gui",
 ]
@@ -195,6 +200,38 @@ def _paquete() -> None:
             ], cwd=RAIZ, check=True)
 
 
+def _verificar_imports(carpeta: str) -> None:
+    """Corre el binario recien armado y le pide que importe lo critico.
+
+    `_verificar` de arriba mira si un ARCHIVO viaja. Esto es lo otro: un
+    submodulo que PyInstaller no vio no deja ningun archivo faltante a la vista,
+    y el programa recien falla cuando el usuario usa la funcion. Es la falla que
+    `eve/imagenes.py` describe y por la que se evito `ImageTk` a mano.
+    """
+    if MACOS:
+        candidatos = [os.path.join(carpeta, "Contents", "MacOS", "Eve")]
+    else:
+        sufijo = ".exe" if WINDOWS else ""
+        # El de consola primero: es el que tiene stdout de verdad en Windows.
+        candidatos = [os.path.join(carpeta, "Eve-debug" + sufijo),
+                      os.path.join(carpeta, "Eve" + sufijo)]
+    binario = next((c for c in candidatos if os.path.exists(c)), "")
+    if not binario:
+        sys.exit("No encontre el ejecutable para probar los imports: " + str(candidatos))
+
+    print("    probando los imports criticos adentro del paquete...")
+    r = subprocess.run([binario, "--probar-imports"], capture_output=True, text=True, timeout=300)
+    for linea in (r.stdout or "").splitlines():
+        print("    " + linea)
+    if r.returncode != 0:
+        print((r.stderr or "")[:2000])
+        sys.exit(
+            "Build incompleto: el paquete no puede importar algo critico.\n"
+            "Revisa OCULTOS en build.py: son modulos que PyInstaller no descubre\n"
+            "solo porque nadie los importa a nivel de modulo."
+        )
+
+
 def main() -> int:
     try:
         import PyInstaller  # noqa: F401
@@ -215,7 +252,9 @@ def main() -> int:
         _construir("Eve-debug", ventana=False, extra=[])
         _fusionar("Eve", ["Eve-config", "Eve-debug"])
 
-    _verificar(os.path.join(RAIZ, "dist", "Eve.app" if MACOS else "Eve"))
+    destino = os.path.join(RAIZ, "dist", "Eve.app" if MACOS else "Eve")
+    _verificar(destino)
+    _verificar_imports(destino)
 
     salida = os.path.join(RAIZ, "dist")
     print(f"\nListo: {salida}  ({sys.platform} {ARCH})")

@@ -29,6 +29,46 @@ def _flag_por_nombre() -> str:
     return "--panel" if "config" in nombre else ""
 
 
+# Modulos que TIENEN que poder importarse en el binario empaquetado. Los corre
+# `build.py` sobre el ejecutable recien armado: `IMPRESCINDIBLES` verifica que un
+# archivo de datos viaje, pero un submodulo que NO viaja no se nota hasta que el
+# usuario usa la funcion. Es exactamente la falla que describe `eve/imagenes.py`
+# y por la que se evito `ImageTk` a mano durante todo el proyecto.
+IMPORTS_CRITICOS = [
+    "PIL.Image",
+    "PIL.ImageTk",   # el puente PIL->tkinter: sin el no hay compositor de modulos
+    "numpy",
+    "sounddevice",
+    "keyring",
+    "faster_whisper",
+    "piper",
+    "onnxruntime",
+]
+
+
+def _probar_imports() -> int:
+    """Importa lo critico y devuelve 1 si falta algo. Corre DENTRO del paquete."""
+    import importlib
+
+    faltan = []
+    for nombre in IMPORTS_CRITICOS:
+        try:
+            importlib.import_module(nombre)
+        except Exception as exc:  # noqa: BLE001 - vale cualquier motivo
+            faltan.append(f"{nombre}: {type(exc).__name__}: {exc}")
+        else:
+            print(f"  ok  {nombre}")
+    if faltan:
+        print("")
+        print("No se pudieron importar:")
+        for linea in faltan:
+            print("  " + linea)
+        return 1
+    print("")
+    print(f"Los {len(IMPORTS_CRITICOS)} imports criticos andan.")
+    return 0
+
+
 def main() -> int:
     argv = sys.argv[1:]
     if not argv:
@@ -147,6 +187,8 @@ def main() -> int:
         if flag in ("--help", "-h"):
             print(__doc__)
             return 0
+        if flag == "--probar-imports":
+            return _probar_imports()
 
     from eve import listener as listener_mod
     from eve import store, tray
