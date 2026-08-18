@@ -304,6 +304,21 @@ def test_gasto_por_turno():
             # 3000 + 3200 y 40 + 25: las DOS vueltas, no solo la ultima.
             assert fila["entrada"] == 6200, fila
             assert fila["salida"] == 65, fila
+
+            # Y el caso de Gemini: cobra el razonamiento pero lo deja fuera de
+            # completion_tokens. Medido: prompt 6, completion 0, total 13.
+            motor.uso = {}
+            cuantas.clear()
+            vueltas[:] = [{"usage": {"prompt_tokens": 6, "completion_tokens": 0,
+                                     "total_tokens": 13},
+                           "choices": [{"message": {"content": "ok"}}]}]
+            compat_engine.requests.post = post
+            try:
+                motor.ask("hola")
+            finally:
+                compat_engine.requests.post = real_post
+            ultimo = store.gasto_reciente()[0]
+            assert ultimo["salida"] == 7, f"no conto el razonamiento: {ultimo}"
         finally:
             store.DB_PATH = real_db
             store._migradas.discard(os.path.join(raiz, "eve.db"))

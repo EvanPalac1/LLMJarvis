@@ -148,8 +148,16 @@ class CompatEve(OllamaEve):
             raise requests.RequestException(_motivo(r))
         cuerpo_resp = r.json()
         u = cuerpo_resp.get("usage") or {}
-        store.sumar_uso(self.uso, u.get("prompt_tokens", 0),
-                        u.get("completion_tokens", 0),
+        entrada = int(u.get("prompt_tokens", 0) or 0)
+        salida = int(u.get("completion_tokens", 0) or 0)
+        # Medido contra Gemini: devuelve prompt_tokens 6, completion_tokens 0 y
+        # total_tokens 13. Los tokens de razonamiento se cobran pero quedan
+        # fuera de completion_tokens, asi que sin esto el medidor subestima el
+        # turno a menos de la mitad.
+        total = int(u.get("total_tokens", 0) or 0)
+        if total > entrada + salida:
+            salida = total - entrada
+        store.sumar_uso(self.uso, entrada, salida,
                         (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0))
         opciones = cuerpo_resp.get("choices") or [{}]
         return opciones[0].get("message", {}) or {}
