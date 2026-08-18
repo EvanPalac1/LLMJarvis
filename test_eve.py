@@ -239,6 +239,49 @@ def test_brief_y_catalogo():
     assert "Start Menu\\Programs\\" not in cat, "la raiz larga no debe repetirse por linea"
 
 
+def test_prompt_unico():
+    """El system prompt se arma en un solo lugar para los tres motores.
+
+    Estaba en tres `.format()` iguales con la misma lista de ocho piezas. Tres
+    copias es tres lugares donde olvidarse de una, y sobre todo tres lugares
+    donde habria que medir el costo en tokens: el medidor de contexto necesita
+    saber cuanto pesa cada seccion, y sin centralizar habria que escribirlo tres
+    veces.
+    """
+    from eve import brain, cc_engine, ollama_engine, prompt
+
+    cfg = dict(store.DEFAULTS)
+    cfg["assistant_name"] = "Prueba"
+    entero = prompt.construir(cfg)
+
+    # 1. Las partes suman EXACTAMENTE el total. Es lo que hace que el medidor
+    #    pueda decir "el catalogo son 4k de los 12k" sin mentir.
+    partes = prompt.partes(cfg)
+    assert sum(partes.values()) == len(entero), (sum(partes.values()), len(entero))
+    assert partes["catalog"] > 0 and partes["brief"] > 0
+
+    # 2. Lo que se pone en la config aparece en el prompt.
+    assert "Prueba" in entero
+    assert partes["name"] == len("Prueba")
+
+    # 3. La plantilla de Claude Code es la misma menos la linea de rutas, que el
+    #    CLI recibe por --add-dir.
+    cc = prompt.construir(cfg, prompt.PERSONA)
+    assert "Rutas permitidas" in entero and "Rutas permitidas" not in cc
+    assert prompt.partes(cfg, prompt.PERSONA).get("workdirs") is None
+
+    # 4. Y los motores usan esto, no una copia propia.
+    o = ollama_engine.OllamaEve.__new__(ollama_engine.OllamaEve)
+    o.cfg = cfg
+    assert o._system() == entero, "ollama volvio a armar el prompt por su cuenta"
+    assert cc_engine.PERSONA is prompt.PERSONA
+    assert brain.SYSTEM is prompt.SYSTEM
+
+    # 5. Un tono largo se recorta, y eso tiene que verse en la cuenta.
+    cfg["persona_tono"] = "x" * 900
+    assert prompt.partes(cfg)["tono"] < 900, "el tope de bloque_tono no se aplico"
+
+
 def test_recordar():
     from eve import integrations
 

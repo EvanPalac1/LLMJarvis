@@ -17,7 +17,7 @@ import time
 
 import requests
 
-from . import apps, brain, integrations, store
+from . import brain, prompt, store
 
 SYSTEM = brain.SYSTEM
 
@@ -73,16 +73,7 @@ class OllamaEve:
         self.historial = []
 
     def _system(self) -> str:
-        return SYSTEM.format(
-            name=self.cfg["assistant_name"],
-            lang="espanol" if self.cfg["language"] == "es" else self.cfg["language"],
-            workdirs=", ".join(self.cfg["workdirs"]),
-            brief=store.load_brief(),
-            catalog=apps.catalog(),
-            catalog_header=apps.catalog_header(),
-            integrations=integrations.prompt_section(),
-            tono=store.bloque_tono(self.cfg),
-        )
+        return prompt.construir(self.cfg)
 
     def _tools(self) -> list[dict]:
         """`brain.TOOLS` al formato de Ollama: mismo schema, otro envoltorio."""

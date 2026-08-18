@@ -11,7 +11,7 @@ import time
 
 import anthropic
 
-from . import apps, integrations, plataforma, safety, store
+from . import plataforma, prompt, safety, store
 
 TOOLS = [
     {
@@ -65,21 +65,9 @@ TOOLS = [
 # Modelos que rechazan output_config.effort.
 NO_EFFORT = ("claude-haiku-4-5", "claude-sonnet-4-5")
 
-SYSTEM = """Sos {name}, el asistente de voz de este usuario en Windows 11. Idioma: {lang}.
-Rutas permitidas: {workdirs} (fuera de ahi el sistema pide confirmacion; no lo evadas).
-
-{brief}
-
-## Catalogo de programas
-
-{catalog_header} La voz deforma los nombres en ingles: elegi la entrada mas parecida a
-lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps.
-
-{catalog}
-
-{integrations}
-
-{tono}"""
+# La plantilla vive en `prompt.py`, que es donde se arma una sola vez para los
+# tres motores. El alias queda porque `ollama_engine` la referencia por aca.
+SYSTEM = prompt.SYSTEM
 
 
 class Eve:
@@ -170,16 +158,7 @@ class Eve:
             "system": [
                 {
                     "type": "text",
-                    "text": SYSTEM.format(
-                        name=self.cfg["assistant_name"],
-                        lang="espanol" if self.cfg["language"] == "es" else self.cfg["language"],
-                        workdirs=", ".join(self.cfg["workdirs"]),
-                        brief=store.load_brief(),
-                        catalog=apps.catalog(),
-                        catalog_header=apps.catalog_header(),
-                        integrations=integrations.prompt_section(),
-                        tono=store.bloque_tono(self.cfg),
-                    ),
+                    "text": prompt.construir(self.cfg),
                     "cache_control": {"type": "ephemeral"},
                 }
             ],

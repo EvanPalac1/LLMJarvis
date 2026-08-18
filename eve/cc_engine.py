@@ -15,25 +15,13 @@ import subprocess
 import sys
 import time
 
-from . import apps, integrations, plataforma, store
+from . import plataforma, prompt, store
 
 SETTINGS_PATH = os.path.join(store.BASE, "cc_settings.json")
 
-PERSONA = """Sos {name}, un asistente de voz. El usuario te habla por microfono y tu
-respuesta final se lee en voz alta con un sintetizador. Idioma: {lang}.
-
-{brief}
-
-## Catalogo de programas
-
-{catalog_header} La voz deforma los nombres en ingles: elegi la entrada mas parecida a
-lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps.
-
-{catalog}
-
-{integrations}
-
-{tono}"""
+# Sin la linea de rutas: Claude Code las recibe por `--add-dir`. La plantilla
+# vive en `prompt.py` junto con la otra.
+PERSONA = prompt.PERSONA
 
 
 def write_settings() -> str:
@@ -92,15 +80,7 @@ class ClaudeCodeEve:
             "--model",
             self.cfg["cc_model"],
             "--append-system-prompt",
-            PERSONA.format(
-                name=self.cfg["assistant_name"],
-                lang="espanol" if self.cfg["language"] == "es" else self.cfg["language"],
-                brief=store.load_brief(),
-                catalog=apps.catalog(),
-                catalog_header=apps.catalog_header(),
-                integrations=integrations.prompt_section(),
-                tono=store.bloque_tono(self.cfg),
-            ),
+            prompt.construir(self.cfg, PERSONA),
             "--settings",
             self.settings,
         ]
