@@ -25,6 +25,8 @@ SYSTEM = brain.SYSTEM
 class OllamaEve:
     """Misma interfaz que los otros motores: .ask(texto) -> respuesta."""
 
+    motor = "ollama"
+
     def __init__(self, cfg: dict, confirm=None, on_status=None):
         self.cfg = cfg
         self.on_status = on_status or (lambda _: None)
@@ -36,6 +38,8 @@ class OllamaEve:
         self.runner.confirm = confirm or (lambda reason, detail: False)
         self.runner.on_status = self.on_status
         self.historial: list[dict] = []
+        # Gasto del turno en curso. Lo llena _pedir/ask y lo lee log_turn.
+        self.uso: dict = {}
 
         disponible, detalle = self.comprobar()
         if not disponible:
@@ -90,12 +94,13 @@ class OllamaEve:
         ]
 
     def ask(self, text: str) -> str:
-        store.log_turn("user", text)
+        store.log_turn("user", text, self.motor)
         ahora = time.time()
         self.historial = store.trim_history(
             self.historial, self.cfg["context_turns"], self.cfg["context_minutes"], ahora
         )
         self.historial.append({"ts": ahora, "role": "user", "content": text})
+        self.uso = {}
 
         # Tope mas bajo que en la nube: si un modelo local no resolvio en 6 pasos,
         # se perdio, y seguir solo gasta tiempo.
@@ -117,7 +122,11 @@ class OllamaEve:
                     timeout=600,
                 )
                 r.raise_for_status()
-                msg = r.json().get("message", {})
+                datos = r.json()
+                msg = datos.get("message", {})
+                # Ollama los llama distinto que todos los demas.
+                store.sumar_uso(self.uso, datos.get("prompt_eval_count", 0),
+                                datos.get("eval_count", 0))
             except requests.RequestException as exc:
                 return f"Ollama fallo: {exc}"
 
@@ -126,7 +135,7 @@ class OllamaEve:
 
             if not llamadas:
                 respuesta = (msg.get("content") or "").strip() or "Listo."
-                store.log_turn("assistant", respuesta)
+                store.log_turn("assistant", respuesta, self.motor, self.uso)
                 return respuesta
 
             for llamada in llamadas:

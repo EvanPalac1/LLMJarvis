@@ -71,11 +71,16 @@ SYSTEM = prompt.SYSTEM
 
 
 class Eve:
+    # De clase: `ollama_engine` construye un Eve con __new__ para reusar _run()
+    # sin pedir API key, y ese objeto nunca pasa por __init__.
+    motor = "api"
+
     def __init__(self, cfg: dict, confirm=None, on_status=None):
         """confirm(reason, detail) -> bool. on_status(texto) para feedback en vivo."""
         self.cfg = cfg
         self.confirm = confirm or (lambda reason, detail: False)
         self.on_status = on_status or (lambda _: None)
+        self.uso: dict = {}
         key = store.get_key("anthropic")
         if not key:
             raise RuntimeError("Falta la API key de Anthropic. Cargala en el panel de config.")
@@ -176,17 +181,25 @@ class Eve:
             self.history, self.cfg["context_turns"], self.cfg["context_minutes"], now
         )
         self.history.append({"ts": now, "role": "user", "content": text})
-        store.log_turn("user", text)
+        # El gasto se acumula por turno, no por llamada: el loop de tools puede
+        # dar varias vueltas y cada una cuesta.
+        self.uso = {}
+        store.log_turn("user", text, self.motor)
 
         for _ in range(12):  # tope duro: sin esto un loop de tools no termina nunca
             messages = [{"role": m["role"], "content": m["content"]} for m in self.history]
             resp = self._request(messages)
+            u = getattr(resp, "usage", None)
+            if u is not None:
+                store.sumar_uso(self.uso, getattr(u, "input_tokens", 0),
+                                getattr(u, "output_tokens", 0),
+                                getattr(u, "cache_read_input_tokens", 0))
 
             # Opus 5 puede rechazar la peticion: chequear ANTES de leer content.
             if resp.stop_reason == "refusal":
                 reply = "No puedo ayudarte con eso."
                 self.history.append({"ts": time.time(), "role": "assistant", "content": reply})
-                store.log_turn("assistant", reply)
+                store.log_turn("assistant", reply, self.motor, self.uso)
                 return reply
 
             self.history.append(
@@ -196,7 +209,7 @@ class Eve:
             if resp.stop_reason != "tool_use":
                 reply = "\n".join(b.text for b in resp.content if b.type == "text").strip()
                 reply = reply or "Listo."
-                store.log_turn("assistant", reply)
+                store.log_turn("assistant", reply, self.motor, self.uso)
                 return reply
 
             results = [self._handle_tool(b) for b in resp.content if b.type == "tool_use"]

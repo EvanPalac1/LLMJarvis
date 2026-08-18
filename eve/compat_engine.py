@@ -96,6 +96,9 @@ class CompatEve(OllamaEve):
         proveedor = str(cfg.get("compat_proveedor", "gemini") or "gemini").lower()
         url, nombre_clave, modelo = PROVEEDORES.get(proveedor, PROVEEDORES["propio"])
         self.proveedor = proveedor
+        # El nombre del proveedor y no "compat": el medidor tiene que poder
+        # decir si el gasto fue de Gemini o de Groq.
+        self.motor = proveedor
         self.host = (str(cfg.get("compat_url", "")).strip() or url).rstrip("/")
         self.modelo = str(cfg.get("compat_modelo", "")).strip() or modelo
         self.clave = store.get_key(nombre_clave) if nombre_clave else ""
@@ -143,16 +146,22 @@ class CompatEve(OllamaEve):
             # arreglarlo; en voz alta va la frase corta.
             print(f"[{self.proveedor}] {r.status_code}: {r.text[:400]}")
             raise requests.RequestException(_motivo(r))
-        opciones = r.json().get("choices") or [{}]
+        cuerpo_resp = r.json()
+        u = cuerpo_resp.get("usage") or {}
+        store.sumar_uso(self.uso, u.get("prompt_tokens", 0),
+                        u.get("completion_tokens", 0),
+                        (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0))
+        opciones = cuerpo_resp.get("choices") or [{}]
         return opciones[0].get("message", {}) or {}
 
     def ask(self, text: str) -> str:
-        store.log_turn("user", text)
+        store.log_turn("user", text, self.motor)
         ahora = time.time()
         self.historial = store.trim_history(
             self.historial, self.cfg["context_turns"], self.cfg["context_minutes"], ahora
         )
         self.historial.append({"ts": ahora, "role": "user", "content": text})
+        self.uso = {}
 
         for _ in range(8):
             mensajes = [{"role": "system", "content": self._system()}]
@@ -169,7 +178,7 @@ class CompatEve(OllamaEve):
 
             if not llamadas:
                 respuesta = (msg.get("content") or "").strip() or "Listo."
-                store.log_turn("assistant", respuesta)
+                store.log_turn("assistant", respuesta, self.motor, self.uso)
                 return respuesta
 
             for llamada in llamadas:

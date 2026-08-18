@@ -51,6 +51,8 @@ def write_settings() -> str:
 
 
 class ClaudeCodeEve:
+    motor = "claude-code"
+
     """Misma interfaz que brain.Eve: .ask(texto) -> respuesta."""
 
     def __init__(self, cfg: dict, confirm=None, on_status=None):
@@ -101,7 +103,7 @@ class ClaudeCodeEve:
         return cmd
 
     def ask(self, text: str) -> str:
-        store.log_turn("user", text)
+        store.log_turn("user", text, self.motor)
         cmd = self._build_cmd(text)
         self.on_status("Pensando...")
         proc = plataforma.correr(
@@ -122,6 +124,12 @@ class ClaudeCodeEve:
         except json.JSONDecodeError:
             return "No pude leer la respuesta de Claude Code."
 
+        # El CLI devuelve tambien lo que gasto, y se venia descartando.
+        uso = data.get("usage") or {}
+        acumulado: dict = {}
+        store.sumar_uso(acumulado, uso.get("input_tokens", 0), uso.get("output_tokens", 0),
+                        uso.get("cache_read_input_tokens", 0))
+
         self._session = data.get("session_id") or self._session
         self._last = time.time()
 
@@ -132,7 +140,7 @@ class ClaudeCodeEve:
             )
 
         reply = (data.get("result") or "").strip() or "Listo."
-        store.log_turn("assistant", reply)
+        store.log_turn("assistant", reply, self.motor, acumulado)
         return reply
 
 

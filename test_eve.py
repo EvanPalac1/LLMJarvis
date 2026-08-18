@@ -239,6 +239,76 @@ def test_brief_y_catalogo():
     assert "Start Menu\\Programs\\" not in cat, "la raiz larga no debe repetirse por linea"
 
 
+def test_gasto_por_turno():
+    """Lo que gasta cada turno queda anotado, sumando el loop de tools.
+
+    Los cuatro motores recibian `usage` en la respuesta y los cuatro lo tiraban.
+    Sin ese numero, el medidor de contexto no puede existir y cualquier promesa
+    de "ahorrar contexto" es a ciegas.
+
+    Lo que se mide de verdad aca es el loop: un turno que ejecuta una tool hace
+    DOS llamadas al modelo, y contar solo la ultima diria que abrir un programa
+    cuesta lo mismo que decir la hora.
+    """
+    from eve import compat_engine
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real_db = store.DB_PATH
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        store._migradas.discard(store.DB_PATH)
+        try:
+            motor = compat_engine.CompatEve.__new__(compat_engine.CompatEve)
+            motor.cfg = dict(store.DEFAULTS)
+            motor.historial = []
+            motor.uso = {}
+            motor.proveedor = motor.motor = "gemini"
+            motor.host, motor.modelo, motor.clave = "http://x/v1", "m", "k"
+            motor.on_status = lambda _: None
+            motor.runner = None
+
+            class Respuesta:
+                def __init__(self, cuerpo):
+                    self.status_code, self.headers, self.text = 200, {}, ""
+                    self._cuerpo = cuerpo
+
+                def json(self):
+                    return self._cuerpo
+
+            # Vuelta 1: pide una tool. Vuelta 2: contesta.
+            vueltas = [
+                {"usage": {"prompt_tokens": 3000, "completion_tokens": 40},
+                 "choices": [{"message": {"tool_calls": [
+                     {"id": "t1", "function": {"name": "list_dir", "arguments": "{}"}}]}}]},
+                {"usage": {"prompt_tokens": 3200, "completion_tokens": 25},
+                 "choices": [{"message": {"content": "Listo."}}]},
+            ]
+            cuantas = []
+
+            def post(*_a, **_k):
+                cuantas.append(1)
+                return Respuesta(vueltas[len(cuantas) - 1])
+
+            real_post = compat_engine.requests.post
+            compat_engine.requests.post = post
+            motor._ejecutar = lambda nombre, args: ("vacio", False)
+            try:
+                assert motor.ask("que hay en la carpeta") == "Listo."
+            finally:
+                compat_engine.requests.post = real_post
+
+            assert len(cuantas) == 2, f"tenia que llamar dos veces: {cuantas}"
+            gasto = store.gasto_reciente()
+            assert len(gasto) == 1, gasto
+            fila = gasto[0]
+            assert fila["motor"] == "gemini", fila
+            # 3000 + 3200 y 40 + 25: las DOS vueltas, no solo la ultima.
+            assert fila["entrada"] == 6200, fila
+            assert fila["salida"] == 65, fila
+        finally:
+            store.DB_PATH = real_db
+            store._migradas.discard(os.path.join(raiz, "eve.db"))
+
+
 def test_prompt_unico():
     """El system prompt se arma en un solo lugar para los tres motores.
 
@@ -1500,6 +1570,7 @@ def test_compat_reintenta():
     motor.cfg, motor.proveedor = {"max_tokens": 100}, "gemini"
     motor.host, motor.modelo, motor.clave = "http://x/v1", "m", "k"
     motor.on_status = lambda _: None
+    motor.uso = {}   # _pedir acumula el gasto ahi; en produccion lo crea __init__
 
     real_post, real_sleep = compat_engine.requests.post, compat_engine.time.sleep
     compat_engine.time.sleep = lambda _s: None

@@ -4,6 +4,7 @@ Nada de esto vive en la API: el programa es dueño del historial, la API solo
 recibe una ventana corta. El panel lee de aca, no de Anthropic.
 """
 
+import contextlib
 import json
 import os
 import shutil
@@ -664,7 +665,11 @@ CREATE TABLE IF NOT EXISTS turns (
     id INTEGER PRIMARY KEY,
     ts REAL NOT NULL,
     role TEXT NOT NULL,
-    text TEXT NOT NULL
+    text TEXT NOT NULL,
+    engine TEXT,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    cache_read INTEGER
 );
 CREATE TABLE IF NOT EXISTS actions (
     id INTEGER PRIMARY KEY,
@@ -676,15 +681,72 @@ CREATE TABLE IF NOT EXISTS actions (
 """
 
 
-def db() -> sqlite3.Connection:
+# Columnas que se agregaron despues. `CREATE TABLE IF NOT EXISTS` no las suma a
+# una tabla que ya existe, y la base del usuario ya existe hace versiones.
+_COLUMNAS_TURNS = {"engine": "TEXT", "tokens_in": "INTEGER",
+                   "tokens_out": "INTEGER", "cache_read": "INTEGER"}
+_migradas: set = set()
+
+
+@contextlib.contextmanager
+def db():
+    """Conexion que hace commit y CIERRA.
+
+    Antes esto devolvia la conexion pelada y los seis lugares la usaban como
+    `with db() as conn`. El `with` de sqlite hace commit pero no cierra: la
+    conexion queda viva hasta que el recolector pase. En Windows eso deja el
+    archivo trabado, y con la base en un directorio temporal el borrado falla.
+    """
     conn = sqlite3.connect(DB_PATH)
-    conn.executescript(_SCHEMA)
-    return conn
+    try:
+        conn.executescript(_SCHEMA)
+        # Una vez por archivo: los tests cambian DB_PATH, asi que no alcanza con
+        # una bandera global.
+        if DB_PATH not in _migradas:
+            tiene = {fila[1] for fila in conn.execute("PRAGMA table_info(turns)")}
+            for nombre, tipo in _COLUMNAS_TURNS.items():
+                if nombre not in tiene:
+                    conn.execute(f"ALTER TABLE turns ADD COLUMN {nombre} {tipo}")
+            _migradas.add(DB_PATH)
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
-def log_turn(role: str, text: str) -> None:
+def sumar_uso(acumulado: dict, entrada=0, salida=0, cache=0) -> None:
+    """Suma el gasto de UNA llamada al acumulado del turno.
+
+    Un turno puede hacer varias llamadas al modelo: cada tool que se ejecuta
+    obliga a otra vuelta. Contar solo la ultima diria que un turno que abrio
+    tres programas costo lo mismo que decir la hora.
+    """
+    acumulado["entrada"] = acumulado.get("entrada", 0) + int(entrada or 0)
+    acumulado["salida"] = acumulado.get("salida", 0) + int(salida or 0)
+    acumulado["cache"] = acumulado.get("cache", 0) + int(cache or 0)
+
+
+def log_turn(role: str, text: str, motor: str = "", uso: dict | None = None) -> None:
+    """Un turno. `uso` es lo que devolvio el modelo: los 4 motores lo tiraban."""
+    uso = uso or {}
     with db() as conn:
-        conn.execute("INSERT INTO turns (ts, role, text) VALUES (?,?,?)", (time.time(), role, text))
+        conn.execute(
+            "INSERT INTO turns (ts, role, text, engine, tokens_in, tokens_out, cache_read)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (time.time(), role, text, motor,
+             uso.get("entrada"), uso.get("salida"), uso.get("cache")),
+        )
+
+
+def gasto_reciente(limite: int = 50) -> list[dict]:
+    """Lo que costaron los ultimos turnos. Lo lee el medidor de contexto."""
+    with db() as conn:
+        filas = conn.execute(
+            "SELECT ts, engine, tokens_in, tokens_out, cache_read FROM turns"
+            " WHERE tokens_in IS NOT NULL ORDER BY id DESC LIMIT ?", (limite,)
+        ).fetchall()
+    return [{"ts": f[0], "motor": f[1] or "", "entrada": f[2] or 0,
+             "salida": f[3] or 0, "cache": f[4] or 0} for f in filas]
 
 
 def log_action(tool: str, detail: str, outcome: str) -> None:
