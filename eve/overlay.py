@@ -415,11 +415,13 @@ class Hud(Ventana):
         # va abajo con su etiqueta, los modulos encima con un item cada uno.
         self.modulos = lienzo.Lienzo(self.lienzo, cfg, "hud")
         self._partes = None
+        self._lista = None
         self.aplicar(cfg, paleta)
 
     def aplicar(self, cfg: dict, paleta: dict) -> None:
         self.cfg = cfg
         self._partes = None   # la config cambio: el prompt pesa otra cosa
+        self._lista = None    # y la lista de modulos puede ser otra
         self.modulos.aplicar(cfg)
         self.pintor.aplicar(cfg, paleta)
         self.ancho, self.alto = self.pintor.ancho, self.pintor.alto
@@ -435,7 +437,12 @@ class Hud(Ventana):
         self.pintor.avanzar(objetivo)
 
     def pintar(self, estado: str, titulo: str, linea2: str, vista=None) -> None:
-        lista = modulos.listar(self.cfg, "overlay")
+        # Se arma una vez por config, no treinta veces por segundo: recorrer
+        # las claves y materializar cada modulo en cada cuadro es trabajo que no
+        # cambia de resultado hasta que alguien toque el panel.
+        if self._lista is None:
+            self._lista = modulos.listar(self.cfg, "overlay")
+        lista = self._lista
         if not lista:
             # Sin modulos configurados, el cartel de siempre. Un usuario que
             # nunca abrio la pestaña nueva no tiene por que notar el cambio.
