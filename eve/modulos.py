@@ -46,7 +46,8 @@ COMUNES = {
 
 # Props propias de cada tipo, ademas de las comunes.
 TIPOS = {
-    "texto": {"contenido": ("", "que dice; vacio = el nombre del asistente"),
+    "texto": {"contenido": ("", "que dice, cuando el origen es fijo"),
+              "origen": ("nombre", "fijo | nombre | detalle | usuario | eve"),
               "tam": (16, "puntos")},
     "icono": {"imagen": ("", "ruta a png, gif, apng o webp animado"),
               "lados": (6, "menos de 3 = circulo"),
@@ -74,6 +75,7 @@ OPCIONES = {
     "easing": ["lineal", "suave", "rebote"],
     "estilo": ["barras", "espejo", "linea", "puntos"],
     "detalle": ["barra", "numeros"],
+    "origen": ["fijo", "nombre", "detalle", "usuario", "eve"],
 }
 
 
@@ -204,8 +206,12 @@ def por_defecto():
     return {
         "iconoeve": {"tipo": "icono", "superficie": "overlay", "x": 12, "y": 12,
                      "ancho": 104, "alto": 104, "cuando": "trabajando", "z": 1},
-        "titulo": {"tipo": "texto", "superficie": "overlay", "x": 130, "y": 20,
-                   "ancho": 300, "alto": 34, "tam": 19, "cuando": "trabajando", "z": 2},
+        "titulo": {"tipo": "texto", "superficie": "overlay", "x": 130, "y": 18,
+                   "ancho": 300, "alto": 30, "tam": 19, "origen": "nombre",
+                   "cuando": "trabajando", "z": 2},
+        "estado": {"tipo": "texto", "superficie": "overlay", "x": 130, "y": 46,
+                   "ancho": 300, "alto": 20, "tam": 11, "origen": "detalle",
+                   "cuando": "trabajando", "z": 2},
         "ondaeve": {"tipo": "onda", "superficie": "overlay", "x": 130, "y": 70,
                     "ancho": 300, "alto": 40, "cuando": "trabajando",
                     "fuente": "microfono", "z": 2},

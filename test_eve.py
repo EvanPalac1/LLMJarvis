@@ -1678,7 +1678,8 @@ def test_modulos_como_datos():
     # 1. El overlay que ya existe se puede describir con modulos. Si no, el
     #    sistema no sirve para nada.
     overlay = modulos.listar(cfg, "overlay")
-    assert sorted(m["tipo"] for m in overlay) == ["icono", "onda", "texto"], overlay
+    assert sorted(m["tipo"] for m in overlay) == sorted(
+        m["tipo"] for m in modulos.por_defecto().values()), overlay
     # Y salen en orden de dibujo: primero z, despues el id para desempatar.
     assert [(m["z"], m["id"]) for m in overlay] == sorted((m["z"], m["id"]) for m in overlay)
     assert modulos.listar(cfg, "tablero") == []
@@ -1920,7 +1921,7 @@ def test_hud_dibuja_modulos():
             cfg = modulos.guardar(cfg, dict(m, id=ident))
         hud.aplicar(cfg, paleta)
         hud.pintar("pensando", "EVE", "PENSANDO", {"nivel": 0.5})
-        assert len(hud.modulos._items) == 3, hud.modulos._items
+        assert len(hud.modulos._items) == len(modulos.por_defecto()), hud.modulos._items
         chrome = set(hud.lienzo.find_withtag("chrome"))
         assert chrome, "el chrome perdio su etiqueta"
         de_modulos = {d[0] for d in hud.modulos._items.values()}
@@ -1975,7 +1976,7 @@ def test_el_layout_viaja_en_el_perfil():
             store.save_config(dict(store.DEFAULTS))
             assert modulos_de(store) == 0
             store.aplicar_perfil("mi layout")
-            assert modulos_de(store) == 4, "el perfil no devolvio los modulos"
+            assert modulos_de(store) == len(mods.por_defecto()) + 1,                 "el perfil no devolvio los modulos"
 
             # La guarda sigue viva: una clave con forma de modulo pero con una
             # prop que el programa no conoce no entra.

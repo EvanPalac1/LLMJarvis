@@ -401,3 +401,101 @@ def ventana_fantasma(ventana, atraviesan_los_clics: bool = True) -> bool:
     # SWP_FRAMECHANGED, y HWND_TOPMOST para que el cambio surta efecto ya.
     u.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0020)
     return True
+
+
+# --- tipografias -----------------------------------------------------------
+# tkinter pide la familia ("Constantia") y PIL pide el archivo ("constan.ttf").
+# No hay forma de derivar uno del otro: hay que preguntarle al sistema. Sin
+# esto, los modulos dibujados con PIL salen con la tipografia por defecto de la
+# libreria mientras el resto del cartel usa la elegida en el panel, y se nota.
+_FUENTES: dict = {}
+
+# Lo que se usa cuando el usuario no eligio ninguna.
+_FUENTE_SISTEMA = {"win32": "segoeui.ttf", "darwin": "Helvetica.ttc"}
+
+
+def archivo_de_fuente(familia: str = "", negrita: bool = False) -> str:
+    """Ruta (o nombre que PIL sepa abrir) del TTF de una familia. "" si no hay."""
+    clave = (familia or "", bool(negrita))
+    if clave in _FUENTES:
+        return _FUENTES[clave]
+    ruta = _buscar_fuente(familia, negrita)
+    _FUENTES[clave] = ruta
+    return ruta
+
+
+def _buscar_fuente(familia: str, negrita: bool) -> str:
+    familia = (familia or "").strip()
+    # "(la del sistema)" es la etiqueta del panel para "no elegi ninguna".
+    if not familia or familia.startswith("("):
+        return _FUENTE_SISTEMA.get(sys.platform, "DejaVuSans.ttf")
+    if WINDOWS:
+        hallado = _fuente_windows(familia, negrita)
+        if hallado:
+            return hallado
+    elif LINUX:
+        hallado = _fuente_fontconfig(familia, negrita)
+        if hallado:
+            return hallado
+    # Ultimo intento: nombres derivados. Sirve para las familias cuyo archivo se
+    # llama parecido, que son bastantes.
+    sin_espacios = familia.replace(" ", "")
+    for base in (sin_espacios, sin_espacios.lower(), familia, familia.lower()):
+        for ext in (".ttf", ".ttc", ".otf"):
+            if _pil_abre(base + ext):
+                return base + ext
+    return ""
+
+
+def _pil_abre(nombre: str) -> bool:
+    try:
+        from PIL import ImageFont
+
+        ImageFont.truetype(nombre, 12)
+    except Exception:  # noqa: BLE001 - falta el archivo o PIL no lo entiende
+        return False
+    return True
+
+
+def _fuente_windows(familia: str, negrita: bool) -> str:
+    """El registro mapea "Constantia (TrueType)" -> "constan.ttf"."""
+    try:
+        import winreg
+    except ImportError:
+        return ""
+    buscados = [familia.lower() + (" bold" if negrita else "")]
+    if negrita:
+        buscados.append(familia.lower())   # sin negrita antes que nada
+    for raiz in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(
+                raiz, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+            ) as k:
+                total = winreg.QueryInfoKey(k)[1]
+                entradas = {}
+                for i in range(total):
+                    nombre, valor, _ = winreg.EnumValue(k, i)
+                    # "Constantia Bold (TrueType)" -> "constantia bold"
+                    limpio = nombre.split("(")[0].strip().lower()
+                    entradas[limpio] = valor
+        except OSError:
+            continue
+        for quiero in buscados:
+            archivo = entradas.get(quiero)
+            if archivo:
+                completo = os.path.join(os.environ.get("WINDIR", r"C:\Windows"),
+                                        "Fonts", archivo)
+                return completo if os.path.exists(completo) else archivo
+    return ""
+
+
+def _fuente_fontconfig(familia: str, negrita: bool) -> str:
+    """En Linux lo sabe `fc-match`, que viene con cualquier escritorio."""
+    patron = familia + (":bold" if negrita else "")
+    try:
+        r = subprocess.run(["fc-match", "-f", "%{file}", patron],
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    ruta = (r.stdout or "").strip()
+    return ruta if ruta and os.path.exists(ruta) else ""

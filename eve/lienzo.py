@@ -26,22 +26,34 @@ import time
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from . import imagenes, modulos, tema
+from . import imagenes, modulos, plataforma, tema
 
 # Tope por modulo. Medido: con seis modulos animando 500 particulas cada uno el
 # p95 sube a 32 ms, que en una maquina ARM es la mitad de los cuadros.
 TOPE_PARTICULAS = 500
 
 
-def _fuente(tam):
-    """Una fuente escalable que exista en los tres sistemas.
+def _fuente(tam, familia="", negrita=False):
+    """La tipografia elegida en el panel, en el tamaño pedido.
 
-    `load_default(size=...)` viene desde Pillow 10.1 y trae su propia
-    tipografia, asi que no depende de que el sistema tenga un TTF en una ruta
-    conocida.
+    tkinter pide la familia ("Constantia") y PIL pide el archivo
+    ("constan.ttf"), y de uno no se deriva el otro: hay que preguntarle al
+    sistema, que es lo que hace `plataforma.archivo_de_fuente`. Sin esto los
+    modulos salian con la tipografia por defecto de PIL mientras el resto del
+    cartel usaba la del tema, y la diferencia se veia de lejos.
+
+    Si la familia no existe, `load_default` alcanza para que se lea algo: un
+    cartel con otra tipografia es mejor que un cartel vacio.
     """
+    tam = max(6, int(tam))
+    ruta = plataforma.archivo_de_fuente(familia, negrita)
+    if ruta:
+        try:
+            return ImageFont.truetype(ruta, tam)
+        except OSError:
+            pass
     try:
-        return ImageFont.load_default(size=max(6, int(tam)))
+        return ImageFont.load_default(size=tam)
     except TypeError:
         return ImageFont.load_default()
 
@@ -110,6 +122,7 @@ class Lienzo:
         self.cfg = cfg
         self.prefijo = prefijo_tema
         self.paleta = tema.resolver(cfg, prefijo_tema)
+        self.familia = self._familia(cfg)
         self._items = {}       # id -> [item, PhotoImage, firma, ancho, alto]
         self._particulas = {}
         self._fondos = {}
@@ -119,8 +132,14 @@ class Lienzo:
         """Config nueva: se re-lee la paleta y se olvidan las firmas."""
         self.cfg = cfg
         self.paleta = tema.resolver(cfg, self.prefijo)
+        self.familia = self._familia(cfg)
         for datos in self._items.values():
             datos[2] = None
+
+    def _familia(self, cfg):
+        """La del prefijo, con la del panel de respaldo, como hace el tema."""
+        return str(cfg.get(self.prefijo + "_fuente")
+                   or cfg.get("ui_fuente") or "").strip()
 
     def olvidar(self, ident):
         datos = self._items.pop(ident, None)
@@ -182,7 +201,7 @@ class Lienzo:
         if tipo == "reloj":
             return base + (time.strftime(str(modulo.get("formato", "%H:%M"))),)
         if tipo == "texto":
-            return base + (self._texto_de(modulo), modulo.get("tam"))
+            return base + (self._texto_de(modulo, estado), modulo.get("tam"))
         if tipo == "contexto":
             return base + (str(estado.get("partes")), modulo.get("detalle"))
         if tipo == "icono":
@@ -193,11 +212,22 @@ class Lienzo:
                            round(ahora, 2) if animado else 0)
         return base
 
-    def _texto_de(self, modulo):
-        propio = str(modulo.get("contenido") or "").strip()
-        if propio:
-            return propio
-        return str(self.cfg.get("assistant_name", "Eve")).upper()
+    def _texto_de(self, modulo, estado=None):
+        """Que dice este modulo de texto: algo fijo, o algo que pasa ahora.
+
+        Es lo que reemplaza a la linea de subtitulo del cartel viejo, y de paso
+        habilita mostrar lo que se escucho y lo que Eve esta contestando sin
+        inventar un tipo de modulo por cada cosa.
+        """
+        estado = estado or {}
+        origen = str(modulo.get("origen", "nombre"))
+        if origen == "fijo":
+            return str(modulo.get("contenido") or "")
+        if origen == "detalle":
+            return str(estado.get("detalle") or "")
+        if origen in ("usuario", "eve"):
+            return str(estado.get(origen) or "")
+        return str(estado.get("titulo") or self.cfg.get("assistant_name", "Eve")).upper()
 
     # --- dibujo -----------------------------------------------------------
 
@@ -212,12 +242,13 @@ class Lienzo:
         tipo = modulo["tipo"]
 
         if tipo == "texto":
-            dibujo.text((0, 0), self._texto_de(modulo),
-                        font=_fuente(modulo.get("tam", 16)),
+            dibujo.text((0, 0), self._texto_de(modulo, estado),
+                        font=_fuente(modulo.get("tam", 16), self.familia, negrita=True),
                         fill=_rgba(self.paleta["texto"], opac))
         elif tipo == "reloj":
             dibujo.text((0, 0), time.strftime(str(modulo.get("formato", "%H:%M"))),
-                        font=_fuente(24), fill=_rgba(self.paleta["texto"], opac))
+                        font=_fuente(24, self.familia),
+                        fill=_rgba(self.paleta["texto"], opac))
         elif tipo == "icono":
             self._pintar_icono(img, dibujo, modulo, acento, opac)
         elif tipo == "onda":
@@ -248,14 +279,19 @@ class Lienzo:
         lados = int(modulo.get("lados", 6))
         cx, cy = img.width / 2, img.height / 2
         radio = max(2, min(cx, cy) - 2)
+        # Relleno ademas del contorno: el icono del cartel viejo es una figura
+        # solida con borde, y dejarlo hueco era la diferencia mas visible al
+        # pasar a modulos.
+        relleno = _rgba(tema.mezclar(self.paleta["panel"], self.paleta["acento"], 0.18),
+                        opac)
         if lados < 3:
             dibujo.ellipse([cx - radio, cy - radio, cx + radio, cy + radio],
-                           outline=acento, width=2)
+                           fill=relleno, outline=acento, width=2)
         else:
             puntos = [(cx + radio * math.cos(2 * math.pi * i / lados - math.pi / 2),
                        cy + radio * math.sin(2 * math.pi * i / lados - math.pi / 2))
                       for i in range(lados)]
-            dibujo.polygon(puntos, outline=acento)
+            dibujo.polygon(puntos, fill=relleno, outline=acento)
 
     def _pintar_onda(self, dibujo, modulo, estado, ahora, ancho, alto, opac):
         n = max(4, int(modulo.get("muestras", 56)))
@@ -308,7 +344,7 @@ class Lienzo:
                    self.paleta["borde"], self.paleta["texto_tenue"]]
         ordenadas = sorted(partes.items(), key=lambda par: -par[1])
         if str(modulo.get("detalle")) == "numeros":
-            fuente = _fuente(12)
+            fuente = _fuente(12, self.familia)
             y = 0
             for i, (nombre, valor) in enumerate(ordenadas[:5]):
                 dibujo.text((0, y), nombre + ": " + str(valor), font=fuente,

@@ -454,6 +454,11 @@ class Hud(Ventana):
             "nivel": _num(vista or {}, "nivel", 0, 1),
             "detalle": linea2,
             "titulo": titulo,
+            # Para los modulos de texto con origen `usuario` o `eve`: lo que se
+            # escucho y lo que esta contestando, que es lo que hoy solo se veia
+            # en la ventana de subtitulos.
+            "usuario": (vista or {}).get("usuario", ""),
+            "eve": (vista or {}).get("eve", ""),
             "partes": self._partes_del_prompt(lista),
         })
 
