@@ -590,6 +590,7 @@ class Panel(tk.Tk):
         for titulo, bloques in (
             ("Tema", [self._bloque_tema]),
             ("Cartel", [self._bloque_hud]),
+            ("Modulos", [self._bloque_modulos]),
             ("Subtitulos", [self._bloque_subtitulos]),
         ):
             sub.add(self._hoja_simple(sub, bloques), text=f"  {titulo}  ")
@@ -1521,6 +1522,200 @@ class Panel(tk.Tk):
         for clave in ("ui_tema",):
             self.vars[clave].trace_add("write", self._previa_redibujar)
         return t
+
+    def _bloque_modulos(self, nb):
+        """Los modulos del cartel y del tablero.
+
+        El formulario de propiedades no esta escrito: se GENERA recorriendo el
+        esquema de `modulos.props_de(tipo)`. Agregar una prop a un tipo de
+        modulo no toca este archivo, que es todo el punto del sistema: si cada
+        perilla nueva costara veinte lineas de tkinter, "hiperpersonalizable"
+        no llegaria muy lejos.
+        """
+        from . import modulos as mods
+
+        t = ttk.Frame(nb)
+        self.mod_sel = ""
+        self.mod_vars = {}
+
+        lista = self._seccion(t, "Modulos")
+        self._ayuda(
+            lista,
+            "Cada modulo es una pieza del cartel: un icono, una onda, particulas,\n"
+            "el reloj o el medidor de contexto. Se puede elegir donde va, de que\n"
+            "tamano, con cuanta transparencia y cuando se muestra.",
+        )
+        self.mod_tree = ttk.Treeview(
+            lista, columns=("tipo", "donde", "pos", "cuando"), show="headings", height=7
+        )
+        for col, titulo, ancho in (("tipo", "Tipo", 90), ("donde", "Superficie", 90),
+                                   ("pos", "Posicion", 110), ("cuando", "Se ve", 90)):
+            self.mod_tree.heading(col, text=titulo)
+            self.mod_tree.column(col, width=ancho, anchor="w")
+        self.mod_tree.pack(fill="x", padx=12, pady=(6, 0))
+        self.mod_tree.bind("<<TreeviewSelect>>", self._mods_elegido)
+
+        fila = ttk.Frame(lista)
+        fila.pack(anchor="w", padx=12, pady=(6, 10))
+        self.mod_tipo = tk.StringVar(value=mods.OPCIONES["tipo"][0])
+        ttk.Combobox(fila, textvariable=self.mod_tipo, values=mods.OPCIONES["tipo"],
+                     state="readonly", width=12).pack(side="left")
+        ttk.Button(fila, text="Agregar", command=self._mods_agregar).pack(side="left", padx=6)
+        ttk.Button(fila, text="Duplicar", command=self._mods_duplicar).pack(side="left")
+        ttk.Button(fila, text="Borrar", command=self._mods_borrar).pack(side="left", padx=6)
+        ttk.Button(fila, text="Traer los del cartel actual",
+                   command=self._mods_semilla).pack(side="left", padx=(18, 0))
+
+        self.mod_caja = self._seccion(t, "Ajustes del modulo")
+        self.mod_props = ttk.Frame(self.mod_caja)
+        self.mod_props.pack(fill="x")
+        self._mods_refrescar()
+        return t
+
+    # --- modulos ------------------------------------------------------------
+
+    def _mods_refrescar(self, elegir: str = "") -> None:
+        from . import modulos as mods
+
+        cfg = store.load_config()
+        self.mod_tree.delete(*self.mod_tree.get_children())
+        for m in mods.listar(cfg):
+            self.mod_tree.insert(
+                "", "end", iid=m["id"],
+                values=(m["tipo"], m["superficie"],
+                        f'{m["x"]},{m["y"]}  {m["ancho"]}x{m["alto"]}', m["cuando"]),
+            )
+        objetivo = elegir or self.mod_sel
+        if objetivo and self.mod_tree.exists(objetivo):
+            self.mod_tree.selection_set(objetivo)
+            # Y se arma el formulario aca mismo. Dejarlo a que llegue el evento
+            # `<<TreeviewSelect>>` significa que entre duplicar y editar hay un
+            # momento en el que `mod_sel` apunta al modulo anterior: el boton
+            # Borrar se llevaba el equivocado.
+            self._mods_props(objetivo)
+        else:
+            self._mods_props("")
+
+    def _mods_elegido(self, _evt=None) -> None:
+        sel = self.mod_tree.selection()
+        self._mods_props(sel[0] if sel else "")
+
+    def _mods_props(self, ident: str) -> None:
+        """Arma el formulario del modulo elegido, prop por prop del esquema."""
+        from . import modulos as mods
+
+        self.mod_sel = ident
+        for hijo in self.mod_props.winfo_children():
+            hijo.destroy()
+        self.mod_vars = {}
+        if not ident:
+            self._ayuda(self.mod_props, "Elegi un modulo de la lista para ajustarlo.")
+            return
+
+        modulo = mods.leer(store.load_config(), ident)
+        for prop, par in mods.props_de(modulo["tipo"]).items():
+            if prop == "tipo":
+                continue
+            valor = modulo.get(prop, par[0])
+            fila = ttk.Frame(self.mod_props)
+            fila.pack(fill="x", padx=12, pady=1)
+            ttk.Label(fila, text=prop, width=13).pack(side="left")
+            if isinstance(par[0], bool):
+                var = tk.BooleanVar(value=bool(valor))
+                ttk.Checkbutton(fila, variable=var).pack(side="left")
+            elif prop in mods.OPCIONES:
+                var = tk.StringVar(value=str(valor))
+                ttk.Combobox(fila, textvariable=var, values=mods.OPCIONES[prop],
+                             state="readonly", width=16).pack(side="left")
+            else:
+                var = tk.StringVar(value=str(valor))
+                ttk.Entry(fila, textvariable=var, width=18).pack(side="left")
+            self.mod_vars[prop] = var
+            ttk.Label(fila, text="  " + par[1], style="Ayuda.TLabel").pack(side="left")
+
+        ttk.Button(self.mod_props, text="Aplicar",
+                   command=self._mods_aplicar).pack(anchor="w", padx=12, pady=(8, 10))
+
+    def _mods_aplicar(self) -> None:
+        """Guarda el modulo. Los tipos salen del esquema, no de adivinar."""
+        from . import modulos as mods
+
+        if not self.mod_sel:
+            return
+        cfg = store.load_config()
+        modulo = mods.leer(cfg, self.mod_sel)
+        for prop, var in self.mod_vars.items():
+            defecto = mods.props_de(modulo["tipo"]).get(prop, ("",))[0]
+            valor = var.get()
+            if isinstance(defecto, bool):
+                modulo[prop] = bool(valor)
+            elif isinstance(defecto, int):
+                try:
+                    modulo[prop] = int(float(str(valor).replace(",", ".")))
+                except ValueError:
+                    messagebox.showerror("Valor invalido", f"'{prop}' tiene que ser un numero.")
+                    return
+            elif isinstance(defecto, float):
+                try:
+                    modulo[prop] = float(str(valor).replace(",", "."))
+                except ValueError:
+                    messagebox.showerror("Valor invalido", f"'{prop}' tiene que ser un numero.")
+                    return
+            else:
+                modulo[prop] = valor
+        store.save_config(mods.guardar(cfg, modulo))
+        self._mods_refrescar(self.mod_sel)
+        self.estado.config(text=f"modulo '{self.mod_sel}' guardado")
+
+    def _mods_agregar(self) -> None:
+        from . import modulos as mods
+
+        cfg = store.load_config()
+        tipo = self.mod_tipo.get()
+        usados = set(mods.identificadores(cfg))
+        n = 1
+        while f"{tipo}{n}" in usados:
+            n += 1
+        ident = f"{tipo}{n}"
+        store.save_config(mods.guardar(cfg, {"id": ident, "tipo": tipo}))
+        self._mods_refrescar(ident)
+
+    def _mods_duplicar(self) -> None:
+        from . import modulos as mods
+
+        if not self.mod_sel:
+            return
+        cfg = store.load_config()
+        modulo = mods.leer(cfg, self.mod_sel)
+        usados = set(mods.identificadores(cfg))
+        n = 2
+        while f"{self.mod_sel}{n}" in usados:
+            n += 1
+        modulo["id"] = f"{self.mod_sel}{n}"
+        modulo["x"] = int(modulo["x"]) + 20
+        modulo["y"] = int(modulo["y"]) + 20
+        store.save_config(mods.guardar(cfg, modulo))
+        self._mods_refrescar(modulo["id"])
+
+    def _mods_borrar(self) -> None:
+        from . import modulos as mods
+
+        if not self.mod_sel:
+            return
+        store.save_config(mods.borrar(store.load_config(), self.mod_sel))
+        self.mod_sel = ""
+        self._mods_refrescar()
+
+    def _mods_semilla(self) -> None:
+        """Escribe el cartel que ya existe como modulos, para tener de donde partir."""
+        from . import modulos as mods
+
+        cfg = store.load_config()
+        for ident, m in mods.por_defecto().items():
+            cfg = mods.guardar(cfg, dict(m, id=ident))
+        store.save_config(cfg)
+        self._mods_refrescar()
+        self.estado.config(text="listo: el cartel de siempre, ahora como modulos")
 
     def _bloque_hud(self, nb):
         from . import tema

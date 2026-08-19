@@ -34,6 +34,77 @@ def test_destructive():
         assert safety.destructive_reason(cmd) is None, f"falso positivo: {cmd}"
 
 
+def test_panel_genera_los_ajustes_del_modulo():
+    """El formulario de un modulo se genera del esquema, no se escribe a mano.
+
+    Es la diferencia entre que agregar una perilla cueste una linea de datos o
+    veinte de tkinter. Si esto se rompe, el panel vuelve a ser 1991 lineas
+    cableadas y el modo ayuda --que Eve cree modulos sola-- deja de ser posible,
+    porque implicaria que escriba codigo de interfaz.
+    """
+    import tkinter as tk
+
+    from eve import gui, modulos as mods
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real_cfg, real_cont = store.CONFIG_PATH, store.CONTACTS_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.CONTACTS_PATH = os.path.join(raiz, "contactos.json")
+        panel = None
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            panel = gui.Panel()
+            panel.withdraw()
+
+            # Arranca sin modulos y el arbol esta vacio.
+            assert not panel.mod_tree.get_children()
+
+            # El boton que trae el cartel de siempre como modulos.
+            panel._mods_semilla()
+            ids = set(panel.mod_tree.get_children())
+            assert ids == set(mods.por_defecto()), ids
+
+            # Al elegir uno se generan sus props: las comunes MAS las del tipo.
+            panel._mods_props("ondaeve")
+            assert "estilo" in panel.mod_vars, "falto la prop propia del tipo onda"
+            assert "opacidad" in panel.mod_vars, "faltaron las props comunes"
+            assert "cantidad" not in panel.mod_vars, "eso es de particulas, no de onda"
+
+            # Y cambiar de tipo cambia el formulario solo, sin tocar el panel.
+            panel._mods_props("iconoeve")
+            assert "lados" in panel.mod_vars and "estilo" not in panel.mod_vars
+
+            # Guardar respeta el tipo declarado: sin esto la posicion se guarda
+            # como el texto "175" y la cuenta siguiente suma cadenas.
+            panel._mods_props("ondaeve")
+            panel.mod_vars["x"].set("175")
+            panel.mod_vars["velocidad"].set("1,5")
+            panel._mods_aplicar()
+            guardado = store.load_config()
+            assert guardado["mod_ondaeve_x"] == 175, guardado["mod_ondaeve_x"]
+            assert abs(guardado["mod_ondaeve_velocidad"] - 1.5) < 1e-9
+
+            # Agregar, duplicar y borrar.
+            panel.mod_tipo.set("particulas")
+            panel._mods_agregar()
+            assert "particulas1" in panel.mod_tree.get_children()
+            panel._mods_props("particulas1")
+            panel._mods_duplicar()
+            assert "particulas12" in panel.mod_tree.get_children()
+            panel._mods_borrar()
+            assert "particulas12" not in panel.mod_tree.get_children()
+        finally:
+            if panel is not None:
+                panel.destroy()
+            store.CONFIG_PATH, store.CONTACTS_PATH = real_cfg, real_cont
+
+
 def test_path_allowlist():
     with tempfile.TemporaryDirectory() as root:
         inside = os.path.join(root, "sub", "a.txt")

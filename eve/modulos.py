@@ -62,6 +62,21 @@ TIPOS = {
     "contexto": {"detalle": ("barra", "barra | numeros")},
 }
 
+# Props que son de eleccion cerrada. Es lo que hace que el panel se GENERE en
+# vez de cablearse: sin esta tabla habria que escribir a mano un combo por prop
+# y por tipo, que es exactamente el problema que el sistema de modulos viene a
+# sacar de encima.
+OPCIONES = {
+    "tipo": list(TIPOS),
+    "superficie": ["overlay", "tablero"],
+    "cuando": ["siempre", "trabajando", "hover"],
+    "fuente": ["reloj", "microfono"],
+    "easing": ["lineal", "suave", "rebote"],
+    "estilo": ["barras", "espejo", "linea", "puntos"],
+    "detalle": ["barra", "numeros"],
+}
+
+
 # Tipos que pueden reaccionar al microfono en vez de al reloj. Una animacion
 # importada se puede escalar y teñir, pero no reaccionar: para eso el dibujo lo
 # tiene que calcular la maquina.
