@@ -37,7 +37,8 @@ class OllamaEve:
         self.runner.cfg = cfg
         self.runner.confirm = confirm or (lambda reason, detail: False)
         self.runner.on_status = self.on_status
-        self.historial: list[dict] = []
+        # Igual que en los otros: el hilo lo guarda el log comun, no el motor.
+        self.historial: list[dict] = store.historial_neutro(cfg)
         # Gasto del turno en curso. Lo llena _pedir/ask y lo lee log_turn.
         self.uso: dict = {}
 
@@ -75,6 +76,7 @@ class OllamaEve:
 
     def reset_context(self) -> None:
         self.historial = []
+        store.olvidar()
 
     def _system(self) -> str:
         return prompt.construir(self.cfg)

@@ -85,11 +85,14 @@ class Eve:
         if not key:
             raise RuntimeError("Falta la API key de Anthropic. Cargala en el panel de config.")
         self.client = anthropic.Anthropic(api_key=key)
-        self.history: list[dict] = []
+        # Se arranca con lo que quedo en el log comun, no en blanco: cambiar de
+        # motor o reiniciar Eve dejaba de existir la conversacion.
+        self.history: list[dict] = store.historial_neutro(cfg)
 
     def reset_context(self) -> None:
         """Vuelve a arrancar en frio: el proximo pedido no ve nada anterior."""
         self.history = []
+        store.olvidar()
 
     # --- ejecucion de tools ------------------------------------------------
 

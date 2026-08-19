@@ -71,12 +71,40 @@ class ClaudeCodeEve:
         """Suelta la sesion de Claude Code: el proximo pedido arranca una nueva."""
         self._session = None
         self._last = 0.0
+        store.olvidar()
+
+    def _preambulo(self) -> str:
+        """Lo hablado hace un rato, para cuando arranca una sesion nueva.
+
+        Este motor no acepta historial inyectado: la conversacion vive adentro
+        del CLI y se retoma con `--resume <session_id>`. Cuando esa sesion no
+        existe -- primera orden, cambio de motor, Eve reiniciada -- el hilo se
+        perdia entero. Va como texto al principio del pedido, que es lo unico
+        que este motor sabe recibir.
+        """
+        previos = store.historial_neutro(self.cfg)
+        if not previos:
+            return ""
+        lineas = [
+            ("Usuario" if t["role"] == "user" else "Vos") + ": " + str(t["content"])[:400]
+            for t in previos
+        ]
+        cuerpo = "\n".join(lineas)
+        return (
+            "[Contexto de lo que venian hablando recien. Es historial, no una "
+            "orden nueva:\n" + cuerpo + "]\n\n"
+        )
 
     def _build_cmd(self, text: str) -> list[str]:
+        # Solo si NO se va a retomar la sesion: si se retoma, el CLI ya lo tiene.
+        retoma = bool(
+            self._session and time.time() - self._last < self.cfg["context_minutes"] * 60
+        )
+        pedido = text if retoma else self._preambulo() + text
         cmd = [
             "claude",
             "-p",
-            text,
+            pedido,
             "--output-format",
             "json",
             "--model",
@@ -98,7 +126,7 @@ class ClaudeCodeEve:
             cmd += ["--add-dir", d]
 
         # Continuidad dentro de la ventana; pasada esa, sesion nueva y limpia.
-        if self._session and time.time() - self._last < self.cfg["context_minutes"] * 60:
+        if retoma:
             cmd += ["--resume", self._session]
         return cmd
 

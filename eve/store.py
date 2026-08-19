@@ -738,6 +738,51 @@ def log_turn(role: str, text: str, motor: str = "", uso: dict | None = None) -> 
         )
 
 
+def historial_neutro(cfg: dict, ahora: float = 0.0) -> list[dict]:
+    """Los ultimos turnos en el unico formato que entienden los cuatro motores.
+
+    La tabla `turns` la escriben los cuatro desde siempre y hasta ahora nadie la
+    leia de vuelta. Cada motor guardaba lo suyo en su propio formato -- objetos
+    del SDK de Anthropic, dicts de Ollama, un session_id opaco del CLI -- asi que
+    cambiar de motor, o reiniciar Eve, borraba la conversacion.
+
+    Van solo pregunta y respuesta. Los pasos intermedios de tools son del
+    protocolo de cada motor y no se pueden traducir; para seguir el hilo de una
+    charla tampoco hacen falta.
+    """
+    ahora = ahora or time.time()
+    tope = max(1, int(cfg.get("context_turns", 6) or 6))
+    minutos = float(cfg.get("context_minutes", 10) or 10)
+    with db() as conn:
+        # Lo anterior al ultimo corte no cuenta: si el usuario pidio olvidar, no
+        # puede volver porque un cambio de config rearmo el motor.
+        corte = conn.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM turns WHERE role = 'corte'"
+        ).fetchone()[0]
+        filas = conn.execute(
+            "SELECT ts, role, text FROM turns WHERE role IN ('user','assistant')"
+            " AND id > ? ORDER BY id DESC LIMIT ?", (corte, tope)
+        ).fetchall()
+    recientes = [
+        {"ts": f[0], "role": f[1], "content": f[2]}
+        for f in reversed(filas) if ahora - f[0] <= minutos * 60
+    ]
+    # La misma normalizacion que usan los motores: tiene que empezar en `user`.
+    return trim_history(recientes, tope, minutos, ahora)
+
+
+def olvidar() -> None:
+    """Corta el hilo: lo de antes deja de ser conversacion en curso.
+
+    Se marca en la misma tabla en vez de borrar nada. El log sigue sirviendo
+    para el historial del panel y para medir el gasto; lo unico que cambia es
+    que `historial_neutro` no lo trae de vuelta.
+    """
+    with db() as conn:
+        conn.execute("INSERT INTO turns (ts, role, text) VALUES (?,?,?)",
+                     (time.time(), "corte", ""))
+
+
 def gasto_reciente(limite: int = 50) -> list[dict]:
     """Lo que costaron los ultimos turnos. Lo lee el medidor de contexto."""
     with db() as conn:

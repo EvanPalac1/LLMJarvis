@@ -239,6 +239,67 @@ def test_brief_y_catalogo():
     assert "Start Menu\\Programs\\" not in cat, "la raiz larga no debe repetirse por linea"
 
 
+def test_historial_sobrevive_al_motor():
+    """Cambiar de motor, o reiniciar Eve, ya no borra la conversacion.
+
+    Cada motor guardaba el hilo en su propio formato: objetos del SDK de
+    Anthropic, dicts de Ollama, y en el caso de Claude Code solo un session_id
+    opaco que vive dentro del CLI. Como `_build_engine` rearma el motor entero
+    ante cualquier cambio de config que no sea cosmetico, pasar de Gemini a
+    Ollama -- o tocar el modelo -- dejaba a Eve sin memoria de lo recien dicho.
+
+    La tabla `turns` la venian escribiendo los cuatro desde siempre. Lo unico
+    que faltaba era leerla de vuelta.
+    """
+    from eve import cc_engine, ollama_engine
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real_db = store.DB_PATH
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        store._migradas.discard(store.DB_PATH)
+        try:
+            cfg = dict(store.DEFAULTS)
+            cfg["context_turns"], cfg["context_minutes"] = 6, 10
+
+            # Un motor escribio esto y despues se rearmo el motor.
+            store.log_turn("user", "cuantos grados hay", "gemini")
+            store.log_turn("assistant", "Veintidos.", "gemini", {"entrada": 10, "salida": 3})
+
+            recuperado = store.historial_neutro(cfg)
+            assert [t["role"] for t in recuperado] == ["user", "assistant"], recuperado
+            assert recuperado[0]["content"] == "cuantos grados hay"
+
+            # Un motor DISTINTO arranca y ya sabe de que venian hablando.
+            otro = ollama_engine.OllamaEve.__new__(ollama_engine.OllamaEve)
+            otro.historial = store.historial_neutro(cfg)
+            assert len(otro.historial) == 2, "el motor nuevo arranco en blanco"
+
+            # Claude Code no acepta historial inyectado: lo recibe como texto, y
+            # solo cuando NO va a retomar su propia sesion.
+            cc = cc_engine.ClaudeCodeEve.__new__(cc_engine.ClaudeCodeEve)
+            cc.cfg = cfg
+            preambulo = cc._preambulo()
+            assert "cuantos grados hay" in preambulo and "Veintidos" in preambulo
+            assert "historial" in preambulo, "tiene que avisar que no es una orden nueva"
+
+            # Y lo viejo no vuelve: pasada la ventana, no existe.
+            futuro = time.time() + cfg["context_minutes"] * 60 + 5
+            assert store.historial_neutro(cfg, ahora=futuro) == []
+
+            # "Olvidar contexto" tiene que quedar olvidado aunque despues se
+            # rearme el motor, que es justo lo que hace cualquier cambio de
+            # config no cosmetico. Por eso el corte va al disco y no a memoria.
+            store.olvidar()
+            assert store.historial_neutro(cfg) == [], "el olvido no aguanto"
+            store.log_turn("user", "y ahora?", "ollama")
+            assert len(store.historial_neutro(cfg)) == 1, "corto de mas"
+            # El log completo sigue entero: el corte marca, no borra.
+            assert len(store.recent_turns()) >= 4
+        finally:
+            store.DB_PATH = real_db
+            store._migradas.discard(os.path.join(raiz, "eve.db"))
+
+
 def test_gasto_por_turno():
     """Lo que gasta cada turno queda anotado, sumando el loop de tools.
 
