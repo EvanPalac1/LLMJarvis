@@ -14,7 +14,7 @@ import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from . import plataforma, store, voice
+from . import modulos, plataforma, store, voice
 
 CREATE_NEW_CONSOLE = 0x00000010
 
@@ -1891,6 +1891,13 @@ class Panel(tk.Tk):
             if key in self.cfg and str(value) == str(self.cfg[key]):
                 continue
             default = store.DEFAULTS.get(key)
+            if default is None and key.startswith(modulos.PREFIJO):
+                # Las claves de modulo se inventan en runtime, asi que no estan
+                # en DEFAULTS y caerian todas a texto. El tipo lo declara el
+                # tipo de modulo: sin esto una posicion se guardaria como "40" y
+                # la cuenta siguiente sumaria cadenas.
+                clase = modulos.tipo_de_clave(cfg, key)
+                default = clase() if clase else None
             if isinstance(default, bool):
                 cfg[key] = bool(value)
             elif isinstance(default, int):

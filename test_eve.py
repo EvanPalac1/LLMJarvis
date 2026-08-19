@@ -1589,6 +1589,66 @@ def test_icono_con_transparencia():
         assert 100 < salida.getpixel((20, 20))[3] < 160, "lo opaco se atenua"
 
 
+def test_modulos_como_datos():
+    """Un modulo es una fila de datos, y por eso hereda todo lo que ya existe.
+
+    La clave del diseño es el nombre: `mod_<id>_<prop>`. Con ese prefijo, una
+    prop nueva entra sola a los perfiles exportables y NO rearma el motor al
+    cambiar, que es lo que evita que mover un modulo corte la conversacion. Si
+    esto se rompe, "hiperpersonalizable" pasa a costar una linea de plomeria por
+    cada perilla.
+    """
+    from eve import modulos
+
+    cfg = dict(store.DEFAULTS)
+    for ident, m in modulos.por_defecto().items():
+        cfg = modulos.guardar(cfg, dict(m, id=ident))
+
+    # 1. El overlay que ya existe se puede describir con modulos. Si no, el
+    #    sistema no sirve para nada.
+    overlay = modulos.listar(cfg, "overlay")
+    assert sorted(m["tipo"] for m in overlay) == ["icono", "onda", "texto"], overlay
+    # Y salen en orden de dibujo: primero z, despues el id para desempatar.
+    assert [(m["z"], m["id"]) for m in overlay] == sorted((m["z"], m["id"]) for m in overlay)
+    assert modulos.listar(cfg, "tablero") == []
+
+    # 2. Cada prop conserva su tipo. Sin esto una posicion se guarda como el
+    #    texto "40" y la cuenta siguiente suma cadenas.
+    assert modulos.tipo_de_clave(cfg, "mod_ondaeve_x") is int
+    assert modulos.tipo_de_clave(cfg, "mod_ondaeve_velocidad") is float
+    assert modulos.tipo_de_clave(cfg, "mod_iconoeve_interactivo") is bool
+    assert modulos.tipo_de_clave(cfg, "mod_ondaeve_estilo") is str
+    assert modulos.tipo_de_clave(cfg, "ui_tema") is None, "no es clave de modulo"
+
+    # 3. Lo que se guarda se lee igual, incluso si el panel lo dejo como texto.
+    sucia = dict(cfg)
+    sucia["mod_ondaeve_x"] = "175"
+    sucia["mod_ondaeve_velocidad"] = "1,5"   # coma decimal, como escribe la gente
+    leido = modulos.leer(sucia, "ondaeve")
+    assert leido["x"] == 175 and abs(leido["velocidad"] - 1.5) < 1e-9, leido
+
+    # 4. Lo que hace barato todo lo demas: el prefijo da perfilado y recarga en
+    #    vivo sin escribir plomeria.
+    assert store.perfilable("mod_ondaeve_x"), "un layout tiene que viajar en el perfil"
+    assert store.solo_cosmetico(cfg, dict(cfg, mod_ondaeve_x=99)), \
+        "mover un modulo no puede rearmar el motor"
+
+    # 5. Cuando se ve cada uno, que el usuario eligio por modulo.
+    onda = modulos.leer(cfg, "ondaeve")
+    assert not modulos.visible(onda, "reposo")
+    assert modulos.visible(onda, "pensando")
+    reloj = {"cuando": "siempre"}
+    assert modulos.visible(reloj, "reposo")
+    assert not modulos.visible({"cuando": "hover"}, "pensando")
+    assert modulos.visible({"cuando": "hover"}, "reposo", bajo_el_mouse=True)
+
+    # 6. Borrar se lleva todas las claves del modulo y ninguna otra.
+    sin_onda = modulos.borrar(cfg, "ondaeve")
+    assert "ondaeve" not in modulos.identificadores(sin_onda)
+    assert "titulo" in modulos.identificadores(sin_onda)
+    assert not [k for k in sin_onda if k.startswith("mod_ondaeve_")]
+
+
 def test_motor_compat():
     """El motor compat apunta a su proveedor, no al de Ollama.
 

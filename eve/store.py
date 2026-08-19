@@ -289,7 +289,10 @@ def _leer_json(ruta: str, por_defecto):
 
 # Todo lo que solo cambia como se ve. Cambiar esto no justifica rearmar el motor
 # ni, por lo tanto, perder la conversacion que venias teniendo.
-PREFIJOS_COSMETICOS = ("ui_", "hud_", "sub_", "overlay_")
+# `mod_` son los modulos: posicion, forma, animacion, que se ve y cuando. Un
+# layout entero es cosmetico, asi que moverlo no corta la conversacion y
+# viaja solo en los perfiles exportables.
+PREFIJOS_COSMETICOS = ("ui_", "hud_", "sub_", "overlay_", "mod_")
 
 
 def solo_cosmetico(antes: dict, despues: dict) -> bool:
