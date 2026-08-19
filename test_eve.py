@@ -1816,6 +1816,59 @@ def test_una_sola_eve():
             store.LATIDO_PATH = real
 
 
+def test_hud_dibuja_modulos():
+    """El cartel dibuja modulos, y sin modulos sigue siendo el de siempre.
+
+    Dos caminos a proposito: quien nunca configuro un modulo no tiene por que
+    notar el cambio. Y el chrome --fondo, contorno, forma-- no es un modulo:
+    es de la ventana, y se borra con su propia etiqueta para no llevarse puestos
+    los items persistentes del compositor, que son los que dan los 217 fps.
+    """
+    import tkinter as tk
+
+    from eve import modulos, overlay, tema
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+    try:
+        raiz.withdraw()
+        cfg = dict(store.DEFAULTS)
+        paleta = tema.resolver(cfg, "hud")
+
+        # Sin modulos: el camino viejo, que dibuja todo de una.
+        hud = overlay.Hud(raiz, cfg, paleta)
+        hud.pintar("pensando", "EVE", "PENSANDO")
+        assert hud.lienzo.find_all(), "no dibujo nada"
+        assert not hud.modulos._items, "no habia modulos que dibujar"
+
+        # Con modulos: chrome abajo con su etiqueta, un item por modulo encima.
+        for ident, m in modulos.por_defecto().items():
+            cfg = modulos.guardar(cfg, dict(m, id=ident))
+        hud.aplicar(cfg, paleta)
+        hud.pintar("pensando", "EVE", "PENSANDO", {"nivel": 0.5})
+        assert len(hud.modulos._items) == 3, hud.modulos._items
+        chrome = set(hud.lienzo.find_withtag("chrome"))
+        assert chrome, "el chrome perdio su etiqueta"
+        de_modulos = {d[0] for d in hud.modulos._items.values()}
+        assert not (chrome & de_modulos), "el chrome se mezclo con los modulos"
+
+        # Repintar el chrome no puede borrar los items de los modulos. Y hay que
+        # mirar el CANVAS, no el diccionario del compositor: con `delete("all")`
+        # los ids siguen anotados y apuntando a items que ya no existen, que es
+        # justo la falla silenciosa --el cartel queda vacio y el cache dice que
+        # esta todo dibujado--.
+        hud.pintar("pensando", "EVE", "PENSANDO", {"nivel": 0.5})
+        en_canvas = set(hud.lienzo.find_all())
+        vivos = {d[0] for d in hud.modulos._items.values()}
+        assert vivos <= en_canvas, "el repintado del chrome borro modulos del canvas"
+        assert hud.lienzo.find_withtag("chrome"), "y el chrome tiene que seguir"
+    finally:
+        raiz.destroy()
+
+
 def test_lienzo_repinta_solo_lo_que_cambia():
     """El compositor no vuelve a dibujar lo que no cambio.
 

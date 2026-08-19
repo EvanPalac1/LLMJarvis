@@ -15,7 +15,7 @@ import time
 import tkinter as tk
 from collections import deque
 
-from . import imagenes, plataforma, store, tema
+from . import imagenes, lienzo, modulos, plataforma, store, tema
 
 # Color que la ventana vuelve invisible en modo "recortado". Uno raro a
 # proposito: cualquier pixel exactamente de este color desaparece, asi que no
@@ -209,6 +209,27 @@ class Pintor:
         self.nivel += (objetivo - self.nivel) * 0.35
         self.niveles.append(self.nivel)
 
+    def pintar_chrome(self, c) -> None:
+        """Solo el fondo y el contorno de la tarjeta. Lo de adentro son modulos.
+
+        El `pintar` de abajo hace `delete("all")` en cada cuadro, que es lo
+        correcto cuando el dibujo entero se rehace. Pero el compositor de
+        modulos mantiene un item de canvas POR MODULO entre cuadros --de ahi
+        salen los 217 fps del bench-- y un borrado global se los llevaria
+        puestos. Asi que el chrome se marca con su propia etiqueta y solo se
+        borra a si mismo.
+
+        Se etiqueta despues de dibujar en vez de tocar los quince `create_*` de
+        `_contorno`: hace lo mismo y no hay forma de olvidarse uno.
+        """
+        c.delete("chrome")
+        antes = set(c.find_all())
+        self._contorno(c)
+        for item in c.find_all():
+            if item not in antes:
+                c.itemconfig(item, tags="chrome")
+        c.tag_lower("chrome")   # los modulos van encima
+
     def pintar(self, c, estado: str, titulo: str, linea2: str) -> None:
         p = self.paleta
         c.delete("all")
@@ -389,9 +410,17 @@ class Hud(Ventana):
     def __init__(self, raiz, cfg: dict, paleta: dict):
         super().__init__(raiz, _num(cfg, "hud_opacidad", 10, 100) / 100)
         self.pintor = Pintor(cfg, paleta)
+        self.cfg = cfg
+        # El compositor de modulos comparte el canvas con el chrome: el chrome
+        # va abajo con su etiqueta, los modulos encima con un item cada uno.
+        self.modulos = lienzo.Lienzo(self.lienzo, cfg, "hud")
+        self._partes = None
         self.aplicar(cfg, paleta)
 
     def aplicar(self, cfg: dict, paleta: dict) -> None:
+        self.cfg = cfg
+        self._partes = None   # la config cambio: el prompt pesa otra cosa
+        self.modulos.aplicar(cfg)
         self.pintor.aplicar(cfg, paleta)
         self.ancho, self.alto = self.pintor.ancho, self.pintor.alto
         self.esc = self.pintor.esc
@@ -405,8 +434,40 @@ class Hud(Ventana):
     def avanzar(self, objetivo: float) -> None:
         self.pintor.avanzar(objetivo)
 
-    def pintar(self, estado: str, titulo: str, linea2: str) -> None:
-        self.pintor.pintar(self.lienzo, estado, titulo, linea2)
+    def pintar(self, estado: str, titulo: str, linea2: str, vista=None) -> None:
+        lista = modulos.listar(self.cfg, "overlay")
+        if not lista:
+            # Sin modulos configurados, el cartel de siempre. Un usuario que
+            # nunca abrio la pestaña nueva no tiene por que notar el cambio.
+            self.pintor.pintar(self.lienzo, estado, titulo, linea2)
+            return
+        self.pintor.pintar_chrome(self.lienzo)
+        self.modulos.dibujar(lista, {
+            "estado": estado,
+            "nivel": _num(vista or {}, "nivel", 0, 1),
+            "detalle": linea2,
+            "titulo": titulo,
+            "partes": self._partes_del_prompt(lista),
+        })
+
+    def _partes_del_prompt(self, lista) -> dict:
+        """Cuanto pesa cada seccion del system prompt, para el medidor.
+
+        Se calcula una sola vez por config y solo si hay un modulo que lo
+        muestre: arma el catalogo de programas y la seccion de integraciones, y
+        eso es trabajo de mas treinta veces por segundo para un cartel que
+        quiza no tenga medidor.
+        """
+        if not any(m["tipo"] == "contexto" for m in lista):
+            return {}
+        if self._partes is None:
+            from . import prompt
+
+            try:
+                self._partes = prompt.partes(self.cfg)
+            except Exception:  # noqa: BLE001 - un medidor no puede tumbar el cartel
+                self._partes = {}
+        return self._partes
 
 
 class Subtitulos(Ventana):
@@ -675,7 +736,7 @@ class Overlay:
                 "ARRASTRAME Y SOLTA PARA FIJARLO" if moviendo
                 else self.estado.get("detalle") or self.cfg.get("hud_subtitulo", "")
             )
-            self.hud.pintar(estado, titulo, linea2)
+            self.hud.pintar(estado, titulo, linea2, self.estado)
             alto_previo = self.sub.alto
             hay = self.sub.pintar(self.estado.get("usuario", ""), self.estado.get("eve", ""))
             if self.sub.alto != alto_previo:
