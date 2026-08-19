@@ -39,6 +39,7 @@ OCULTOS = [
     "PIL.ImageTk",
     "eve.brain", "eve.cc_engine", "eve.ollama_engine", "eve.voices",
     "eve.integrations", "eve.hook_gate", "eve.gui",
+    "eve.modulos", "eve.lienzo", "eve.prompt",
 ]
 if WINDOWS:
     OCULTOS += [

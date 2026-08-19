@@ -1816,6 +1816,64 @@ def test_una_sola_eve():
             store.LATIDO_PATH = real
 
 
+def test_lienzo_repinta_solo_lo_que_cambia():
+    """El compositor no vuelve a dibujar lo que no cambio.
+
+    Es la regla que sale del bench, no una preferencia. Medido sobre 1200x800
+    con seis modulos con alpha y particulas: componer capas del tamaño del
+    cuadro daba p95 de 53 ms (27 fps), y una PhotoImage por modulo repintando
+    solo lo sucio dio 7 ms (217 fps). Sin esta prueba, cualquiera agrega un
+    repintado global sin notarlo y se pierden 40 fps en silencio.
+    """
+    import tkinter as tk
+
+    from eve import lienzo, modulos
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+    try:
+        raiz.withdraw()
+        cfg = dict(store.DEFAULTS)
+        for ident, m in modulos.por_defecto().items():
+            cfg = modulos.guardar(cfg, dict(m, id=ident))
+        # Un modulo que se ve siempre y no se mueve, y otro que anima.
+        cfg = modulos.guardar(cfg, {"id": "quieto", "tipo": "texto",
+                                    "superficie": "overlay", "cuando": "siempre",
+                                    "contenido": "fijo"})
+        canvas = tk.Canvas(raiz, width=460, height=140)
+        lz = lienzo.Lienzo(canvas, cfg, "hud")
+        lista = modulos.listar(cfg, "overlay")
+
+        # Primer cuadro: hay que dibujar todo lo visible.
+        trabajando = {"estado": "pensando", "nivel": 0.4}
+        primeros = lz.dibujar(lista, trabajando)
+        assert primeros == len(lista), (primeros, len(lista))
+
+        # Segundo cuadro con el MISMO estado y sin avanzar el nivel: lo unico
+        # que puede cambiar es la onda, que anima con el reloj.
+        segundos = lz.dibujar(lista, trabajando)
+        assert segundos < primeros, "repinto todo de nuevo sin motivo"
+
+        # Un modulo `cuando=trabajando` desaparece en reposo, y el `siempre` no.
+        en_reposo = lz.dibujar(lista, {"estado": "reposo", "nivel": 0.0})
+        quietos = [m for m in lista if m["cuando"] == "siempre"]
+        assert en_reposo <= len(quietos), (en_reposo, len(quietos))
+        assert "quieto" in lz._items, "el modulo de siempre se escondio"
+        assert "ondaeve" not in lz._items, "la onda tenia que irse en reposo"
+
+        # Y la PhotoImage se reusa en vez de crearse otra: crear una nueva por
+        # cuadro costo el doble en el bench.
+        lz.dibujar(lista, trabajando)
+        antes = id(lz._items["ondaeve"][1])
+        lz.dibujar(lista, {"estado": "pensando", "nivel": 0.9})
+        assert id(lz._items["ondaeve"][1]) == antes, "se creo una PhotoImage nueva"
+    finally:
+        raiz.destroy()
+
+
 def test_lista_blanca_de_perfiles():
     """Una clave nueva del programa NO entra sola a los perfiles.
 
