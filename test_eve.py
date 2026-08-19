@@ -1940,6 +1940,58 @@ def test_hud_dibuja_modulos():
         raiz.destroy()
 
 
+def test_el_layout_viaja_en_el_perfil():
+    """Un perfil exportado se lleva los modulos, y sigue rechazando basura.
+
+    Es lo que hace que un layout sea un archivo de texto que se comparte y no
+    algo que haya que rehacer a mano. `leer_perfil_archivo` filtraba por
+    `k in DEFAULTS`, y las claves de modulo se inventan en runtime: el perfil
+    salia bien y al importarlo el layout desaparecia entero, en silencio.
+
+    La guarda tiene que seguir estando: un perfil de otra version no puede meter
+    claves que este programa no entiende.
+    """
+    from eve import modulos as mods
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real_p, real_c = store.PERFILES_PATH, store.CONFIG_PATH
+        store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        try:
+            cfg = dict(store.DEFAULTS)
+            for ident, m in mods.por_defecto().items():
+                cfg = mods.guardar(cfg, dict(m, id=ident))
+            cfg = mods.guardar(cfg, {"id": "chispas", "tipo": "particulas",
+                                     "superficie": "overlay", "cantidad": 400})
+            store.save_config(cfg)
+            store.guardar_perfil("mi layout", cfg)
+
+            destino = os.path.join(raiz, "layout.eveperfil")
+            store.exportar_perfil("mi layout", destino)
+            _, datos = store.leer_perfil_archivo(destino)
+            assert datos.get("mod_chispas_cantidad") == 400, "el layout no viajo"
+
+            # Y al aplicarlo vuelven los modulos, no solo las claves.
+            store.save_config(dict(store.DEFAULTS))
+            assert modulos_de(store) == 0
+            store.aplicar_perfil("mi layout")
+            assert modulos_de(store) == 4, "el perfil no devolvio los modulos"
+
+            # La guarda sigue viva: una clave con forma de modulo pero con una
+            # prop que el programa no conoce no entra.
+            assert store._clave_de_modulo("mod_chispas_cantidad")
+            assert not store._clave_de_modulo("mod_chispas_inventada")
+            assert not store._clave_de_modulo("cualquier_otra")
+        finally:
+            store.PERFILES_PATH, store.CONFIG_PATH = real_p, real_c
+
+
+def modulos_de(st) -> int:
+    from eve import modulos as mods
+
+    return len(mods.identificadores(st.load_config()))
+
+
 def test_lienzo_repinta_solo_lo_que_cambia():
     """El compositor no vuelve a dibujar lo que no cambio.
 

@@ -448,6 +448,24 @@ def exportar_perfil(nombre: str, destino: str) -> str:
     return f"Perfil {nombre!r} exportado a {destino}"
 
 
+def _clave_de_modulo(k: str) -> bool:
+    """Si `k` es una clave `mod_<id>_<prop>` con una prop que conocemos.
+
+    No alcanza con mirar el prefijo: la idea de la guarda es que nada
+    desconocido entre a la config, y eso vale igual para los modulos.
+    """
+    from . import modulos
+
+    if not k.startswith(modulos.PREFIJO):
+        return False
+    _, prop = modulos._partir(k)
+    if not prop:
+        return False
+    if prop in modulos.COMUNES:
+        return True
+    return any(prop in propias for propias in modulos.TIPOS.values())
+
+
 def leer_perfil_archivo(ruta: str) -> tuple[str, dict]:
     """(nombre, config) de un .eveperfil validado. ValueError si no sirve."""
     try:
@@ -461,8 +479,12 @@ def leer_perfil_archivo(ruta: str) -> tuple[str, dict]:
     if not isinstance(config, dict) or not config:
         raise ValueError("El archivo no tiene ninguna configuracion.")
     # Solo claves que el programa conoce: un perfil de una version futura no
-    # mete basura en la config ni pisa nada raro.
-    limpio = {k: v for k, v in config.items() if k in DEFAULTS and k not in PERSONALES}
+    # mete basura en la config ni pisa nada raro. Las de modulo se inventan en
+    # runtime y por eso no estan en DEFAULTS, pero se reconocen igual por su
+    # forma: sin esto un perfil exportado perdia el layout entero al importarlo,
+    # que es justo lo que un perfil tendria que llevar.
+    limpio = {k: v for k, v in config.items()
+              if (k in DEFAULTS or _clave_de_modulo(k)) and k not in PERSONALES}
     if not limpio:
         raise ValueError("El perfil no trae ninguna opcion que este programa entienda.")
     return str(datos.get("nombre") or os.path.basename(ruta).rsplit(".", 1)[0]), limpio
