@@ -1736,7 +1736,7 @@ class Panel(tk.Tk):
         from . import modulos as mods
 
         cfg = store.load_config()
-        for ident, m in mods.por_defecto().items():
+        for ident, m in mods.por_defecto(cfg).items():
             cfg = mods.guardar(cfg, dict(m, id=ident))
         store.save_config(cfg)
         self._mods_refrescar()

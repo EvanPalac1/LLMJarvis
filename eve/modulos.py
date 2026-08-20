@@ -40,6 +40,9 @@ COMUNES = {
     "escala": (100, "porcentaje"),
     "rotacion": (0, "grados"),
     "tinte": ("", "color que se mezcla, vacio = ninguno"),
+    # Que rol de la paleta usa. El cartel viejo pinta el titulo con el acento y
+    # la linea de estado con el color tenue, y sin esto todo salia igual.
+    "color": ("texto", "texto | texto_tenue | acento | acento2 | borde | alerta"),
     # La prop que separa una animacion importada de una que reacciona.
     "fuente": ("reloj", "reloj | microfono"),
 }
@@ -76,6 +79,7 @@ OPCIONES = {
     "estilo": ["barras", "espejo", "linea", "puntos"],
     "detalle": ["barra", "numeros"],
     "origen": ["fijo", "nombre", "detalle", "usuario", "eve"],
+    "color": ["texto", "texto_tenue", "acento", "acento2", "borde", "alerta"],
 }
 
 
@@ -227,22 +231,46 @@ def por_defecto_tablero():
     }
 
 
-def por_defecto():
-    """El cartel de hoy, descrito como modulos.
+# Palabras que `hud_icono` acepta ademas de una ruta a una imagen.
+FORMAS_ICONO = {"ninguno": None, "circulo": 0, "hexagono": 6, "cuadrado": 4}
 
-    Sirve de arranque y de prueba viva: si el sistema de modulos no puede
-    describir el overlay que ya existe, no sirve para nada.
+
+def por_defecto(cfg=None):
+    """El cartel de ESTE usuario, descrito como modulos.
+
+    Antes inventaba un cartel generico --hexagono vacio, onda de barras, texto
+    del color de texto-- y por eso pasar a modulos se veia como un downgrade:
+    quien tenia su icono propio, su estilo de onda y su titulo con el color de
+    acento perdia las tres cosas de golpe. Ahora se lee la config y se traduce.
     """
-    return {
-        "iconoeve": {"tipo": "icono", "superficie": "overlay", "x": 12, "y": 12,
-                     "ancho": 104, "alto": 104, "cuando": "trabajando", "z": 1},
-        "titulo": {"tipo": "texto", "superficie": "overlay", "x": 130, "y": 18,
-                   "ancho": 300, "alto": 30, "tam": 19, "origen": "nombre",
-                   "cuando": "trabajando", "z": 2},
-        "estado": {"tipo": "texto", "superficie": "overlay", "x": 130, "y": 46,
-                   "ancho": 300, "alto": 20, "tam": 11, "origen": "detalle",
-                   "cuando": "trabajando", "z": 2},
-        "ondaeve": {"tipo": "onda", "superficie": "overlay", "x": 130, "y": 70,
-                    "ancho": 300, "alto": 40, "cuando": "trabajando",
-                    "fuente": "microfono", "z": 2},
+    cfg = cfg or {}
+    icono_cfg = str(cfg.get("hud_icono", "hexagono") or "hexagono")
+    lados = FORMAS_ICONO.get(icono_cfg, _entero(cfg.get("hud_marco_lados", 6), 6))
+    imagen = "" if icono_cfg in FORMAS_ICONO else icono_cfg
+
+    piezas = {}
+    if icono_cfg != "ninguno":
+        piezas["iconoeve"] = {
+            "tipo": "icono", "superficie": "overlay", "x": 12, "y": 12,
+            "ancho": 104, "alto": 104, "cuando": "trabajando", "z": 1,
+            "imagen": imagen, "lados": lados if lados is not None else 6,
+            "redondeo": _entero(cfg.get("hud_marco_redondeo", 0), 0),
+            "rotacion": _entero(cfg.get("hud_marco_rot", 0), 0),
+        }
+    piezas["titulo"] = {
+        "tipo": "texto", "superficie": "overlay", "x": 130, "y": 22,
+        "ancho": 310, "alto": 32, "tam": 19, "origen": "nombre",
+        "color": "acento", "cuando": "trabajando", "z": 2,
     }
+    piezas["estado"] = {
+        "tipo": "texto", "superficie": "overlay", "x": 130, "y": 54,
+        "ancho": 310, "alto": 20, "tam": 10, "origen": "detalle",
+        "color": "texto_tenue", "cuando": "trabajando", "z": 2,
+    }
+    piezas["ondaeve"] = {
+        "tipo": "onda", "superficie": "overlay", "x": 130, "y": 82,
+        "ancho": 310, "alto": 30, "cuando": "trabajando",
+        "fuente": "microfono", "z": 2,
+        "estilo": str(cfg.get("hud_onda", "barras") or "barras"),
+    }
+    return piezas

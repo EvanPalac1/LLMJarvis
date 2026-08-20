@@ -22,6 +22,7 @@ ventana: ese afecta a todo por igual y se llevaria puesto el texto.
 
 import math
 import time
+from collections import deque
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -123,9 +124,17 @@ class Lienzo:
         self.prefijo = prefijo_tema
         self.paleta = tema.resolver(cfg, prefijo_tema)
         self.familia = self._familia(cfg)
+        # tkinter mide las fuentes en PUNTOS y PIL en PIXELES. A 96 dpi, 19
+        # puntos son 25 pixeles: sin convertir, todo el texto de los modulos
+        # salia al 75% del tamaño que tiene en el cartel viejo.
+        try:
+            self.por_punto = float(canvas.winfo_fpixels("1i")) / 72.0
+        except Exception:  # noqa: BLE001 - sin ventana todavia, 96 dpi
+            self.por_punto = 96.0 / 72.0
         self._items = {}       # id -> [item, PhotoImage, firma, ancho, alto]
         self._particulas = {}
         self._fondos = {}
+        self._ondas = {}
         self._t0 = time.monotonic()
 
     def aplicar(self, cfg):
@@ -135,6 +144,10 @@ class Lienzo:
         self.familia = self._familia(cfg)
         for datos in self._items.values():
             datos[2] = None
+
+    def _fuente_pt(self, puntos, negrita=False):
+        """Una fuente pedida en puntos, como la pide el resto del programa."""
+        return _fuente(round(float(puntos) * self.por_punto), self.familia, negrita)
 
     def _familia(self, cfg):
         """La del prefijo, con la del panel de respaldo, como hace el tema."""
@@ -147,6 +160,7 @@ class Lienzo:
             self.canvas.delete(datos[0])
         self._particulas.pop(ident, None)
         self._fondos.pop(ident, None)
+        self._ondas.pop(ident, None)
 
     def dibujar(self, lista, estado):
         """Pinta los modulos visibles. Devuelve cuantos hubo que repintar."""
@@ -191,7 +205,7 @@ class Lienzo:
         """Que tiene que cambiar para justificar repintar este modulo."""
         base = (modulo["x"], modulo["y"], modulo["ancho"], modulo["alto"],
                 modulo["opacidad"], modulo["escala"], modulo["rotacion"],
-                modulo["tinte"])
+                modulo["tinte"], modulo.get("color"))
         tipo = modulo["tipo"]
         if tipo in modulos.REACTIVOS:
             if modulo.get("fuente") == "microfono":
@@ -211,6 +225,11 @@ class Lienzo:
             return base + (modulo.get("imagen"), modulo.get("lados"),
                            round(ahora, 2) if animado else 0)
         return base
+
+    def _color(self, modulo, opac, rol_por_defecto="texto"):
+        """El color del modulo, por rol de la paleta."""
+        rol = str(modulo.get("color") or rol_por_defecto)
+        return _rgba(self.paleta.get(rol, self.paleta[rol_por_defecto]), opac)
 
     def _texto_de(self, modulo, estado=None):
         """Que dice este modulo de texto: algo fijo, o algo que pasa ahora.
@@ -243,12 +262,12 @@ class Lienzo:
 
         if tipo == "texto":
             dibujo.text((0, 0), self._texto_de(modulo, estado),
-                        font=_fuente(modulo.get("tam", 16), self.familia, negrita=True),
-                        fill=_rgba(self.paleta["texto"], opac))
+                        font=self._fuente_pt(modulo.get("tam", 16), negrita=True),
+                        fill=self._color(modulo, opac))
         elif tipo == "reloj":
             dibujo.text((0, 0), time.strftime(str(modulo.get("formato", "%H:%M"))),
-                        font=_fuente(24, self.familia),
-                        fill=_rgba(self.paleta["texto"], opac))
+                        font=self._fuente_pt(18),
+                        fill=self._color(modulo, opac))
         elif tipo == "icono":
             self._pintar_icono(img, dibujo, modulo, acento, opac)
         elif tipo == "onda":
@@ -267,23 +286,55 @@ class Lienzo:
             img = Image.blend(img, capa, 0.35)
         return img
 
-    def _pintar_icono(self, img, dibujo, modulo, acento, opac):
+    def _cuadro_de(self, modulo, ancho, alto, opac):
+        """El cuadro que toca de la imagen del modulo, ya como imagen de PIL.
+
+        `imagenes.Fondo` devuelve una PhotoImage de tkinter, que no sirve para
+        componer: aca hace falta PIL. `procesar()` es el escalon de abajo y
+        devuelve los PNG ya escalados y cacheados por firma, animados incluidos.
+        """
         ruta = str(modulo.get("imagen") or "").strip()
-        if ruta:
-            fondo = self._fondos.get(modulo["id"])
-            if fondo is None:
-                fondo = self._fondos[modulo["id"]] = imagenes.Fondo()
-            fondo.aplicar(ruta, img.width, img.height, "recortar", opac, 0,
-                          self.paleta["panel"], self.paleta["acento"],
-                          conservar_alpha=True)
+        if not ruta:
+            return None
+        clave = (ruta, ancho, alto, opac)
+        guardado = self._fondos.get(modulo["id"])
+        if guardado is None or guardado[0] != clave:
+            rutas, tiempos = imagenes.procesar(
+                ruta, ancho, alto, "recortar", opac, 0,
+                self.paleta["panel"], self.paleta["acento"], conservar_alpha=True)
+            guardado = (clave, rutas, tiempos)
+            self._fondos[modulo["id"]] = guardado
+        _, rutas, tiempos = guardado
+        if not rutas:
+            return None
+        indice = 0
+        if len(rutas) > 1:
+            total = sum(tiempos) or 100
+            transcurrido = int(time.monotonic() * 1000) % total
+            acumulado = 0
+            for i, ms in enumerate(tiempos):
+                acumulado += ms
+                if transcurrido < acumulado:
+                    indice = i
+                    break
+        try:
+            return Image.open(rutas[indice]).convert("RGBA")
+        except OSError:
+            return None
+
+    def _pintar_icono(self, img, dibujo, modulo, acento, opac):
         lados = int(modulo.get("lados", 6))
         cx, cy = img.width / 2, img.height / 2
         radio = max(2, min(cx, cy) - 2)
         # Relleno ademas del contorno: el icono del cartel viejo es una figura
         # solida con borde, y dejarlo hueco era la diferencia mas visible al
         # pasar a modulos.
-        relleno = _rgba(tema.mezclar(self.paleta["panel"], self.paleta["acento"], 0.18),
-                        opac)
+        # Solo si NO hay imagen: cuando la hay, la imagen es el contenido y el
+        # relleno le queda como un disco de color atras que el cartel viejo no
+        # tiene.
+        foto = self._cuadro_de(modulo, img.width, img.height, opac)
+        relleno = None if foto is not None else _rgba(
+            tema.mezclar(self.paleta["panel"], self.paleta["acento"], 0.18), opac)
         if lados < 3:
             dibujo.ellipse([cx - radio, cy - radio, cx + radio, cy + radio],
                            fill=relleno, outline=acento, width=2)
@@ -292,35 +343,59 @@ class Lienzo:
                        cy + radio * math.sin(2 * math.pi * i / lados - math.pi / 2))
                       for i in range(lados)]
             dibujo.polygon(puntos, fill=relleno, outline=acento)
+        # La imagen va ENCIMA de la figura, como en el cartel de siempre.
+        if foto is not None:
+            img.alpha_composite(foto)
 
     def _pintar_onda(self, dibujo, modulo, estado, ahora, ancho, alto, opac):
+        """La onda es el historial del microfono, no una animacion inventada.
+
+        El cartel viejo guarda los ultimos N niveles suavizados y los dibuja
+        corridos: por eso se ve como una senal y no como un patron repetido.
+        Copiar ese modelo era la unica forma de que las dos versiones se
+        parecieran de verdad.
+        """
         n = max(4, int(modulo.get("muestras", 56)))
+        historial = self._ondas.get(modulo["id"])
+        if historial is None or historial.maxlen != n:
+            historial = deque([0.0] * n, maxlen=n)
+            self._ondas[modulo["id"]] = historial
         if modulo.get("fuente") == "microfono":
-            nivel = float(estado.get("nivel", 0.0) or 0.0)
+            objetivo = float(estado.get("nivel", 0.0) or 0.0)
         else:
-            nivel = 0.5
+            # Sin microfono, algo que se mueva para que se pueda ver.
+            objetivo = abs(math.sin(ahora * 2 * float(modulo.get("velocidad", 1.0)))) * 0.6
+        suave = historial[-1] + (objetivo - historial[-1]) * 0.35
+        historial.append(suave)
+
         estilo = str(modulo.get("estilo", "barras"))
+        if estilo == "ninguna":
+            return
         paso = ancho / n
-        vel = float(modulo.get("velocidad", 1.0))
-        previa = alto / 2
-        for i in range(n):
-            v = abs(math.sin(ahora * 4 * vel + i * 0.35)) * (0.15 + nivel)
+        grosor = max(1, int(paso * 0.45))
+        medio = alto / 2
+        puntos = []
+        for i, v in enumerate(historial):
+            px = i * paso + paso / 2
             h = max(1.0, min(v, 1.0) * alto)
-            x = i * paso
             color = _rgba(tema.mezclar(self.paleta["acento2"], self.paleta["acento"],
                                        min(v, 1.0)), opac)
-            if estilo == "espejo":
-                dibujo.rectangle([x, alto / 2 - h / 2, x + paso * 0.6, alto / 2 + h / 2],
-                                 fill=color)
+            if estilo == "barras":
+                dibujo.line([px, medio - h / 2, px, medio + h / 2], fill=color, width=grosor)
+            elif estilo == "espejo":
+                hueco = alto * 0.09
+                dibujo.line([px, medio - hueco - h / 2, px, medio - hueco],
+                            fill=color, width=grosor)
+                dibujo.line([px, medio + hueco, px, medio + hueco + h / 2],
+                            fill=color, width=grosor)
             elif estilo == "puntos":
-                dibujo.ellipse([x, alto - h, x + paso * 0.6, alto - h + paso * 0.6],
-                               fill=color)
-            elif estilo == "linea":
-                if i:
-                    dibujo.line([x - paso, alto - previa, x, alto - h], fill=color, width=2)
-                previa = h
+                rr = max(1.0, grosor * (0.35 + v))
+                dibujo.ellipse([px - rr, medio - rr, px + rr, medio + rr], fill=color)
             else:
-                dibujo.rectangle([x, alto - h, x + paso * 0.6, alto], fill=color)
+                puntos.append((px, medio - h / 2))
+        if puntos and len(puntos) >= 2:
+            dibujo.line(puntos, fill=_rgba(self.paleta["acento"], opac), width=2,
+                        joint="curve")
 
     def _pintar_particulas(self, img, modulo, estado, ancho, alto, acento):
         sistema = self._particulas.get(modulo["id"])
@@ -344,7 +419,7 @@ class Lienzo:
                    self.paleta["borde"], self.paleta["texto_tenue"]]
         ordenadas = sorted(partes.items(), key=lambda par: -par[1])
         if str(modulo.get("detalle")) == "numeros":
-            fuente = _fuente(12, self.familia)
+            fuente = self._fuente_pt(9)
             y = 0
             # El color va en un cuadradito y el texto siempre en el color de
             # texto. Pintar la linea entera del color de su tramo dejaba dos de
