@@ -604,20 +604,28 @@ reconocedor que hay: si el reconocedor no la entiende, una persona con el juego 
 tampoco.
 
 ```
-voz                       WER al re-oirla
-es_ES-sharvard-medium               7.2%
-es_MX-claude-high                   8.4%
-es_MX-ald-x_low                     8.4%
-es_ES-davefx-medium                 8.4%
-es_MX-ald-medium                    9.6%
-es_ES-carlfm-x_low                  9.6%
-es_AR-daniela-high                 19.3%
+voz                     WER al re-oirla   RTF
+es_ES-davefx-medium         7.2 a  8.4%   0.08
+es_ES-sharvard-medium       7.2 a  8.4%   0.07
+es_MX-claude-high           7.2 a  8.4%   0.12
+es_MX-ald-medium            8.4 a  9.6%   0.12
+es_MX-ald-x_low             8.4 a  9.6%   0.06
+es_ES-carlfm-x_low          9.6 a 14.5%   0.05
+es_AR-daniela-high         16.9 a 19.3%   0.31
 ```
 
-Repetir la MISMA voz tres veces da 7.2%, 8.4% y 7.2%, asi que **la banda de ruido es de
-un punto largo** --Piper sintetiza con algo de azar, no es determinista-- y todas empatan
-salvo una. `es_AR-daniela-high` esta once puntos afuera de esa banda y ademas es la unica
-cuyo RTF pasa de 1.0: tarda mas en generarse que en escucharse.
+Son **rangos y no numeros** porque Piper no es determinista: sintetiza con algo de azar, y
+repetir la misma voz mueve el resultado un punto largo. Las cinco primeras empatan entre
+si dentro de esa banda. `es_AR-daniela-high` queda muy afuera, en las dos corridas, y
+ademas es la mas lenta por un factor de tres a seis.
+
+**El RTF de esta tabla es la segunda medicion.** La primera daba 1.06 para la voz argentina
+y de ahi salio la afirmacion --equivocada-- de que era la unica que tardaba mas en
+generarse que en escucharse. Era el tiempo de CARGA metido adentro del cronometro:
+`voices.precargar()` no alcanza porque Piper termina de armar cosas en la primera sintesis.
+Con un tiro de calentamiento antes de medir, ninguna voz pasa de 0.31 y el problema no
+existe. Lo que si sobrevive es el orden: la argentina es la que peor se entiende y la mas
+lenta.
 
 Por eso **hasta la variante rioplatense sugiere una voz mexicana**, y hay un test que
 impide que alguna variante recomiende la argentina. La voz es el canal, no el acento del

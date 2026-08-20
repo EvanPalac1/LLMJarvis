@@ -370,11 +370,11 @@ TOPE_TONO = 400
 # como para gastarlo en un ensayo sobre dialectologia.
 #
 # `voz` es la voz de Piper que le corresponde. La eleccion no es de gusto:
-# `es_AR-daniela-high` es la unica voz medida que se entiende notoriamente peor
-# --19.3% de WER al volver a transcribirla, contra 7-10% de todas las demas-- y
-# la unica cuyo RTF pasa de 1.0, o sea que tarda mas en generarse que en
-# escucharse. Por eso hasta el dialecto rioplatense sugiere una voz mexicana:
-# la voz es el canal, no el acento del que habla.
+# `es_AR-daniela-high` es la que peor se entiende de las siete voces en espanol
+# de Piper --16.9% y 19.3% de WER al volver a transcribirla en dos corridas,
+# contra 7-10% de las demas-- y ademas la mas lenta por lejos. Por eso hasta el
+# dialecto rioplatense sugiere una voz mexicana: la voz es el canal, no el
+# acento del que habla.
 DIALECTOS = {
     "": ("", ""),
     "rioplatense": (
