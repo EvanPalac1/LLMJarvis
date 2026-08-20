@@ -179,6 +179,12 @@ DEFAULTS = {
     "discord_avatar": "",
     # Addons prendidos, separados por coma. Vacio = todos los que se puedan usar.
     "addons_activos": "",
+    # Addons del usuario que se revisaron, como `nombre:huella`. Un `.py` suelto
+    # en la carpeta de datos es codigo que corre con tus permisos; si Eve puede
+    # escribirlos, cargar sin mirar seria automatizar el unico agujero que le
+    # queda al freno. Al cambiar el archivo, la huella cambia y hay que aprobar
+    # de nuevo.
+    "addons_aprobados": "",
 
     # --- aspecto ----------------------------------------------------------
     # Planas y no anidadas a proposito: Panel.save() decide el tipo de cada

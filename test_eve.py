@@ -206,6 +206,54 @@ def test_apps_index():
         assert name in cat
 
 
+def test_addon_sin_aprobar_no_corre():
+    """Un `.py` en la carpeta de addons no se carga hasta que alguien lo mire.
+
+    Un addon es codigo que corre con los permisos del usuario y --a diferencia
+    de todo lo demas-- no pasa por `safety.py`. Mientras los escribiera una
+    persona, cargarlos derecho era razonable. Desde que Eve puede escribirlos,
+    cargar sin mirar seria automatizar el unico agujero que le queda al freno.
+
+    La huella es del contenido, asi que editar uno ya aprobado lo vuelve a
+    dejar afuera: aprobar una version no aprueba las que vengan despues.
+    """
+    from eve import addons
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real_cfg, real_carpeta = store.CONFIG_PATH, addons.CARPETA_USUARIO
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        addons.CARPETA_USUARIO = os.path.join(raiz, "addons")
+        os.makedirs(addons.CARPETA_USUARIO)
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            ruta = os.path.join(addons.CARPETA_USUARIO, "recien.py")
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write('NOMBRE = "recien"\ndef ejecutar(a, b, c):\n    return "hecho"\n')
+
+            assert [n for n, _, _ in addons.pendientes()] == ["recien"]
+            assert addons._del_usuario() == {}, "corrio sin que nadie lo mirara"
+
+            addons.aprobar("recien")
+            assert addons.pendientes() == []
+            assert list(addons._del_usuario()) == ["recien"]
+
+            # Editarlo lo saca de nuevo: aprobar una version no aprueba las
+            # siguientes, que es justo lo que importa si Eve las escribe.
+            with open(ruta, "a", encoding="utf-8") as f:
+                f.write("# otra cosa\n")
+            assert [n for n, _, _ in addons.pendientes()] == ["recien"]
+            assert addons._del_usuario() == {}, "el cambio paso sin revisar"
+
+            # Y la huella depende del contenido, no del nombre.
+            primera = addons.huella(ruta)
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write('NOMBRE = "recien"\ndef ejecutar(a, b, c):\n    return "hecho"\n')
+            assert addons.huella(ruta) != primera
+        finally:
+            store.CONFIG_PATH, addons.CARPETA_USUARIO = real_cfg, real_carpeta
+            addons._cache.clear()
+
+
 def test_allow_all():
     """El modo 'permitir todo' tiene que desactivar LOS DOS frenos, no solo el nuestro."""
     from eve import cc_engine, hook_gate
@@ -1343,6 +1391,10 @@ def test_addons():
     with tempfile.TemporaryDirectory() as raiz:
         real = addons.CARPETA_USUARIO
         addons.CARPETA_USUARIO = raiz
+        # Tambien la config: `aprobar()` escribe ahi, y sin aislarla el test
+        # dejaba addons aprobados en la config de verdad del usuario.
+        real_cfg = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
         try:
             # Un addon del usuario: un .py suelto en su carpeta.
             with open(os.path.join(raiz, "prueba.py"), "w", encoding="utf-8") as f:
@@ -1358,6 +1410,13 @@ def test_addons():
             # Y uno que ni siquiera importa: no puede llevarse puesto al resto.
             with open(os.path.join(raiz, "roto.py"), "w", encoding="utf-8") as f:
                 f.write("esto no es python valido ][\n")
+
+            # Antes esto se cargaba solo. Ya no: un .py suelto en la carpeta
+            # es codigo que corre con los permisos del usuario y no pasa por
+            # `safety.py`, asi que desde que Eve puede escribirlos hay que
+            # mirarlos primero.
+            assert "prueba" not in addons.todos(recargar=True), "corrio sin aprobar"
+            addons.aprobar("prueba")
 
             cargados = addons.todos(recargar=True)
             assert "prueba" in cargados
@@ -1395,12 +1454,14 @@ def test_addons():
                     'def ejecutar(a, b, c):\n'
                     '    return "no"\n'
                 )
+            addons.aprobar("apagado")
             addons.todos(recargar=True)
             assert "apagado" not in addons.activos(cfg)
             assert "no deberia aparecer" not in addons.prompt(cfg)
             assert "falta la clave" in addons.ejecutar("apagado", "x", [], cfg)
         finally:
             addons.CARPETA_USUARIO = real
+            store.CONFIG_PATH = real_cfg
             addons.todos(recargar=True)
 
 

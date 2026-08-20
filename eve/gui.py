@@ -549,6 +549,24 @@ class Panel(tk.Tk):
             "ejecutar(accion, args, cfg). Ojo: corren dentro de Eve, con los mismos\n"
             "permisos que el programa. Poné solo cosas en las que confies.",
         )
+        sin_revisar = addons.pendientes()
+        if sin_revisar:
+            alerta = self._seccion(t, "Sin revisar")
+            self._ayuda(
+                alerta,
+                "Estos archivos no se estan cargando. Un addon es codigo que corre\n"
+                "con tus permisos y no pasa por el freno, asi que hay que mirarlo\n"
+                "antes. Si Eve escribio alguno, aca es donde lo revisas.")
+            for nombre, ruta, marca in sin_revisar:
+                fila = ttk.Frame(alerta)
+                fila.pack(fill="x", padx=12, pady=3)
+                ttk.Label(fila, text=f"{nombre}.py", width=22).pack(side="left")
+                ttk.Button(fila, text="Ver el codigo",
+                           command=lambda r=ruta: self._addon_ver(r)).pack(side="left")
+                ttk.Button(fila, text="Aprobar",
+                           command=lambda n=nombre, m=marca: self._addon_aprobar(n, m)
+                           ).pack(side="left", padx=6)
+
         ttk.Button(caja, text="Abrir la carpeta de addons",
                    command=self._addons_carpeta).pack(anchor="w", padx=12, pady=(0, 10))
         return t
@@ -1530,6 +1548,37 @@ class Panel(tk.Tk):
         for clave in ("ui_tema",):
             self.vars[clave].trace_add("write", self._previa_redibujar)
         return t
+
+    def _addon_ver(self, ruta: str) -> None:
+        """Muestra el archivo entero antes de aprobarlo."""
+        from . import integrations
+
+        try:
+            with open(ruta, encoding="utf-8", errors="replace") as f:
+                codigo = f.read()
+        except OSError as exc:
+            messagebox.showerror("No pude leerlo", str(exc))
+            return
+        integrations.mostrar(os.path.basename(ruta), codigo)
+
+    def _addon_aprobar(self, nombre: str, marca: str) -> None:
+        if not messagebox.askyesno(
+            "Aprobar addon",
+            f"Vas a dejar que {nombre}.py corra con tus permisos.\n\n"
+            "Lo miraste?",
+        ):
+            return
+        from . import addons
+
+        self.estado.config(text=addons.aprobar(nombre, marca))
+        self._recargar_addons()
+
+    def _recargar_addons(self) -> None:
+        """Vuelve a armar la pestaña: la lista de pendientes cambio."""
+        from . import addons
+
+        addons.todos(recargar=True)
+        messagebox.showinfo("Listo", "Cerra y abri el panel para verlo cargado.")
 
     def _bloque_modulos(self, nb):
         """Los modulos del cartel y del tablero.

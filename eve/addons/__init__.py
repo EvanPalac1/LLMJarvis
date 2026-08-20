@@ -46,20 +46,88 @@ def _integrados() -> dict:
     return modulos
 
 
+def huella(ruta: str) -> str:
+    """Los primeros 12 hex del sha1 del archivo. "" si no se pudo leer."""
+    import hashlib
+
+    try:
+        with open(ruta, "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()[:12]
+    except OSError:
+        return ""
+
+
+def _aprobados(cfg=None) -> dict:
+    cfg = cfg if cfg is not None else store.load_config()
+    salida = {}
+    for parte in str(cfg.get("addons_aprobados", "")).split(","):
+        nombre, _, marca = parte.strip().partition(":")
+        if nombre and marca:
+            salida[nombre] = marca
+    return salida
+
+
+def pendientes() -> list:
+    """Los addons del usuario que estan sin revisar o cambiaron desde entonces.
+
+    Devuelve [(nombre_archivo, ruta, huella)].
+    """
+    if not os.path.isdir(CARPETA_USUARIO):
+        return []
+    aprobados = _aprobados()
+    salida = []
+    for archivo in sorted(os.listdir(CARPETA_USUARIO)):
+        if not archivo.endswith(".py") or archivo.startswith("_"):
+            continue
+        ruta = os.path.join(CARPETA_USUARIO, archivo)
+        marca = huella(ruta)
+        if aprobados.get(archivo[:-3]) != marca:
+            salida.append((archivo[:-3], ruta, marca))
+    return salida
+
+
+def aprobar(nombre: str, marca: str = "") -> str:
+    """Deja pasar este addon tal como esta ahora."""
+    ruta = os.path.join(CARPETA_USUARIO, nombre + ".py")
+    marca = marca or huella(ruta)
+    if not marca:
+        return f"No encuentro {nombre}.py"
+    cfg = store.load_config()
+    aprobados = _aprobados(cfg)
+    aprobados[nombre] = marca
+    cfg["addons_aprobados"] = ",".join(f"{n}:{m}" for n, m in sorted(aprobados.items()))
+    store.save_config(cfg)
+    _cache.clear()
+    return f"{nombre} aprobado."
+
+
 def _del_usuario() -> dict:
-    """Los `.py` sueltos de la carpeta de datos."""
+    """Los `.py` sueltos de la carpeta de datos, SOLO los aprobados.
+
+    Un archivo aca es codigo que corre con los permisos del usuario y no pasa
+    por `safety.py`. Mientras los escribiera una persona, cargarlos derecho era
+    razonable; desde que Eve puede escribirlos, cargar sin mirar es automatizar
+    el unico agujero que le queda al freno. La huella cambia con el archivo, asi
+    que editar uno aprobado lo vuelve a dejar afuera.
+    """
     modulos = {}
     if not os.path.isdir(CARPETA_USUARIO):
         return modulos
     import importlib.util
 
+    aprobados = _aprobados()
     for archivo in sorted(os.listdir(CARPETA_USUARIO)):
         if not archivo.endswith(".py") or archivo.startswith("_"):
             continue
         nombre = archivo[:-3]
+        ruta = os.path.join(CARPETA_USUARIO, archivo)
+        if aprobados.get(nombre) != huella(ruta):
+            print(f"[addon] {archivo} esta sin aprobar: no se carga. "
+                  f"Revisalo en el panel > Addons.")
+            continue
         try:
             spec = importlib.util.spec_from_file_location(
-                f"eve_addon_{nombre}", os.path.join(CARPETA_USUARIO, archivo)
+                f"eve_addon_{nombre}", ruta
             )
             modulo = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(modulo)
@@ -132,6 +200,19 @@ def ejecutar(nombre: str, accion: str, args: list[str], cfg: dict) -> str:
     fn = getattr(modulo, "ejecutar", None)
     if fn is None:
         return f"El addon {nombre!r} no sabe ejecutar nada."
+
+    # Un addon puede declarar que acciones suyas son riesgosas, con el motivo.
+    # Se pregunta con el mismo freno que el resto: hasta ahora esta ruta lo
+    # evadia entera, y era la unica del programa que lo hacia.
+    motivo = (getattr(modulo, "RIESGOS", {}) or {}).get(accion)
+    if motivo and cfg.get("confirm_destructive", True):
+        from . import plataforma
+
+        detalle = f"{nombre} {accion} {' '.join(map(str, args))}"[:400]
+        if not plataforma.preguntar(f"{motivo}\n\n{detalle}",
+                                    f"Confirmar: {nombre} {accion}"):
+            store.log_action(f"addon/{nombre}", detalle, "DENEGADO por el usuario")
+            return "El usuario no dejo hacer eso."
     try:
         return str(fn(accion, args, cfg))
     except Exception as exc:  # noqa: BLE001 - el error vuelve al modelo, no explota
