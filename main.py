@@ -8,9 +8,12 @@ bandeja. Desde el codigo cada una sigue siendo un modulo normal.
     Eve.exe --panel    panel de configuracion
     Eve.exe --cli ...  conexiones con apps (lo llama el modelo)
     Eve.exe --hook     freno del motor claude-code
+    Eve.exe --overlay  el cartel flotante
+    Eve.exe --consola  la ventana de actividad (modo Work / modo Edit)
     Eve.exe --check       diagnostico
     Eve.exe --probar-voz  autotest: sintetiza una frase y la transcribe
     Eve.exe --actualizar  busca una version nueva (--instalar para aplicarla)
+    Eve.exe --probar-imports  lo corre build.py: verifica el paquete armado
 """
 
 import os

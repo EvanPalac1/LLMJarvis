@@ -66,7 +66,7 @@ TOOLS = [
 NO_EFFORT = ("claude-haiku-4-5", "claude-sonnet-4-5")
 
 # La plantilla vive en `prompt.py`, que es donde se arma una sola vez para los
-# tres motores. El alias queda porque `ollama_engine` la referencia por aca.
+# cuatro motores. El alias queda porque `ollama_engine` la referencia por aca.
 SYSTEM = prompt.SYSTEM
 
 

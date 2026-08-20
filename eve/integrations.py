@@ -1,6 +1,6 @@
 """Conexiones con apps externas.
 
-Se usa igual desde los dos motores: es una CLI (`python -m eve.integrations ...`).
+Se usa igual desde los cuatro motores: es una CLI (`python -m eve.integrations ...`).
 El motor `api` la llama desde run_command; el motor `claude-code` desde Bash. Una
 sola implementacion, no dos.
 
@@ -23,7 +23,7 @@ import os
 import sys
 import urllib.parse
 
-# Se invoca por ruta absoluta desde los dos motores, con cualquier cwd. Por eso
+# Se invoca por ruta absoluta desde todos los motores, con cualquier cwd. Por eso
 # imports absolutos y no relativos.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

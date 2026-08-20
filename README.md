@@ -132,10 +132,12 @@ Despues abri Eve. Aparece en la bandeja del sistema. Manten presionada la tecla,
 - **Clic derecho** → reiniciar listener / pausar / salir.
 - El boton del keypad nunca abre el panel: son cosas independientes.
 
-### Dos procesos, una señal
+### Cuatro procesos, una señal
 
-El panel y el listener son procesos separados: el icono lanza `python -m eve.gui` aparte,
-asi que si el panel se cuelga el listener sigue andando, y viceversa.
+El listener, el cartel, el panel y la ventana de actividad son procesos separados: el
+icono los lanza aparte, asi que si uno se cuelga los demas siguen andando. No es prolijidad
+gratuita: `icon.run()` de pystray se queda con el hilo principal, y tkinter y pystray no
+comparten mainloop sin dolor.
 
 Al guardar, **el listener se rearma solo en unos segundos**. No hace falta tocar nada:
 vigila el `mtime` de `config.json` en un hilo, y el archivo que el panel ya escribe *es*
@@ -147,9 +149,10 @@ un pedido de voz en curso — reintenta cuando termina.
 
 **Reiniciar listener** sigue en el menu de la bandeja para forzarlo a mano.
 
-Cambiar solo cosas de aspecto (colores, contorno, posicion del cartel) **no rearma el
-motor**: se aplican en caliente y la conversacion sigue. Cambiar el motor, la tecla o los
-permisos si lo rearma, y ahi el contexto arranca de cero.
+Cambiar solo cosas de aspecto (colores, contorno, posicion del cartel, los modulos) **no
+rearma el motor**: se aplican en caliente y la conversacion sigue. Cambiar el motor, la
+tecla o los permisos si lo rearma — pero desde que el hilo vive en la base y no adentro de
+cada motor, eso ya no borra la conversacion.
 
 ### Se le puede hablar mientras piensa
 
@@ -294,6 +297,21 @@ voz no escribe los nombres propios como estan en OBS: pedis "camara dos" y la es
 llama "Cámara 2". Eve pide la lista real a OBS y busca la mas parecida. Sin eso, la mitad
 de los pedidos fallarian con un "no existe esa escena" que no le sirve a nadie.
 
+### Aprobar antes de que corra
+
+Un addon es un `.py` en la carpeta de datos: **codigo que corre con tus permisos** y que,
+a diferencia de todo lo demas, no pasa por `safety.py`. Mientras los escribiera una
+persona era razonable cargarlos derecho. Desde que la idea es que Eve tambien pueda
+escribirlos, cargar sin mirar seria automatizar justo ese agujero.
+
+Asi que un archivo nuevo no se carga hasta que lo apruebes en **Addons**, con un boton
+para ver el codigo completo antes de decidir. La aprobacion es de una **huella del
+contenido**: editar uno ya aprobado lo vuelve a dejar afuera. Aprobar una version no
+aprueba las que vengan despues, que es lo unico que importa si las escribe un modelo.
+
+Ademas un addon puede declarar `RIESGOS = {"accion": "por que"}`, y esas acciones pasan
+por el mismo dialogo de confirmacion que el resto del programa.
+
 ### Escribir uno propio
 
 Archivos `.py` en `<datos>/addons/`. El minimo es:
@@ -409,25 +427,35 @@ arrastralo desde la flechita a la barra.
 
 ---
 
-## Los tres motores
+## Los cuatro motores
 
 Se elige en el panel (**General > Motor**). Misma interfaz, distinto backend.
 
-| | `api` | `claude-code` | `ollama` |
-|---|---|---|---|
-| Auth | `ANTHROPIC_API_KEY` | tu suscripcion | ninguna |
-| Costo | por token | tu limite de uso | gratis |
-| Datos | a Anthropic | a Anthropic | **no salen de tu PC** |
-| Latencia | menor | mayor | depende de tu GPU |
-| Tools | 4 propias | las de Claude Code | las mismas 4 |
-| Freno | `safety.py` | hook `PreToolUse` | `safety.py` |
+| | `api` | `claude-code` | `ollama` | `compat` |
+|---|---|---|---|---|
+| Auth | `ANTHROPIC_API_KEY` | tu suscripcion | ninguna | la clave del proveedor |
+| Costo | por token | tu limite de uso | gratis | segun el proveedor |
+| Datos | a Anthropic | a Anthropic | **no salen de tu PC** | al proveedor |
+| Latencia | menor | mayor | depende de tu GPU | menor |
+| Tools | 4 propias | las de Claude Code | las mismas 4 | las mismas 4 |
+| Freno | `safety.py` | hook `PreToolUse` | `safety.py` | `safety.py` |
+
+`compat` es un motor para todo lo que hable el protocolo de OpenAI: Gemini, Groq,
+DeepSeek, OpenRouter, xAI, LM Studio y el propio OpenAI. Es uno y no cinco porque todos
+exponen el mismo `POST /chat/completions`; el proveedor es configuracion, no codigo.
+Varios tienen capa gratuita de verdad.
+
+**Cambiar de motor ya no borra la conversacion.** Cada uno guardaba el hilo en su propio
+formato --objetos del SDK, dicts de Ollama, un session_id opaco del CLI-- asi que pasar de
+uno a otro dejaba a Eve sin memoria de lo recien dicho. Ahora los cuatro leen el mismo log
+de turnos, que ya venian escribiendo.
 
 **Ollama es notablemente peor encadenando varias tools.** Para un pedido de un paso anda
 bien; para tareas de varios pasos se pierde, y por eso corta a los 6 pasos en vez de 12.
 Es el precio de no mandar nada a la nube, no un bug.
 
 Reusa `brain.TOOLS` tal cual — Ollama acepta el mismo JSON Schema — y la misma ejecucion,
-asi que el freno y el log de auditoria son identicos en los tres motores.
+asi que el freno y el log de auditoria son identicos en los cuatro motores.
 
 En la pestaña **Claves** podes iniciar y cerrar sesion de Claude Code sin salir del panel,
 y ver con que cuenta y plan estas conectado.
@@ -505,6 +533,107 @@ es_ES-davefx-medium    medium    63.2 MB
 es_AR-daniela-high     high     114.2 MB
 ```
 
+## Modulos
+
+Un modulo no es una ventana ni un widget: es **una fila de datos** mas una funcion que
+dibuja. Se guarda como claves planas `mod_<id>_<prop>` en la misma config que todo lo
+demas, y ese prefijo es lo que lo hace barato: una prop nueva entra sola a los perfiles
+exportables y no rearma el motor al cambiar, asi que mover un modulo no corta la
+conversacion y un layout entero viaja en un `.eveperfil`.
+
+Tipos: `texto`, `icono`, `onda`, `particulas`, `reloj`, `contexto`, `grafo` y `lector`.
+
+Se arman en **Apariencia > Modulos**, y el formulario de ajustes no esta escrito: se
+genera recorriendo el esquema del tipo. Elegir una onda muestra `estilo` y `muestras`;
+elegir particulas muestra `cantidad`, `vida` y `gravedad`, sin una linea de tkinter de
+diferencia. Eso es lo que decide si esto escala: si cada perilla costara veinte lineas de
+interfaz, no se llega. Y es lo que hace posible que Eve cree modulos sola, porque escribe
+datos y no codigo de interfaz.
+
+Hay dos botones para arrancar: uno convierte el cartel de siempre en modulos y otro arma
+un tablero. Si no hay ningun modulo configurado, el cartel sigue siendo exactamente el de
+antes.
+
+**Como se anima.** Cuatro clases, y en ninguna se escribe codigo: o se mueve una perilla,
+o se deja un archivo en la carpeta de assets y se lo elige, igual que con los fondos.
+
+| Clase | Se crea con | Se importa |
+|---|---|---|
+| Procedural | perillas del panel | no hay archivo |
+| Por cuadros | Aseprite, Photoshop, Blender, ezgif | GIF, APNG o WebP animado |
+| Vectorial | After Effects, LottieFiles | pendiente |
+| Particulas | Particle2dx, Particle Designer | pendiente |
+
+Todas comparten `velocidad`, `easing`, `escala`, `rotacion`, `opacidad`, `tinte`, `color`
+y `cuando` (siempre, trabajando, al pasar el mouse). La que las separa es **`fuente`**:
+`reloj` o `microfono`. Una animacion importada se puede escalar, teñir y acelerar, pero
+no puede **reaccionar**; para eso el dibujo lo tiene que calcular la maquina. Por eso las
+particulas y la onda responden a tu voz de verdad.
+
+El rendimiento sale de una medicion, no de un gusto. Sobre 1200x800 con seis modulos con
+alpha y 500 particulas:
+
+```
+capas del tamaño del cuadro, PhotoImage nueva  ->  p95  53.1 ms   27 fps
+cada modulo compuesto en su rectangulo         ->  p95  26.9 ms   57 fps
+recomponiendo solo lo que cambio               ->  p95  21.7 ms   70 fps
+una PhotoImage POR MODULO, uno animado         ->  p95   7.1 ms  217 fps
+```
+
+De ahi tres reglas: cada modulo se compone en su propio rectangulo y nunca en capas del
+tamaño del cuadro; solo se repinta el que cambio; y la PhotoImage se crea una vez y
+despues se le hace `paste`, porque reasignarla cada cuadro cuesta el doble.
+
+---
+
+## La ventana de actividad
+
+`Eve.exe --consola`, o desde la bandeja. Dos modos arriba, que no son dos pantallas: son
+quien puede escribir.
+
+**Work** lee el estado y lo dibuja. **Edit** vuelve editable el mismo dibujo: clic elige,
+Ctrl suma y saca, Shift agrega un rango, arrastrar mueve, `Ctrl+Z` deshace.
+
+Con varios modulos elegidos se muestran las props que **tienen en comun**. Agrupar una
+onda con unas particulas deja cambiar la opacidad de las dos --lo unico que comparten-- y
+no ofrece `estilo`, que es solo de la onda. Ofrecer todo pisaria props que el otro no
+tiene; no ofrecer nada volveria inutil agrupar. Si el valor difiere entre los elegidos, el
+campo arranca vacio, asi que aplicar no los iguala sin querer.
+
+Queda afuera a proposito: guias de alineacion, z-order anidado, copiar estilo y snapping.
+Aceptar uno solo de esos es empezar a mantener un editor de diseño.
+
+**El grafo** sale del log de auditoria que ya se escribia. Los nodos redondos son las
+herramientas que se ejecutaron y los cuadrados los proyectos donde se ejecutaron; las
+aristas, lo que sale una detras de otra. Un proyecto es la primera carpeta que cuelga de
+un directorio permitido: no es arbitrario, es donde trabajas y lo unico que Eve puede
+tocar sin preguntar. Extraccion determinista, sin una sola llamada a un modelo.
+
+**El lector** no es un navegador y no pretende serlo. Renderizar un sitio arbitrario ES un
+motor web, y lo que hace falta no son pixeles: es texto que entre al contexto y que se
+pueda marcar como escrito por terceros antes de que lo vea el modelo. Eso ultimo es
+justamente lo que un navegador embebido no puede dar. `E leer URL` y `E buscar "..."`.
+
+---
+
+## Quien manda sobre un ajuste
+
+En **General > Quien manda**. Sin esto la app se siente poseida: pones opacidad 40, Eve la
+vuelve a 80, y no hay forma de saber quien gano ni de trabar el valor.
+
+| | |
+|---|---|
+| `usuario` | lo que cambiaste a mano queda trabado y Eve no lo pisa (por defecto) |
+| `eve` | cambia lo que quiera |
+| `preguntar` | sale un dialogo antes de cada cambio |
+
+El panel anota que claves tocaste vos, y esa lista es lo que se traba. Se suelta con
+`E destrabar CLAVE`. Del lado de Eve quedan `E ajustar CLAVE VALOR`, `E modulo crear` y
+`E perfil guardar|aplicar`, que es lo que le permite armar una interfaz cuando se lo pedis
+hablando.
+
+---
+
 ## EVE.md — el manual del agente
 
 `EVE.md` es lo que Eve lee en cada llamada: como decidir que hacer y como hablar. Editalo
@@ -528,18 +657,36 @@ habladas va a pantalla.
 ### Costo en tokens
 
 El manual viaja en cada llamada, asi que esta escrito telegrafico y se pagó con recortes
-en el resto del prompt:
+en el resto del prompt. Medido contra Gemini, contando los tokens que reporta el propio
+servicio y no estimandolos por caracteres:
 
 ```
-antes, sin manual:  10666 chars  (~2963 tokens)
-ahora, con manual:   9554 chars  (~2653 tokens)
+catalogo entero, memoria entera:  13673 chars  ->  4318 tokens
+catalogo solo lo que se usa:       9812 chars  ->  2810 tokens
+mas la memoria podada:             9656 chars  ->  2767 tokens
 ```
 
-Los recortes: el catalogo abrevia la raiz del menu inicio a `SMU`/`SMP` (definidos una
-vez en el encabezado) en vez de repetir `C:\Users\...\Start Menu\Programs` en cada linea,
-y la lista de comandos usa el prefijo `E` en vez de repetir la ruta de Python y del script
-diez veces. Ademas las reglas de comportamiento estaban duplicadas en los dos motores;
-ahora viven solo en `EVE.md`.
+**1551 tokens menos en cada llamada, un 36%.** Sale mejor que la cuenta por caracteres
+porque las rutas del catalogo tokenizan mal.
+
+De donde salen:
+
+- **El catalogo viajaba entero**: 80 lineas, un tercio del prompt. Contar cuales aparecen
+  en el log de acciones --leer datos que ya estaban, sin llamar a ningun modelo-- dice que
+  en la practica se abren unos diez. Viajan esos, ordenados por frecuencia. Lo que no
+  viaja se pide con `E programa NOMBRE`, y la cabecera le avisa al modelo que la lista es
+  parcial: sin ese aviso contestaria "no tengo ese programa" en vez de buscarlo.
+  Se apaga con `catalogo_modo = completo`.
+- **La memoria crecia sin techo**: `recordar` agrega y nunca saca. Se le quita la cabecera
+  --que esta escrita para la persona que edita el archivo, no para el modelo-- y si los
+  hechos pasan del presupuesto van los relevantes, avisando cuantos quedaron afuera y como
+  pedirlos. Medido con 121 hechos: 6360 -> 1818 caracteres.
+- Y de antes: el catalogo abrevia la raiz del menu inicio a `SMU`/`SMP`, la lista de
+  comandos usa el prefijo `E` en vez de repetir la ruta de Python diez veces, y las reglas
+  de comportamiento viven solo en `EVE.md` en vez de duplicadas en cada motor.
+
+**Sin historial se manda el catalogo completo.** Recortar por falta de datos dejaria una
+instalacion nueva sin saber abrir nada.
 
 ## Conexiones con apps
 
@@ -578,7 +725,7 @@ sin 2FA, o administrada por una organizacion), agrega el Gmail a Outlook
 (Archivo > Agregar cuenta). `outlook-leer` recorre **todas** las cuentas configuradas, asi
 que Eve lo lee y escribe por ahi sin ninguna credencial nueva.
 
-Es una CLI (`eve/integrations.py`), asi que los dos motores la usan igual — el motor
+Es una CLI (`eve/integrations.py`), asi que los cuatro motores la usan igual — el motor
 `api` desde `run_command`, el motor `claude-code` desde Bash. Una implementacion, no dos.
 
 ### WhatsApp: por que no envia sola
@@ -703,17 +850,40 @@ Ni stateless puro ni chat infinito: ventana rodante de N turnos / M minutos
 historial completo el costo por llamada crece sin techo. El historial completo vive local
 en SQLite y lo lee el panel, no la API.
 
+**El hilo es de Eve, no del motor.** Los cuatro motores escriben los turnos en la misma
+tabla y ahora tambien la leen de vuelta, asi que cambiar de motor --o reiniciar Eve-- deja
+de borrar la conversacion. "Olvidar contexto" marca un corte en esa tabla en vez de borrar
+nada: el historial del panel y las cuentas de gasto quedan enteros.
+
+**Y se mide.** Los cuatro motores recibian en cada respuesta cuantos tokens costo la
+llamada y los cuatro lo descartaban. Ahora queda anotado por turno, sumando las vueltas
+del loop de tools: un turno que ejecuta una herramienta hace dos llamadas al modelo, y
+contar solo la ultima diria que abrir un programa cuesta lo mismo que decir la hora. El
+modulo `contexto` de la ventana de actividad lo dibuja desglosado por seccion del prompt.
+
+Un detalle que solo aparece midiendo contra el servicio de verdad: Gemini devuelve
+`completion_tokens: 0` con `total_tokens: 13` sobre 6 de entrada. Cobra el razonamiento y
+lo deja afuera del campo que todo el mundo lee, asi que un medidor ingenuo subestima cada
+turno a menos de la mitad.
+
 ---
 
 ## Arquitectura
 
 ```
-keypad --> grabar --> faster-whisper --> [motor] --> SAPI (voz)
-                                            |
-                                    freno de confirmacion
-                                            |
-                                 SQLite (historial + auditoria)
+tecla --> grabar --> faster-whisper --> [motor] --> Piper / SAPI (voz)
+                                           |
+                                   freno de confirmacion
+                                           |
+                                SQLite (historial + auditoria)
+                                           |
+                            cartel flotante  +  ventana de actividad
 ```
+
+Tres ventanas, tres procesos: el cartel (`--overlay`), el panel (`--panel`) y la ventana
+de actividad (`--consola`). Se hablan por archivos JSON en la carpeta de datos, no por
+sockets ni por hilos compartidos: tkinter y pystray no comparten mainloop sin dolor, y
+este proyecto ya pago ese precio una vez.
 
 Sin servidor MCP y sin router de modelos. MCP existe para exponer tools a clientes
 externos; aca el unico cliente sos vos, asi que seria un servidor JSON-RPC para hablar
@@ -736,18 +906,32 @@ percibida es todo. Tampoco se envuelve el `/voice` de Claude Code: es un REPL, n
 | `eve/voices.py` | Catalogo y descarga de voces de la comunidad |
 | `build.py` | Arma los binarios y el instalador del sistema |
 | `packaging/` | Instaladores: Inno Setup, dmg, deb y rpm |
-| `eve/voice.py` | STT (faster-whisper / OpenAI) y TTS (SAPI / ElevenLabs) |
+| `eve/voice.py` | STT (faster-whisper / OpenAI) y TTS (Piper / SAPI / ElevenLabs) |
 | `eve/store.py` | config.json, keyring, SQLite, ventana de contexto |
 | `eve/gui.py` | Panel tkinter |
 | `eve/tray.py` | Icono de bandeja |
 | `eve/icon.py` | Genera el icono |
+| `eve/compat_engine.py` | Motor `compat`: todo lo que hable el protocolo de OpenAI |
+| `eve/prompt.py` | Arma el system prompt, en un solo lugar para los cuatro motores |
+| `eve/modulos.py` | Que es un modulo: una fila de datos con prefijo `mod_` |
+| `eve/lienzo.py` | Compositor: una PhotoImage por modulo, repintando solo lo sucio |
+| `eve/consola.py` | Ventana de actividad, con modo Work y modo Edit |
+| `eve/overlay.py` | El cartel flotante sobre el escritorio |
+| `eve/grafo.py` | Que hizo Eve y en que proyectos, sacado del log |
+| `eve/memoria.py` | Poda MEMORIA.md para que no crezca adentro de cada llamada |
+| `eve/lector.py` | Lee una pagina web y devuelve texto, sin motor web |
+| `eve/tema.py` | Paletas por roles, para el panel y para el cartel |
+| `eve/imagenes.py` | Fondos e iconos: PNG, GIF, APNG y WebP animado, con cache |
+| `eve/addons/` | Plugins del usuario, que no se cargan hasta aprobarlos |
+| `eve/updater.py` | Busca e instala versiones nuevas |
 
 ---
 
 ## Desarrollo
 
 ```bash
-python test_eve.py       # freno, allowlist, contexto, indice, fuga de hooks
+python test_eve.py       # 71 tests: freno, allowlist, contexto, voz, modulos,
+                         # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```
 

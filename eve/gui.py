@@ -109,7 +109,7 @@ class Panel(tk.Tk):
         nb.pack(side="top", fill="both", expand=True, padx=10, pady=(10, 6))
         self.vars: dict[str, tk.Variable] = {}
         self.key_vars: dict[str, tk.Variable] = {}
-        # Cinco pestañas agrupadas por lo que uno viene a hacer, no por modulo.
+        # Siete pestañas agrupadas por lo que uno viene a hacer, no por modulo.
         nb.add(self._tab_general(nb), text="  General  ")
         nb.add(self._tab_cuentas(nb), text="  Cuentas  ")
         nb.add(self._tab_voz(nb), text="  Voz  ")
