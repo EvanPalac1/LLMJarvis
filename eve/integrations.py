@@ -151,6 +151,7 @@ Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
       Si dice que quedo en la lista de amigos, el ID guardado es el del usuario
       y no el del chat: deci que carguen el @usuario en el panel > Contactos.
   E steam-info                           biblioteca y horas
+  E programa NOMBRE                      busca un programa que no este en la lista
   E modulo crear ID --tipo T --donde tablero|overlay --prop x=40 --prop alto=60
       Arma una pieza de la interfaz de una sola vez. `E modulo tipos` los lista;
       `E modulo listar` muestra los que hay; `E modulo borrar ID` saca uno.
@@ -1267,6 +1268,9 @@ def main(argv=None) -> int:
 
     sub.add_parser("steam-info")
 
+    pr = sub.add_parser("programa")
+    pr.add_argument("nombre")
+
     mo = sub.add_parser("modulo")
     mo.add_argument("accion", choices=["crear", "borrar", "listar", "tipos"])
     mo.add_argument("id", nargs="?", default="")
@@ -1337,6 +1341,10 @@ def main(argv=None) -> int:
             print(discord_postear(a.texto))
         elif a.cmd == "steam-info":
             print(steam_info())
+        elif a.cmd == "programa":
+            from eve import apps
+
+            print(apps.buscar(a.nombre))
         elif a.cmd == "modulo":
             print(modulo_cmd(a))
         elif a.cmd == "perfil":

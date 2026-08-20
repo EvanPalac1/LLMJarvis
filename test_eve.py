@@ -2093,6 +2093,77 @@ def test_hud_dibuja_modulos():
         raiz.destroy()
 
 
+def test_el_catalogo_recortado_ahorra_contexto():
+    """El grafo sirve para GASTAR MENOS, no solo para mirarse.
+
+    El catalogo de programas viajaba entero en cada llamada al modelo: 80 lineas,
+    casi un tercio del system prompt. Medido en esta maquina, en todo el log
+    aparecen unos diez programas. Contarlos es leer un log que ya existe, sin una
+    sola llamada a un modelo, y baja el prompt de 13.673 a 9.812 caracteres:
+    1.072 tokens menos POR LLAMADA.
+
+    Las dos cosas que pueden salir mal, y que este test fija:
+      - sin historial hay que mandar el catalogo COMPLETO, o una instalacion
+        nueva no sabe abrir nada;
+      - el modelo tiene que saber que la lista es parcial, o contesta "no tengo
+        ese programa" en vez de buscarlo.
+    """
+    from eve import apps, grafo, prompt
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real_db, real_cache = store.DB_PATH, apps.CACHE_PATH
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        apps.CACHE_PATH = os.path.join(raiz, "apps.json")
+        store._migradas.discard(store.DB_PATH)
+        try:
+            catalogo = {"games": {}, "apps": {f"Programa{i}": f"C:/p/{i}.lnk"
+                                              for i in range(60)}}
+            with open(apps.CACHE_PATH, "w", encoding="utf-8") as f:
+                # `scanned_at`, no `ts`: con la clave equivocada `load()` cree
+                # que el cache vencio y sale a escanear la maquina de verdad.
+                json.dump({"scanned_at": time.time(), **catalogo}, f)
+
+            completo = apps.catalog()
+            assert completo.count("\n") + 1 >= 60, "tendria que traer todo"
+
+            # Sin nada en el log, el catalogo entero. Recortar por falta de datos
+            # dejaria a una instalacion nueva sin saber abrir nada.
+            nombres = list(catalogo["apps"])
+            assert grafo.programas_usados(nombres) == []
+            assert apps.catalog([]) == completo
+            assert apps.catalog(None) == completo
+
+            # Con historial, viajan los que se usaron y en ese orden.
+            for _ in range(3):
+                store.log_action("PowerShell", "{'command': 'Start-Process Programa7'}", "ok")
+            store.log_action("PowerShell", "{'command': 'Start-Process Programa2'}", "ok")
+            usados = grafo.programas_usados(nombres)
+            assert usados[:2] == ["Programa7", "Programa2"], usados[:4]
+
+            corto = apps.catalog(usados)
+            assert len(corto) < len(completo) / 3, (len(corto), len(completo))
+            assert "Programa7" in corto and "Programa41" not in corto
+
+            # Y lo que no viaja no se pierde: se pide.
+            assert "Programa41" in apps.buscar("Programa41")
+            assert "no tengo" in apps.buscar("noexistezzz").lower()
+
+            # El aviso al modelo es lo que evita el unico modo de fallar feo.
+            cabecera = apps.catalog_header(parcial=True)
+            assert "E programa" in cabecera and "NO digas que no" in cabecera
+            assert "E programa" not in apps.catalog_header(parcial=False)
+
+            # Y el interruptor manda: quien quiera el catalogo entero lo tiene.
+            cfg = dict(store.DEFAULTS)
+            cfg["catalogo_modo"] = "completo"
+            prompt.olvidar_usados()
+            assert prompt._usados(cfg) is None
+        finally:
+            store.DB_PATH, apps.CACHE_PATH = real_db, real_cache
+            prompt.olvidar_usados()
+            store._migradas.discard(os.path.join(raiz, "eve.db"))
+
+
 def test_eve_arma_un_modulo_sola():
     """Eve puede armar una pieza de la interfaz de una sola vuelta.
 

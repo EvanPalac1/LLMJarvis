@@ -264,32 +264,82 @@ _ABREVIA = [
 ]
 
 
-def catalog() -> str:
-    """Lineas 'Nombre => ruta' para el system prompt. Sin `Start-Process` repetido
-    en cada linea (la regla se dice una vez) y con las raices abreviadas."""
+# Cuantas lineas viajan cuando el catalogo se recorta a lo que se usa.
+USADOS_LIMIT = 22
+
+
+def _linea(name: str, cmd: str) -> str:
+    for largo, corto in _ABREVIA:
+        if largo and cmd.startswith(largo):
+            return f"{name} => {corto}{cmd[len(largo):]}"
+    return f"{name} => {cmd}"
+
+
+def buscar(consulta: str, cuantos: int = 8) -> str:
+    """Busca un programa en el catalogo COMPLETO, por si no viajo en el prompt.
+
+    Es la contraparte del catalogo recortado: lo que no entra en el prompt no
+    desaparece, se pide. Un round-trip cuando hace falta sale mucho mas barato
+    que ciento setenta lineas en cada llamada.
+    """
     data = load()
+    todos = {**data["games"], **data["apps"]}
+    consulta = consulta.strip().lower()
+    if not consulta:
+        return "Deci que programa buscar."
+    exactos = [n for n in todos if n.lower() == consulta]
+    parciales = [n for n in todos if consulta in n.lower() and n not in exactos]
+    hallados = (exactos + parciales)[:cuantos]
+    if not hallados:
+        return (f"No tengo ningun programa que se parezca a {consulta!r}. "
+                "Proba con Get-StartApps.")
+    return "\n".join(_linea(n, todos[n]) for n in hallados)
+
+
+def catalog(usados=None) -> str:
+    """Lineas 'Nombre => ruta' para el system prompt.
+
+    Sin `Start-Process` repetido en cada linea (la regla se dice una vez) y con
+    las raices abreviadas.
+
+    Si se pasa `usados` --los programas que aparecen en el log, ordenados por
+    frecuencia-- viajan esos y no el catalogo entero. El catalogo completo son
+    unas 80 lineas en cada llamada al modelo, casi un tercio del system prompt,
+    y en la practica se abren unos pocos. Lo que no viaja no se pierde: se pide
+    con `E programa NOMBRE`.
+
+    Sin historial se manda el catalogo completo. Recortar por falta de datos
+    dejaria a una instalacion nueva sin saber abrir nada.
+    """
+    data = load()
+    todos = {**data["games"], **data["apps"]}
+    if usados:
+        elegidos = [n for n in usados if n in todos][:USADOS_LIMIT]
+        if elegidos:
+            return "\n".join(_linea(n, todos[n]) for n in elegidos)
+
     lines = list(data["games"].items())
     apps_ = list(data["apps"].items())[: CATALOG_LIMIT - len(lines)]
-
-    out = []
-    for name, cmd in lines + apps_:
-        for largo, corto in _ABREVIA:
-            if largo and cmd.startswith(largo):
-                cmd = corto + cmd[len(largo) :]
-                break
-        out.append(f"{name} => {cmd}")
-    return "\n".join(out)
+    return "\n".join(_linea(n, c) for n, c in lines + apps_)
 
 
-def catalog_header() -> str:
-    """Una sola sustitucion literal, sin que el modelo tenga que reconstruir nada."""
+def catalog_header(parcial: bool = False) -> str:
+    """Una sola sustitucion literal, sin que el modelo tenga que reconstruir nada.
+
+    Con `parcial`, avisa que la lista NO es todo lo instalado. Sin ese aviso el
+    modelo cree que la lista es completa y contesta "no tengo ese programa" en
+    vez de buscarlo, que es la unica forma de que recortar el catalogo salga mal.
+    """
+    aviso = ("\nEsta lista es SOLO lo que abris seguido, no todo lo instalado. Si "
+             "te piden algo\nque no esta, NO digas que no lo tenes: buscalo con "
+             "`E programa NOMBRE`.\n") if parcial else ""
     if not plataforma.WINDOWS:
         verbo = "open" if plataforma.MACOS else "xdg-open"
-        return f'Abrilos con: {verbo} "RUTA".'
+        return f'Abrilos con: {verbo} "RUTA".{aviso}'
     return (
         'Abrilos con Start-Process "RUTA". En las rutas de abajo reemplaza el prefijo:\n'
         f'  SMU = $env:APPDATA\\{_SM}\n'
-        f'  SMP = $env:ProgramData\\{_SM}'
+        f'  SMP = $env:ProgramData\\{_SM}' + aviso
     )
 
 

@@ -51,6 +51,38 @@ lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps
 {tono}"""
 
 
+def _usados(cfg: dict):
+    """Los programas que aparecen en el log, si el catalogo va recortado.
+
+    Se calcula una vez por proceso: recorre el log de acciones y es lo mismo
+    para todas las llamadas de una sesion. Cualquier problema devuelve None, que
+    significa "manda el catalogo entero": un grafo roto no puede dejar a Eve sin
+    saber abrir nada.
+    """
+    global _CACHE_USADOS
+    if str(cfg.get("catalogo_modo", "usados")) != "usados":
+        return None
+    if _CACHE_USADOS is None:
+        try:
+            from . import grafo
+
+            datos = apps.load()
+            _CACHE_USADOS = grafo.programas_usados(
+                list({**datos["games"], **datos["apps"]}))
+        except Exception:  # noqa: BLE001 - sin log, catalogo completo
+            _CACHE_USADOS = []
+    return _CACHE_USADOS or None
+
+
+def olvidar_usados() -> None:
+    """Vuelve a mirar el log. Lo llama el listener cuando se rearma."""
+    global _CACHE_USADOS
+    _CACHE_USADOS = None
+
+
+_CACHE_USADOS = None
+
+
 def piezas(cfg: dict) -> dict:
     """Lo que rellena cualquiera de las dos plantillas."""
     return {
@@ -58,8 +90,8 @@ def piezas(cfg: dict) -> dict:
         "lang": "espanol" if cfg["language"] == "es" else cfg["language"],
         "workdirs": ", ".join(cfg["workdirs"]),
         "brief": store.load_brief(),
-        "catalog": apps.catalog(),
-        "catalog_header": apps.catalog_header(),
+        "catalog": apps.catalog(_usados(cfg)),
+        "catalog_header": apps.catalog_header(bool(_usados(cfg))),
         "integrations": integrations.prompt_section(),
         "tono": store.bloque_tono(cfg),
     }

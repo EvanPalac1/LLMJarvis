@@ -117,7 +117,16 @@ DEFAULTS = {
     # Recorta los silencios antes de transcribir. Medido: 1.19x -> 1.09x de
     # tiempo real sobre el mismo audio, sin cambiar el texto.
     "stt_vad": True,
-    "stt_vocabulary": "",  # palabras extra que el STT suele errar
+    "stt_vocabulary": "",
+    # Como viaja el catalogo de programas en el system prompt.
+    #   usados    solo los que aparecen en el log, ordenados por frecuencia.
+    #             El resto se pide con `E programa NOMBRE`. Medido en esta
+    #             maquina: 4363 -> 349 caracteres, o sea 1115 tokens menos en
+    #             CADA llamada, casi un tercio del prompt.
+    #   completo  las 80 lineas de siempre.
+    # Sin historial se manda el completo igual: recortar por falta de datos
+    # dejaria a una instalacion nueva sin saber abrir nada.
+    "catalogo_modo": "usados",  # palabras extra que el STT suele errar
     # 1 = greedy. Medido: beam 5 tarda 4.4s y beam 1 tarda 3.5s con el mismo
     # texto en una orden corta. Subilo solo si dictas frases largas.
     "stt_beam": 1,

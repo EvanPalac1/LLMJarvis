@@ -239,3 +239,28 @@ class Acomodo:
             self.vel = (self.vel + fuerza) * 0.82
             self.pos += self.vel
             np.clip(self.pos, [14, 14], [self.ancho - 14, self.alto - 14], out=self.pos)
+
+
+def programas_usados(nombres, limite: int = 400) -> list:
+    """De los programas del catalogo, cuales aparecieron en el log y cuantas veces.
+
+    Es la unica parte del grafo que ahorra contexto en vez de mostrarlo. El
+    catalogo entero viaja en CADA llamada al modelo --80 lineas, un tercio del
+    system prompt-- y en la practica se abren unos pocos. Con esto el prompt
+    lleva los que se usan y el resto se pide cuando hace falta.
+
+    Sin llamadas a ningun modelo: es contar apariciones en un log que ya existe.
+    """
+    filas = store.recent_actions(limite)
+    if not filas:
+        return []
+    texto = " \n ".join(str(f[2] or "").lower() for f in filas)
+    cuenta = {}
+    for nombre in nombres:
+        # Nombres de una o dos letras aparecen en cualquier lado por casualidad.
+        if len(nombre) < 3:
+            continue
+        veces = texto.count(nombre.lower())
+        if veces:
+            cuenta[nombre] = veces
+    return [n for n, _ in sorted(cuenta.items(), key=lambda par: -par[1])]
