@@ -7,6 +7,10 @@ build/
 dist/
 *.spec
 
+# El grafo de conocimiento: 2 MB que se rehacen con /graphify, y que quedan
+# viejos apenas cambia el codigo. Se regenera, no se versiona.
+graphify-out/
+
 # Generados en tiempo de ejecucion, distintos en cada PC
 assets/
 apps.json
