@@ -3367,6 +3367,29 @@ def test_wake_entra_por_la_misma_cola():
 
             # Apagada de fabrica, no se levanta ninguna escucha.
             assert lis.escucha is None
+
+            # Y si el microfono lo tiene otro programa, se dice. Anunciar
+            # "escuchando" sin escuchar es peor que no tener la funcion: el
+            # usuario deja de apretar la tecla y Eve se queda muda.
+            class EscuchaRota:
+                activa, error = False, "el microfono lo tiene otro programa"
+
+                def __init__(self, *a):
+                    pass
+
+                def arrancar(self, esperar=0.0):
+                    return False
+
+                def parar(self):
+                    pass
+
+            despertar.Escucha, real = EscuchaRota, despertar.Escucha
+            try:
+                lis.cfg["wake_activo"] = True
+                lis._escucha_wake()
+                assert lis.escucha is None, "se quedo con una escucha que no escucha"
+            finally:
+                despertar.Escucha = real
             lis.cfg["wake_activo"] = False
             lis._escucha_wake()
             assert lis.escucha is None

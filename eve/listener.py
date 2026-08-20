@@ -260,9 +260,20 @@ class Listener:
             from . import despertar
 
             self.escucha = despertar.Escucha(self._desperto)
-            self.escucha.arrancar()
-            print(f"Escuchando por la palabra '{self.cfg.get('wake_palabra', 'eve')}'. "
-                  "El microfono queda abierto.")
+            # El microfono lo puede tener otro programa en modo exclusivo. Si no
+            # abrio, decirlo: anunciar "escuchando" y no escuchar es peor que no
+            # tener la funcion, porque el usuario deja de apretar la tecla.
+            if self.escucha.arrancar(esperar=8.0):
+                print(f"Escuchando por la palabra "
+                      f"'{self.cfg.get('wake_palabra', 'eve')}'. "
+                      "El microfono queda abierto.")
+            else:
+                motivo = self.escucha.error or "no se pudo abrir"
+                print(f"NO pude abrir el microfono para la palabra clave: {motivo}")
+                print("Segui usando la tecla. Se reintenta al proximo cambio de config.")
+                store.log_action("listener", "wake", f"microfono no disponible: {motivo}")
+                self.escucha.parar()
+                self.escucha = None
         elif not quiere and self.escucha is not None:
             self.escucha.parar()
             self.escucha = None

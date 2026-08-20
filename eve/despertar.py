@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 import unicodedata
 
 import numpy as np
@@ -162,12 +163,24 @@ class Escucha:
         self.activa = False
         self.error = ""
 
-    def arrancar(self) -> None:
-        if self._hilo is not None:
-            return
-        self._parar.clear()
-        self._hilo = threading.Thread(target=self._lazo, daemon=True)
-        self._hilo.start()
+    def arrancar(self, esperar: float = 0.0) -> bool:
+        """Prende la escucha. Con `esperar`, devuelve si el microfono abrio.
+
+        Hace falta esperar porque el hilo primero carga silero --un par de
+        segundos-- y recien despues toca el stream: preguntar antes de eso es
+        preguntarle a un hilo que todavia no llego. Sin esto lo unico que se
+        podia hacer era anunciar "escuchando" y cruzar los dedos.
+        """
+        if self._hilo is None:
+            self._parar.clear()
+            self._hilo = threading.Thread(target=self._lazo, daemon=True)
+            self._hilo.start()
+        limite = time.monotonic() + esperar
+        while esperar and time.monotonic() < limite:
+            if self.activa or self.error:
+                break
+            time.sleep(0.2)
+        return self.activa
 
     def parar(self) -> None:
         """Cierra el stream de verdad, no lo ignora.
