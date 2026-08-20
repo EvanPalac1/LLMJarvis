@@ -743,22 +743,36 @@ esto se puede dejar prendido. Eso se midio aparte, con Rainbow Six corriendo y u
 conversacion por Discord:
 
 ```
---- 5 minutos ---
-segmentos de voz detectados : 18  (62s de audio, 21% del tiempo)
-despertares                 : 0
-falsos positivos por hora   : 0.0
-costo del modelo de la puerta: corrio 18 veces, 3.6 por minuto
+                            5 minutos     20 minutos
+tramos de voz detectados      18 (21%)      113 (31% del tiempo hablando)
+despertares                    0             3, y los tres eran ordenes de prueba
+despertares espurios           0             0
+el modelo de la puerta corrio  3.6/min       5.6/min
 ```
 
-Dos cosas que solo se ven asi. **El microfono ABRE** con los dos programas tomandolo:
-WASAPI en modo compartido convive, que era la duda principal antes de escribir esto. Y el
-modelo de la puerta corre **3.6 veces por minuto**, no todo el tiempo: el resto son 62
-segundos de silero sobre 300, que cuestan 0.20% de un core. El costo de tener esto
-encendido esta acotado por cuanto hablas, no por cuanto dura la sesion.
+Los tres despertares de la corrida larga fueron la persona diciendo a proposito
+"Computadora, abri Spotify" y "Computadora, pone el clima" en medio de la partida, y la
+puerta los agarro. **Ninguno espurio en 25 minutos** de juego y conversacion.
 
-Y una advertencia sobre el numero: **cero en cinco minutos descarta que la puerta este
-rota, no prueba que la tasa sea baja**. Con cero eventos en un doceavo de hora el techo
-estadistico sigue siendo alto. Para afirmar algo mas fuerte hace falta una sesion larga.
+Tres cosas que solo se ven asi:
+
+- **El microfono ABRE** con los dos programas tomandolo. WASAPI en modo compartido
+  convive, y esa era la duda principal antes de escribir la funcion.
+- **El modelo de la puerta corre 5.6 veces por minuto**, no continuamente: son 368
+  segundos con voz sobre 1200, y el resto es silero al 0.20% de un core. El costo de
+  tener esto prendido esta acotado por cuanto hablas, no por cuanto dura la sesion.
+- Uno de los despertares llego con la **orden vacia**: la puerta agarro el nombre y
+  perdio el resto. Ahi Eve contesta "decime la orden junto con mi nombre", que es lo
+  correcto, pero significa repetir. Es el caso a vigilar con ruido fuerte.
+
+Y lo que el numero **no** dice: con cero espurios en 25 minutos, el techo al 95% queda en
+unos 7 por hora. Alcanza para decidir que se puede dejar prendido; para afirmar "menos de
+uno por hora" harian falta unas tres horas limpias.
+
+El banco de esto no vive en el repo y hay una razon: **no puede distinguir un despertar
+espurio de uno deliberado**. Su primera version imprimio "9.0 falsos positivos por hora" y
+los tres eran la persona hablandole. Un numero con la etiqueta equivocada es peor que
+ningun numero.
 
 
 ### La camara, y por que no
