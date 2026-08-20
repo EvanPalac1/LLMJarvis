@@ -1,0 +1,435 @@
+"""La ventana de actividad: modo Work para mirar, modo Edit para acomodar.
+
+Tercera ventana del programa, proceso aparte como el cartel. Muestra los modulos
+de la superficie `tablero` y, a diferencia del cartel, se puede tocar.
+
+Los dos modos no son dos pantallas: son quien puede escribir. En Work la ventana
+lee el estado y lo dibuja; en Edit el mismo dibujo se vuelve editable --clic para
+elegir, Ctrl para sumar, Shift para un rango, arrastrar para mover-- y el panel
+de la derecha muestra los ajustes de lo elegido.
+
+Con varios modulos elegidos se muestran las props que TIENEN EN COMUN, no
+ninguna: agrupar un modulo redondo con uno cuadrado tiene que dejar cambiar la
+opacidad de los dos, que es lo unico que comparten. Y si el valor difiere entre
+ellos, el campo arranca vacio y solo pisa a los dos si se escribe algo.
+
+Lo que queda afuera a proposito: guias de alineacion, z-order anidado, copiar
+estilo y snapping. Aceptar uno solo de esos es empezar a mantener un editor de
+diseño, y esto tiene que seguir siendo una ventana de un asistente de voz.
+"""
+
+import json
+import time
+import tkinter as tk
+from collections import deque
+from tkinter import ttk
+
+from . import lienzo, modulos, plataforma, store, tema
+
+CUADRO = 33          # ms entre cuadros, ~30 fps
+CADA_LECTURA = 3     # el estado se relee a 10 Hz, como en el cartel
+PASOS_DESHACER = 20
+ANCHO, ALTO = 1100, 700
+
+
+class Consola:
+    def __init__(self):
+        self.cfg = store.load_config()
+        self.raiz = tk.Tk()
+        self.raiz.title(f"{self.cfg.get('assistant_name', 'Eve')} — actividad")
+        self.raiz.geometry(f"{ANCHO}x{ALTO}")
+        self.raiz.minsize(640, 420)
+
+        self.modo = tk.StringVar(value="work")
+        self.seleccion: list = []
+        self.deshacer: deque = deque(maxlen=PASOS_DESHACER)
+        self.estado: dict = {}
+        self.cuadro = 0
+        self.mtime = self._mtime()
+        self._arrastre = None
+        self._partes = None
+        self._lista = None
+
+        self._armar()
+        self._aplicar_tema()
+        self._refrescar_props()
+
+    # --- armado -----------------------------------------------------------
+
+    def _armar(self) -> None:
+        barra = ttk.Frame(self.raiz)
+        barra.pack(fill="x", side="top")
+        for valor, texto in (("work", "  Work  "), ("edit", "  Edit  ")):
+            ttk.Radiobutton(barra, text=texto, value=valor, variable=self.modo,
+                            command=self._cambio_modo,
+                            style="Toolbutton").pack(side="left", padx=(6, 0), pady=6)
+        self.aviso = ttk.Label(barra, text="", style="Ayuda.TLabel")
+        self.aviso.pack(side="left", padx=16)
+        self.botones_edit = ttk.Frame(barra)
+        self.botones_edit.pack(side="right", padx=6)
+        for texto, accion in (("Deshacer", self._deshacer),
+                              ("Duplicar", self._duplicar),
+                              ("Borrar", self._borrar)):
+            ttk.Button(self.botones_edit, text=texto, command=accion).pack(side="left", padx=3)
+
+        cuerpo = ttk.Frame(self.raiz)
+        cuerpo.pack(fill="both", expand=True)
+
+        self.lienzo = tk.Canvas(cuerpo, highlightthickness=0, borderwidth=0)
+        self.lienzo.pack(side="left", fill="both", expand=True)
+        self.pintor = lienzo.Lienzo(self.lienzo, self.cfg, "hud")
+
+        self.panel = ttk.Frame(cuerpo, width=260)
+        self.panel.pack(side="right", fill="y")
+        self.panel.pack_propagate(False)
+        self.props = ttk.Frame(self.panel)
+        self.props.pack(fill="both", expand=True)
+        self.vars: dict = {}
+
+        self.lienzo.bind("<Button-1>", self._clic)
+        self.lienzo.bind("<B1-Motion>", self._mover)
+        self.lienzo.bind("<ButtonRelease-1>", self._soltar)
+        self.raiz.bind("<Control-z>", lambda _e: self._deshacer())
+        self.raiz.bind("<Delete>", lambda _e: self._borrar())
+        self._cambio_modo()
+
+    def _aplicar_tema(self) -> None:
+        paleta = tema.resolver(self.cfg, "ui")
+        if tema.pinta_panel(self.cfg):
+            estilo = ttk.Style(self.raiz)
+            try:
+                estilo.theme_use("clam")
+            except tk.TclError:
+                pass
+            tema.aplicar_ttk(estilo, paleta)
+            self.raiz.configure(background=paleta["fondo"])
+        self.lienzo.configure(bg=paleta["fondo"])
+
+    # --- modos ------------------------------------------------------------
+
+    def _cambio_modo(self) -> None:
+        editando = self.modo.get() == "edit"
+        if editando:
+            self.botones_edit.pack(side="right", padx=6)
+            self.panel.pack(side="right", fill="y")
+            self.aviso.config(text="clic para elegir · Ctrl suma · Shift agrega un rango · arrastra para mover")
+        else:
+            self.botones_edit.pack_forget()
+            self.panel.pack_forget()
+            self.aviso.config(text="")
+            self.seleccion = []
+        self._dibujar_seleccion()
+
+    # --- seleccion --------------------------------------------------------
+
+    def _modulos(self) -> list:
+        if self._lista is None:
+            self._lista = modulos.listar(self.cfg, "tablero")
+        return self._lista
+
+    def _en(self, x: int, y: int) -> str:
+        """Cual esta debajo del punto. De arriba hacia abajo por orden de dibujo."""
+        for m in reversed(self._modulos()):
+            if m["x"] <= x < m["x"] + m["ancho"] and m["y"] <= y < m["y"] + m["alto"]:
+                return m["id"]
+        return ""
+
+    def _clic(self, evento) -> None:
+        if self.modo.get() != "edit":
+            return
+        ident = self._en(evento.x, evento.y)
+        ctrl = bool(evento.state & 0x0004)
+        shift = bool(evento.state & 0x0001)
+        if not ident:
+            if not (ctrl or shift):
+                self.seleccion = []
+        elif ctrl:
+            if ident in self.seleccion:
+                self.seleccion.remove(ident)
+            else:
+                self.seleccion.append(ident)
+        elif shift and self.seleccion:
+            # Rango en el orden en que se dibujan, que es el unico orden que
+            # existe en un lienzo: de lo que estaba elegido a lo que se toco.
+            orden = [m["id"] for m in self._modulos()]
+            try:
+                desde, hasta = orden.index(self.seleccion[-1]), orden.index(ident)
+            except ValueError:
+                desde = hasta = orden.index(ident)
+            if desde > hasta:
+                desde, hasta = hasta, desde
+            for i in orden[desde:hasta + 1]:
+                if i not in self.seleccion:
+                    self.seleccion.append(i)
+        else:
+            self.seleccion = [ident]
+        self._arrastre = (evento.x, evento.y) if self.seleccion else None
+        self._dibujar_seleccion()
+        self._refrescar_props()
+
+    def _mover(self, evento) -> None:
+        if self.modo.get() != "edit" or not self._arrastre or not self.seleccion:
+            return
+        dx, dy = evento.x - self._arrastre[0], evento.y - self._arrastre[1]
+        if not dx and not dy:
+            return
+        self._arrastre = (evento.x, evento.y)
+        for m in self._modulos():
+            if m["id"] in self.seleccion:
+                m["x"] = max(0, m["x"] + dx)
+                m["y"] = max(0, m["y"] + dy)
+        self._dibujar_seleccion()
+
+    def _soltar(self, _evento=None) -> None:
+        """Al soltar se guarda, no en cada pixel: serian 30 escrituras por segundo."""
+        if self.modo.get() != "edit" or not self._arrastre:
+            return
+        self._arrastre = None
+        if self.seleccion:
+            self._anotar()
+            cfg = store.load_config()
+            for m in self._modulos():
+                if m["id"] in self.seleccion:
+                    cfg = modulos.guardar(cfg, m)
+            self._guardar(cfg)
+
+    def _dibujar_seleccion(self) -> None:
+        self.lienzo.delete("marca")
+        if self.modo.get() != "edit":
+            return
+        paleta = self.pintor.paleta
+        for m in self._modulos():
+            if m["id"] in self.seleccion:
+                self.lienzo.create_rectangle(
+                    m["x"] - 1, m["y"] - 1, m["x"] + m["ancho"], m["y"] + m["alto"],
+                    outline=paleta["acento"], width=2, dash=(4, 3), tags="marca")
+
+    # --- ajustes de lo elegido --------------------------------------------
+
+    def _comunes(self) -> dict:
+        """Props que comparten TODOS los elegidos, con su valor si coinciden.
+
+        Devuelve {prop: (defecto, ayuda, valor_o_None)}. El None es "cada uno
+        tiene lo suyo": el campo arranca vacio y solo pisa si se escribe algo.
+        """
+        elegidos = [m for m in self._modulos() if m["id"] in self.seleccion]
+        if not elegidos:
+            return {}
+        nombres = set(modulos.props_de(elegidos[0]["tipo"]))
+        for m in elegidos[1:]:
+            nombres &= set(modulos.props_de(m["tipo"]))
+        nombres.discard("tipo")
+        salida = {}
+        for prop in nombres:
+            defecto, ayuda = modulos.COMUNES.get(prop) or modulos.props_de(
+                elegidos[0]["tipo"])[prop]
+            valores = {m.get(prop) for m in elegidos}
+            salida[prop] = (defecto, ayuda, valores.pop() if len(valores) == 1 else None)
+        return salida
+
+    def _refrescar_props(self) -> None:
+        for hijo in self.props.winfo_children():
+            hijo.destroy()
+        self.vars = {}
+        if not self.seleccion:
+            ttk.Label(self.props, text="Nada elegido.", style="Ayuda.TLabel").pack(
+                anchor="w", padx=10, pady=10)
+            return
+        ttk.Label(self.props, text=f"{len(self.seleccion)} elegido(s)").pack(
+            anchor="w", padx=10, pady=(10, 4))
+        comunes = self._comunes()
+        for prop in sorted(comunes):
+            defecto, _ayuda, valor = comunes[prop]
+            fila = ttk.Frame(self.props)
+            fila.pack(fill="x", padx=10, pady=1)
+            ttk.Label(fila, text=prop, width=12).pack(side="left")
+            if isinstance(defecto, bool):
+                var = tk.BooleanVar(value=bool(valor))
+            else:
+                var = tk.StringVar(value="" if valor is None else str(valor))
+            if isinstance(defecto, bool):
+                ttk.Checkbutton(fila, variable=var).pack(side="left")
+            elif prop in modulos.OPCIONES:
+                ttk.Combobox(fila, textvariable=var, values=modulos.OPCIONES[prop],
+                             state="readonly", width=13).pack(side="left")
+            else:
+                ttk.Entry(fila, textvariable=var, width=15).pack(side="left")
+            self.vars[prop] = (var, defecto, valor)
+        ttk.Button(self.props, text="Aplicar a los elegidos",
+                   command=self._aplicar_props).pack(anchor="w", padx=10, pady=10)
+
+    def _aplicar_props(self) -> None:
+        if not self.seleccion:
+            return
+        self._anotar()
+        cfg = store.load_config()
+        for m in self._modulos():
+            if m["id"] not in self.seleccion:
+                continue
+            for prop, (var, defecto, previo) in self.vars.items():
+                valor = var.get()
+                if not isinstance(defecto, bool) and str(valor) == "":
+                    continue   # cada uno tenia lo suyo y no se escribio nada
+                if previo is not None and str(valor) == str(previo):
+                    continue
+                m[prop] = _convertir(valor, defecto)
+            cfg = modulos.guardar(cfg, m)
+        self._guardar(cfg)
+        self._refrescar_props()
+
+    # --- acciones ---------------------------------------------------------
+
+    def _anotar(self) -> None:
+        """Guarda como estaba antes de tocar. Deshacer es volver a esta foto."""
+        solo_mods = {k: v for k, v in store.load_config().items()
+                     if k.startswith(modulos.PREFIJO)}
+        self.deshacer.append(json.dumps(solo_mods))
+
+    def _deshacer(self) -> None:
+        if not self.deshacer:
+            self.aviso.config(text="no hay nada para deshacer")
+            return
+        previos = json.loads(self.deshacer.pop())
+        cfg = {k: v for k, v in store.load_config().items()
+               if not k.startswith(modulos.PREFIJO)}
+        cfg.update(previos)
+        self._guardar(cfg)
+        self.seleccion = [i for i in self.seleccion
+                          if i in modulos.identificadores(cfg)]
+        self._refrescar_props()
+
+    def _duplicar(self) -> None:
+        if not self.seleccion:
+            return
+        self._anotar()
+        cfg = store.load_config()
+        nuevos = []
+        for ident in list(self.seleccion):
+            modulo = modulos.leer(cfg, ident)
+            usados = set(modulos.identificadores(cfg))
+            n = 2
+            while f"{ident}{n}" in usados:
+                n += 1
+            modulo["id"] = f"{ident}{n}"
+            modulo["x"] = int(modulo["x"]) + 20
+            modulo["y"] = int(modulo["y"]) + 20
+            cfg = modulos.guardar(cfg, modulo)
+            nuevos.append(modulo["id"])
+        self._guardar(cfg)
+        self.seleccion = nuevos
+        self._dibujar_seleccion()
+        self._refrescar_props()
+
+    def _borrar(self) -> None:
+        if self.modo.get() != "edit" or not self.seleccion:
+            return
+        self._anotar()
+        cfg = store.load_config()
+        for ident in self.seleccion:
+            cfg = modulos.borrar(cfg, ident)
+        self._guardar(cfg)
+        self.seleccion = []
+        self._refrescar_props()
+
+    def _guardar(self, cfg: dict) -> None:
+        store.save_config(cfg)
+        self.cfg = cfg
+        self._lista = None
+        self._partes = None
+        self.mtime = self._mtime()
+        self.pintor.aplicar(cfg)
+        self._dibujar_seleccion()
+
+    # --- ciclo ------------------------------------------------------------
+
+    def _mtime(self) -> float:
+        try:
+            import os
+
+            return os.path.getmtime(store.CONFIG_PATH)
+        except OSError:
+            return 0.0
+
+    def _releer(self) -> None:
+        if self._mtime() == self.mtime:
+            return
+        self.mtime = self._mtime()
+        self.cfg = store.load_config()
+        self._lista = None
+        self._partes = None
+        self.pintor.aplicar(self.cfg)
+        self._aplicar_tema()
+        self._dibujar_seleccion()
+
+    def _partes_del_prompt(self, lista) -> dict:
+        if not any(m["tipo"] == "contexto" for m in lista):
+            return {}
+        if self._partes is None:
+            from . import prompt
+
+            try:
+                self._partes = prompt.partes(self.cfg)
+            except Exception:  # noqa: BLE001 - un medidor no tumba la ventana
+                self._partes = {}
+        return self._partes
+
+    def tick(self) -> None:
+        self.cuadro += 1
+        if self.cuadro % CADA_LECTURA == 0:
+            self.estado = store.estado_overlay(max_edad=8.0) or {}
+            self._releer()
+        lista = self._modulos()
+        # En Edit se ven todos, incluso los que en Work estarian escondidos:
+        # no se puede acomodar lo que no se ve.
+        editando = self.modo.get() == "edit"
+        vista = {
+            "estado": "pensando" if editando else self.estado.get("estado", "reposo"),
+            "nivel": float(self.estado.get("nivel", 0.0) or 0.0),
+            "detalle": self.estado.get("detalle", ""),
+            "titulo": self.cfg.get("assistant_name", "Eve"),
+            "usuario": self.estado.get("usuario", ""),
+            "eve": self.estado.get("eve", ""),
+            "partes": self._partes_del_prompt(lista),
+        }
+        if editando:
+            lista = [dict(m, cuando="siempre") for m in lista]
+        self.pintor.dibujar(lista, vista)
+        if editando:
+            self.lienzo.tag_raise("marca")
+        self.raiz.after(CUADRO, self.tick)
+
+    def correr(self) -> None:
+        self.raiz.after(CUADRO, self.tick)
+        self.raiz.mainloop()
+
+
+def _convertir(valor, defecto):
+    if isinstance(defecto, bool):
+        return bool(valor)
+    if isinstance(defecto, int):
+        try:
+            return int(float(str(valor).replace(",", ".")))
+        except ValueError:
+            return defecto
+    if isinstance(defecto, float):
+        try:
+            return float(str(valor).replace(",", "."))
+        except ValueError:
+            return defecto
+    return valor
+
+
+def abrir() -> None:
+    """La lanza como proceso aparte, igual que el cartel y el panel."""
+    plataforma.lanzar(plataforma.comando_propio("--consola"))
+
+
+def main(argv=None) -> int:
+    Consola().correr()
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main(sys.argv[1:]))

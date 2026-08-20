@@ -44,6 +44,11 @@ IMPORTS_CRITICOS = [
     "piper",
     "onnxruntime",
 ]
+if sys.platform == "win32":
+    # Lo usa `plataforma.archivo_de_fuente` para traducir "Constantia" a
+    # "constan.ttf". Va importado adentro de una funcion, que es justo el caso
+    # que PyInstaller puede no ver.
+    IMPORTS_CRITICOS.append("winreg")
 
 
 def _probar_imports() -> int:
@@ -87,6 +92,10 @@ def main() -> int:
             from eve import hook_gate
 
             return hook_gate.main()
+        if flag == "--consola":
+            from eve import consola
+
+            return consola.main(resto)
         if flag == "--overlay":
             from eve import overlay
 

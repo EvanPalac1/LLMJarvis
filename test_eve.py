@@ -650,6 +650,97 @@ def test_discord_destino_visible():
         store.load_contacts = orig
 
 
+def test_consola_agrupa_y_edita_lo_compartido():
+    """Modo Edit: elegir, agrupar y cambiar lo que los elegidos tienen en comun.
+
+    Lo importante es la interseccion. Agrupar una onda con unas particulas tiene
+    que dejar cambiar la opacidad de las dos --que es lo unico que comparten--
+    y NO ofrecer `estilo`, que es solo de la onda, ni `cantidad`, que es solo de
+    las particulas. Ofrecer todo pisaria props que el otro modulo no tiene, y no
+    ofrecer nada volveria inutil agrupar.
+    """
+    import tkinter as tk
+
+    from eve import consola, modulos as mods
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+
+    class Ev:
+        def __init__(self, x, y, state=0):
+            self.x, self.y, self.state = x, y, state
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        ventana = None
+        try:
+            cfg = dict(store.DEFAULTS)
+            puestos = [("texto", 40, 40), ("onda", 40, 140), ("particulas", 400, 40)]
+            for i, (tipo, x, y) in enumerate(puestos):
+                cfg = mods.guardar(cfg, {"id": f"m{i}", "tipo": tipo, "superficie": "tablero",
+                                         "x": x, "y": y, "ancho": 300, "alto": 60,
+                                         "cuando": "siempre"})
+            store.save_config(cfg)
+
+            ventana = consola.Consola()
+            ventana.raiz.withdraw()
+            assert len(ventana._modulos()) == 3
+
+            # En Work los clics no eligen nada: es modo de mirar.
+            ventana._clic(Ev(60, 160))
+            assert ventana.seleccion == [], "Work no tendria que elegir"
+
+            ventana.modo.set("edit")
+            ventana._cambio_modo()
+            ventana._clic(Ev(60, 160))
+            assert ventana.seleccion == ["m1"], ventana.seleccion
+
+            # Ctrl suma; volver a clickear con Ctrl saca.
+            ventana._clic(Ev(420, 60, state=0x0004))
+            assert ventana.seleccion == ["m1", "m2"], ventana.seleccion
+            ventana._clic(Ev(420, 60, state=0x0004))
+            assert ventana.seleccion == ["m1"], ventana.seleccion
+            ventana._clic(Ev(420, 60, state=0x0004))
+
+            # La interseccion: lo comun si, lo propio de cada tipo no.
+            comunes = ventana._comunes()
+            assert "opacidad" in comunes and "escala" in comunes
+            assert "estilo" not in comunes, "estilo es solo de la onda"
+            assert "cantidad" not in comunes, "cantidad es solo de las particulas"
+
+            # Aplicar una prop compartida los toca a los dos.
+            ventana.vars["opacidad"][0].set("55")
+            ventana._aplicar_props()
+            valores = {m["id"]: m["opacidad"] for m in ventana._modulos()
+                       if m["id"] in ("m1", "m2")}
+            assert set(valores.values()) == {55}, valores
+            assert mods.leer(store.load_config(), "m0")["opacidad"] == 100, \
+                "toco uno que no estaba elegido"
+
+            # Y deshacer vuelve a la foto anterior.
+            ventana._deshacer()
+            vueltos = {m["id"]: m["opacidad"] for m in ventana._modulos()
+                       if m["id"] in ("m1", "m2")}
+            assert set(vueltos.values()) == {100}, vueltos
+
+            # Arrastrar mueve lo elegido y recien al soltar se guarda: guardar en
+            # cada pixel serian treinta escrituras por segundo.
+            ventana._clic(Ev(60, 160))
+            antes = mods.leer(store.load_config(), "m1")["x"]
+            ventana._mover(Ev(90, 160))
+            assert mods.leer(store.load_config(), "m1")["x"] == antes, "guardo al arrastrar"
+            ventana._soltar()
+            assert mods.leer(store.load_config(), "m1")["x"] == antes + 30
+        finally:
+            if ventana is not None:
+                ventana.raiz.destroy()
+            store.CONFIG_PATH = real
+
+
 def test_contactos():
     """La agenda: matcheo por alias, sin tildes, y ambiguedad explicita."""
     from eve import integrations

@@ -1566,6 +1566,12 @@ class Panel(tk.Tk):
         ttk.Button(fila, text="Traer los del cartel actual",
                    command=self._mods_semilla).pack(side="left", padx=(18, 0))
 
+        fila2 = ttk.Frame(lista)
+        fila2.pack(anchor="w", padx=12, pady=(0, 10))
+        ttk.Button(fila2, text="Abrir la ventana de actividad",
+                   command=self._abrir_consola).pack(side="left")
+        self._ayuda(fila2, "  ahi se acomodan los modulos del tablero con el mouse")
+
         self.mod_caja = self._seccion(t, "Ajustes del modulo")
         self.mod_props = ttk.Frame(self.mod_caja)
         self.mod_props.pack(fill="x")
@@ -1573,6 +1579,12 @@ class Panel(tk.Tk):
         return t
 
     # --- modulos ------------------------------------------------------------
+
+    def _abrir_consola(self) -> None:
+        from . import consola
+
+        consola.abrir()
+        self.estado.config(text="ventana de actividad abierta")
 
     def _mods_refrescar(self, elegir: str = "") -> None:
         from . import modulos as mods

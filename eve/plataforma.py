@@ -89,7 +89,8 @@ def comando_propio(flag: str) -> list[str]:
     if congelado():
         return [sys.executable, flag]
     modulo = {"--cli": "eve.integrations", "--hook": "eve.hook_gate",
-              "--panel": "eve.gui", "--overlay": "eve.overlay"}[flag]
+              "--panel": "eve.gui", "--overlay": "eve.overlay",
+            "--consola": "eve.consola"}[flag]
     exe = sys.executable.replace("pythonw.exe", "python.exe")
     return [exe, "-m", modulo]
 

@@ -26,6 +26,13 @@ def open_panel() -> None:
     plataforma.lanzar(plataforma.comando_propio("--panel"), cwd=_project_root())
 
 
+def _abrir_consola() -> None:
+    """La ventana de actividad, como proceso aparte igual que el panel."""
+    from . import consola
+
+    consola.abrir()
+
+
 def _project_root() -> str:
     from . import plataforma
 
@@ -154,6 +161,7 @@ def build(listener) -> pystray.Icon:
 
     menu = pystray.Menu(
         pystray.MenuItem("Abrir panel", lambda: open_panel(), default=True),
+        pystray.MenuItem("Ventana de actividad", lambda: _abrir_consola()),
         pystray.MenuItem("Perfiles", pystray.Menu(perfiles)),
         pystray.MenuItem("Limpiar historial y contexto", limpiar),
         pystray.MenuItem("Reiniciar listener (aplicar config)", restart),
