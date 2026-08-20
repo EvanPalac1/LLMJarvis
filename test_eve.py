@@ -1364,13 +1364,23 @@ def test_cola_y_pulso():
             assert "2 EN COLA" in lis._con_cola("PENSANDO")
 
             # El pulso: el motor no avisa nada mientras piensa, pero la señal
-            # tiene que seguir fresca o el overlay se esconde a los 3 segundos.
+            # tiene que seguir refrescandose o el overlay se esconde a los 3
+            # segundos. Lo que se mide es la REPETICION, no la frescura en un
+            # instante: dormir 4s y leer una vez con el limite real de 3s hacia
+            # que una pausa del planificador --con la suite entera corriendo,
+            # whisper cargado y otros tests levantando hilos-- diera rojo sin
+            # que hubiera nada roto. Se lee con un limite grande a proposito y
+            # se cuenta cuantas veces cambio el ts.
             primera = store.estado_overlay()
             assert primera and primera["estado"] == "pensando"
-            time.sleep(4)
-            despues = store.estado_overlay()
-            assert despues is not None, "sin pulso el overlay se va en las largas"
-            assert despues["ts"] > primera["ts"], "la señal tiene que refrescarse"
+            marcas, fin = {primera["ts"]}, time.monotonic() + 4
+            while time.monotonic() < fin:
+                señal = store._leer_señal(store.OVERLAY_PATH, 60.0)
+                if señal:
+                    marcas.add(señal["ts"])
+                time.sleep(0.1)
+            # El pulso late cada segundo: en 4s tienen que salir varias.
+            assert len(marcas) >= 3, f"el pulso no se repite: {sorted(marcas)}"
 
             lento.set()  # que terminen las tres
             for _ in range(120):
