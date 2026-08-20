@@ -2,6 +2,11 @@
 anthropic>=0.69
 sounddevice>=0.4.6
 numpy>=1.26
+# Arrastra onnxruntime, que ademas es lo que corre el detector de voz de la
+# palabra clave. Ojo con mac Intel: onnxruntime dejo de publicar rueda
+# macosx_x86_64 despues de la 1.23.2, asi que si algun dia el resolvedor pide
+# una mas nueva, ese job se cae. Que se caiga es lo correcto y ahora se nota:
+# release.yml usa if-no-files-found: error.
 faster-whisper>=1.0
 pystray>=0.19
 pillow>=10.0

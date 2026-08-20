@@ -83,7 +83,11 @@ jobs:
             dist/*.dmg
             dist/*.deb
             dist/*.rpm
-          if-no-files-found: warn
+          # error y no warn: cada job arma exactamente un tipo de paquete para
+          # su sistema, asi que quedarse sin ninguno significa que el build se
+          # rompio. Con warn eso salia en verde y la release se publicaba sin el
+          # instalador de ese sistema, sin que nada lo dijera.
+          if-no-files-found: error
 
   release:
     needs: build

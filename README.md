@@ -567,6 +567,144 @@ cambian nada.
 **Las grabaciones no viajan en el repo.** Son la voz de una persona, asi que viven en la
 carpeta de datos junto a los contactos y los perfiles, en `banco_voz/`.
 
+Con las 24 referencias escritas, la linea base quedo asi --y de paso decide que modelo
+conviene, que hasta ahora era una corazonada:
+
+```
+modelo      lejos  limpio  propios  rapido   ruido  susurro   TOTAL   por orden de 2s
+tiny        36.4%   22.2%    52.2%   66.7%   25.0%    20.0%   33.2%
+base        21.2%   17.5%    78.3%   44.4%   12.5%     0.0%   26.1%
+small       15.2%    3.2%    21.7%   22.2%   12.5%     0.0%   10.9%   0.9s gpu / 3.3s cpu
+medium       0.0%    1.6%    17.4%   22.2%    0.0%     0.0%    4.9%   1.8s gpu / 10.2s cpu
+large-v3     0.0%    1.6%    34.8%    0.0%    0.0%     0.0%    4.9%   2.7s gpu
+```
+
+Tres cosas que salieron de ahi:
+
+- **Mas grande no es mejor.** `large-v3` empata a `medium` en total y es el **doble de malo
+  en nombres propios**, 34.8% contra 17.4%, que es justo el grupo que decide si Eve abre el
+  programa correcto. Y tarda un 50% mas.
+- **`medium` solo con GPU.** Baja el WER a la mitad por +0.9s en GPU, pero en CPU una orden
+  de dos segundos tarda **10 segundos**. Por eso el default sigue siendo `small`.
+- **El vocabulario casi no sirve donde se suponia que servia.** El catalogo de programas
+  como `initial_prompt` mueve nombres propios de 30.4% a 26.1%, y servirle **los nombres
+  exactos en bandeja** deja el mismo 26.1%. No es un problema de vocabulario, es acustico:
+  ahi la unica palanca es el modelo.
+
+### Sensibilidad: los modos y de donde salen
+
+En **Voz > Sensibilidad**. Los dos valores que la componen son el umbral del detector de
+voz y el aire que deja alrededor de cada tramo, y los numeros salen de barrer el banco:
+
+```
+umbral/aire      lejos  limpio  propios  rapido   ruido  susurro   TOTAL
+0.5/400 (antes)  15.2%    3.2%    26.1%   16.7%   18.8%     0.0%   12.0%
+0.5/100 normal   15.2%    3.2%    21.7%   22.2%   12.5%     0.0%   10.9%
+0.85/250 ruido   15.2%    3.2%    26.1%   16.7%    0.0%     0.0%    8.7%
+0.5/250 bajo     15.2%    3.2%    26.1%   16.7%   18.8%     0.0%   12.0%
+sin VAD          15.2%    3.2%    26.1%   22.2%   18.8%     0.0%   12.5%
+```
+
+**El modo `ruido` deja su grupo en 0.0%**, que era el pedido: musica de fondo y vos
+hablando fuerte. Y el aire de 400 ms que trae la libreria resulto ser demasiado: bajarlo a
+100 gana un punto entero de WER y encima acelera.
+
+Lo que salio al reves de la intuicion: **para hablar bajo no sirve un detector permisivo**.
+Con umbral 0.35 el susurro empeora a 26.7% y con 0.25 a 46.7%. El motivo es mecanico: un
+detector flojo encuentra "voz" adentro del ruido, devuelve algo en vez de vacio, y asi le
+tapa la puerta al reintento sin VAD, que es lo que de verdad rescata un susurro.
+
+**Reglas por horario**, separadas por coma: `00:00-06:00=bajo, 20:00-23:59=ruido`. Cruzan
+la medianoche. Solo pisan al modo `auto`: si elegiste un modo a mano, el reloj no te lo
+cambia, que es la misma regla que **Quien manda sobre un ajuste**.
+
+Y una advertencia honesta: **el reloj es un proxy peor que el audio**. A las 3 AM podes
+estar gritando en Discord. Lo correcto seria medir el ruido de fondo del propio clip y
+elegir solo, pero no se puede validar con este banco --el cortador por silencio elimino
+justo los silencios, que es donde vive el ruido, y por eso `ruido` y `propios` miden la
+misma relacion senal-ruido, 23.1 dB los dos. Queda pendiente y necesita grabaciones sin
+recortar.
+
+### Despertarla diciendo su nombre
+
+En **Voz**, apagado de fabrica: prenderlo deja el microfono abierto todo el tiempo, y eso
+lo elige el usuario. Se le dice el nombre y la orden de un tiron, en la misma frase:
+
+```
+"Computadora, abri Spotify"
+```
+
+**Sin una sola dependencia nueva.** Porcupine cubre los cinco objetivos pero exige una
+AccessKey de cuenta, y no podes embeber la tuya en un instalador que distribuis; los
+modelos preentrenados de openWakeWord son CC-BY-NC y `tflite-runtime` no publica ruedas
+aarch64; Vosk no tiene rueda para mac-arm64 ni linux-aarch64, o sea 3 de 5. Lo que sirve ya
+estaba adentro de la casa: faster-whisper trae `silero_vad_v6.onnx` (1.2 MB) y depende de
+onnxruntime, asi que los dos viajan en los cinco paquetes desde siempre.
+
+Son dos etapas. Silero decide **cuando** hay voz --medido, **0.20% de un core**, que es lo
+que puede estar prendido todo el dia-- y recien sobre ese pedazo corre un whisper chico que
+decide **que** dijo. En reposo no corre ningun modelo de lenguaje. Como el recorte ya trae
+la palabra Y la orden, no hace falta maquina de estados ni pitido en el medio.
+
+**La palabra pesa mas que el modelo.** Cuatro ordenes y seis frases de control:
+
+```
+palabra              modelo   desperto   falsos
+Computadora          tiny        4 / 4    0 / 6
+Computadora          small       4 / 4    0 / 6
+Eve (+ ebe, eva)     small       3 / 4    0 / 6
+Eve (+ ebe, eva)     tiny        2 / 4    0 / 6
+Eve (+ ebe, eva)     base        0 / 4    0 / 6
+```
+
+"Computadora" con el modelo mas chico le gana a "Eve" con uno cuatro veces mas grande, y
+tarda menos de la mitad. **Tres letras no alcanzan para ser una puerta**, y no hay
+heuristica difusa que lo arregle: aceptar una letra de diferencia sobre "eve" abre la
+puerta a "ese", "ave" y "eco". Por eso la clave acepta variantes separadas por `|` y de
+fabrica vienen las dos. Para ver como te escribe a vos:
+`Eve --probar-voz "Eve, abri Spotify"`.
+
+Cero falsos positivos en las seis de control, incluida *"le dije a Eve que abriera Steam"*
+--la que rompe cualquier puerta que acepte la palabra en cualquier posicion. Por eso se
+exige al principio.
+
+Dos detalles que aparecieron midiendo y que no se ven de otra forma. La transcripcion **no
+es determinista**: la libreria prueba temperaturas de 0 a 1.0 hasta que el resultado le
+convence, asi que la misma onda daba `Eve, Avris, Spotify` una corrida y `Ede, Abris,
+Spotify` la siguiente; para dictar da igual, para una puerta significa despertar al azar,
+y por eso la puerta fija la temperatura en 0. Y servirle el catalogo de 80 juegos a un
+modelo que solo tiene que reconocer un nombre lo empuja a escribir cualquier cosa menos ese
+nombre: `Eve, abri Spotify` salia `Mb.Avris.phi.`.
+
+**Lo que garantiza mientras esta prendido**: el buffer rodante vive en RAM y se pisa solo;
+nada llega al disco salvo el segmento que disparo; pausar cierra el stream de verdad, no lo
+ignora; y cada despertar queda anotado en el log de acciones.
+
+### La camara, y por que no
+
+Se evaluo activarla por gestos vistos por la webcam. **No entra**, y no es una opinion:
+**no existe ninguna version de mediapipe que cubra los cinco objetivos**. Las 0.10.20 a
+0.10.35 no publican `aarch64`; de la 0.10.30 en adelante tampoco mac Intel; `aarch64`
+vuelve recien en la 1.0.0, ya sin mac Intel. La ultima con las dos es la 0.10.18, de
+noviembre de 2024, que pide `numpy<2` --y choca con el resto del proyecto-- mas `jax` y
+`jaxlib`, que tampoco tiene rueda para mac Intel. Es el mismo caso que `cairosvg`.
+
+Sin mediapipe no hay puntos de la mano, o sea que los gestos configurables mueren ahi.
+Quedaria detectar cara si/no con `opencv-python-headless`, y **tampoco conviene**: son
++85 MB por objetivo (el wheel de linux-arm64 descomprime 85.6 MB), un permiso nuevo en tres
+sistemas --y `packaging/macos/Info.plist` ni siquiera declara `NSCameraUsageDescription`--,
+y sobre todo **la camara es exclusiva de facto**: tenerla tomada ocho horas significa que
+no podes entrar a una reunion. El microfono no tiene ese problema porque Eve solo lo agarra
+mientras apretas la tecla.
+
+Y el valor que prometia ya lo da la arquitectura: Eve es push-to-talk, no escucha si no se
+lo pedis. Si lo que se queria era activarla sin tocar nada, **la palabra clave es la misma
+funcion cuarenta veces mas barata**: onnxruntime ya viaja en el paquete, no pide permiso de
+camara y no se pelea con OBS.
+
+Para que entrara habria que dejar de publicar para mac Intel. No es un capricho:
+onnxruntime, mediapipe y jaxlib ya lo hicieron.
+
 ### Lo que encontro apenas se enchufo
 
 Cuatro de esos clips volvian **vacios**, y no era el modelo: con el detector de voz
@@ -989,6 +1127,7 @@ percibida es todo. Tampoco se envuelve el `/voice` de Claude Code: es un REPL, n
 | `eve/grafo.py` | Que hizo Eve y en que proyectos, sacado del log |
 | `eve/memoria.py` | Poda MEMORIA.md para que no crezca adentro de cada llamada |
 | `eve/lector.py` | Lee una pagina web y devuelve texto, sin motor web |
+| `eve/despertar.py` | Palabra clave: silero decide cuando, un whisper chico decide que |
 | `eve/tema.py` | Paletas por roles, para el panel y para el cartel |
 | `eve/imagenes.py` | Fondos e iconos: PNG, GIF, APNG y WebP animado, con cache |
 | `eve/addons/` | Plugins del usuario, que no se cargan hasta aprobarlos |
