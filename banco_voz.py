@@ -38,16 +38,33 @@ CARPETA = Path(store.BASE) / "banco_voz"
 TRANSCRIPCIONES = "transcripciones.json"
 
 
+# Un reconocedor escribe "a las 10" y otro "a las diez". Eso no es un error de
+# reconocimiento sino de formato, y contarlo como error le regalaria dos puntos
+# de WER al que casualmente escriba como esta anotada la referencia. Alcanza con
+# los numeros que aparecen en ordenes habladas: nadie le dicta un balance.
+NUMEROS = {
+    "cero": "0", "un": "1", "uno": "1", "una": "1", "dos": "2", "tres": "3",
+    "cuatro": "4", "cinco": "5", "seis": "6", "siete": "7", "ocho": "8",
+    "nueve": "9", "diez": "10", "once": "11", "doce": "12", "trece": "13",
+    "catorce": "14", "quince": "15", "dieciseis": "16", "diecisiete": "17",
+    "dieciocho": "18", "diecinueve": "19", "veinte": "20", "veintiuno": "21",
+    "treinta": "30", "cuarenta": "40", "cincuenta": "50", "sesenta": "60",
+    "setenta": "70", "ochenta": "80", "noventa": "90", "cien": "100",
+    "ciento": "100", "mil": "1000",
+}
+
+
 def normalizar(texto: str) -> list[str]:
     """Baja a la forma en la que Eve realmente compara.
 
     Se sacan los acentos a proposito: el matcher de comandos y de contactos ya es
     insensible a ellos, asi que contar "abri" vs "abrí" como un error inflaria el
-    WER con fallas que a la aplicacion no le cambian nada.
+    WER con fallas que a la aplicacion no le cambian nada. Misma logica con los
+    numeros escritos con letra.
     """
     t = unicodedata.normalize("NFD", texto.lower())
     t = "".join(c for c in t if unicodedata.category(c) != "Mn")
-    return re.sub(r"[^\w\s]", " ", t).split()
+    return [NUMEROS.get(p, p) for p in re.sub(r"[^\w\s]", " ", t).split()]
 
 
 def distancia(ref: list[str], hip: list[str]) -> tuple[int, int, int]:

@@ -3401,6 +3401,39 @@ def test_los_modulos_diferidos_viajan():
     assert not sin_probar, f"en OCULTOS pero sin comprobar en el binario: {sin_probar}"
 
 
+def test_parakeet_es_opcion_no_default():
+    """Entro porque gano medido, pero pierde en nombres propios: es opcion.
+
+    Tambien fija lo unico que lo hace barato: no arrastra ninguna dependencia
+    nativa nueva. El dia que alguien agregue una, esto lo dice antes de que un
+    build de linux-arm64 lo diga por su cuenta."""
+    import importlib.metadata as meta
+
+    from eve import voice
+
+    assert store.DEFAULTS["stt_provider"] == "faster-whisper", "no puede ser el default"
+    assert store.DEFAULTS["parakeet_cuantizacion"] == "int8", "639 MB contra 2.4 GB"
+
+    gui = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "eve", "gui.py"),
+               encoding="utf-8").read()
+    assert '"parakeet"' in gui, "esta en el codigo pero no se puede elegir en el panel"
+
+    # Sus dependencias tienen que ser cosas que el proyecto YA empaqueta. onnx-asr
+    # es rueda pura; lo que importa es que no traiga nada nativo propio.
+    suyas = {r.split(";")[0].split("[")[0].strip().split(">")[0].split("<")[0]
+             .split("=")[0].split("!")[0].strip().lower()
+             for r in (meta.requires("onnx-asr") or [])}
+    permitidas = {"numpy", "typing-extensions", "onnxruntime", "onnxruntime-gpu",
+                  "huggingface-hub", "onnxruntime-openvino", "onnx"}
+    assert suyas <= permitidas, f"onnx-asr trajo dependencias nuevas: {suyas - permitidas}"
+
+    # Y que el proveedor exista de verdad en el camino de transcribir.
+    fuente = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "eve", "voice.py"), encoding="utf-8").read()
+    assert 'cfg.get("stt_provider") == "parakeet"' in fuente
+    assert hasattr(voice, "_abrir_parakeet")
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):

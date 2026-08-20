@@ -591,6 +591,63 @@ Tres cosas que salieron de ahi:
   exactos en bandeja** deja el mismo 26.1%. No es un problema de vocabulario, es acustico:
   ahi la unica palanca es el modelo.
 
+### Parakeet y Kokoro, medidos contra la linea base
+
+La regla era que entraban solo si ganaban medidos. Se midieron los dos sobre el mismo banco
+y con la misma cuenta.
+
+**Parakeet TDT 0.6B v3 (NVIDIA) entra, como opcion.**
+
+```
+sistema                     lejos  limpio  propios  rapido   ruido  susurro   TOTAL   RTF   disco
+whisper small en gpu        15.2%    3.2%    21.7%   22.2%   12.5%     0.0%   10.9%  0.27   464 MB
+whisper small en cpu        15.2%    3.2%    21.7%   22.2%   12.5%     0.0%   10.9%  1.38   464 MB
+whisper medium en gpu        0.0%    1.6%    21.7%   22.2%    0.0%     0.0%    5.4%  0.61   1.5 GB
+parakeet v3 int8 en CPU      0.0%    1.6%    30.4%   16.7%    6.2%     0.0%    7.1%  0.19   639 MB
+parakeet v3 fp32 en CPU      0.0%    1.6%    21.7%   11.1%   28.1%     0.0%    9.2%  0.18   2.4 GB
+```
+
+Lo que decide no es el punto y medio de WER: es que ese **0.19 es en CPU**. Whisper `small`
+tarda siete veces mas en la misma maquina sin GPU, y la mayoria de las instalaciones no
+tienen CUDA configurado. Un reconocedor mejor deja de costar una placa de video.
+
+Donde pierde es en **nombres propios**: 30.4% contra 21.7%, y ese es justo el grupo que
+decide si Eve abre el programa correcto. No acepta un sesgo de vocabulario como el
+`initial_prompt` de whisper, asi que el indice de programas instalados no lo puede ayudar.
+Por eso es una opcion en **Voz > STT** y no el default.
+
+Cuesta **cero dependencias nativas nuevas**: `onnx-asr` es rueda pura y sus unicas
+dependencias --numpy, onnxruntime, huggingface-hub-- ya viajaban por faster-whisper. Un
+test lo fija, para que el dia que eso deje de ser cierto se sepa antes que lo diga un build
+de linux-arm64.
+
+**Kokoro no entra.** No gana en ninguno de los dos ejes que se pueden medir:
+
+```
+motor                        RTF   WER al re-oirla   disco
+piper es_MX-claude-high     0.30              6.0%   109 MB
+piper es_ES-davefx-medium   0.43              8.4%    60 MB
+kokoro v1.0 ef_dora         0.74              6.0%   325 MB
+piper es_AR-daniela-high    1.07             16.9%   109 MB
+kokoro v1.0 int8 ef_dora    1.88              6.0%    92 MB
+```
+
+La calidad de una voz es subjetiva y no se mide con un banco, pero dos cosas si: la
+velocidad, y la **inteligibilidad** --se sintetiza una frase conocida, se la vuelve a
+transcribir con el mejor reconocedor que hay, y se cuentan los errores. Si un reconocedor
+entrenado con miles de horas no la entiende, una persona con el juego de fondo tampoco.
+
+Kokoro empata en inteligibilidad con una voz de Piper que es **2.5 veces mas rapida y 3
+veces mas chica**, y solo trae tres voces en espanol, ninguna rioplatense. Su version
+cuantizada es mas lenta que la original, no mas rapida. Y como TTS de un asistente el RTF
+importa de verdad: arriba de 1.0 la frase tarda mas en generarse que en escucharse.
+
+Un hallazgo lateral que vale para el uso diario: **la voz argentina `es_AR-daniela-high` es
+la peor medida de todas** --16.9% y RTF 1.07, la unica que pasa de tiempo real. Si te
+importa que se entienda mas que el acento, `es_MX-claude-high` gana por lejos.
+
+---
+
 ### Sensibilidad: los modos y de donde salen
 
 En **Voz > Sensibilidad**. Los dos valores que la componen son el umbral del detector de
@@ -1111,7 +1168,7 @@ percibida es todo. Tampoco se envuelve el `/voice` de Claude Code: es un REPL, n
 | `eve/ollama_engine.py` | Motor `ollama`: modelo local, sin nube |
 | `eve/voices.py` | Catalogo y descarga de voces de la comunidad |
 | `build.py` | Arma los binarios y el instalador del sistema |
-| `banco_voz.py` | Mide el WER del reconocimiento sobre grabaciones reales |
+| `banco_voz.py` | Mide el WER del reconocimiento sobre grabaciones reales, y compara modelos |
 | `packaging/` | Instaladores: Inno Setup, dmg, deb y rpm |
 | `eve/voice.py` | STT (faster-whisper / OpenAI) y TTS (Piper / SAPI / ElevenLabs) |
 | `eve/store.py` | config.json, keyring, SQLite, ventana de contexto |

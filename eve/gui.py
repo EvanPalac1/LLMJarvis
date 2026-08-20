@@ -1328,7 +1328,24 @@ class Panel(tk.Tk):
 
     def _bloque_voz(self, nb):
         t = ttk.Frame(nb)
-        self._row(t, "STT (reconocimiento)", "stt_provider", ["faster-whisper", "openai"])
+        self._row(t, "STT (reconocimiento)", "stt_provider",
+                  ["faster-whisper", "parakeet", "openai"])
+        self._row(t, "Parakeet: cuantizacion", "parakeet_cuantizacion", ["int8", ""])
+        self._ayuda(
+            t,
+            "parakeet es el modelo de NVIDIA. Entro porque gano medido sobre las\n"
+            "mismas 24 grabaciones, con la misma cuenta:\n"
+            "  whisper small en gpu   WER 10.9%   RTF 0.27    464 MB\n"
+            "  whisper small en cpu   WER 10.9%   RTF 1.38    464 MB\n"
+            "  whisper medium en gpu  WER  5.4%   RTF 0.61    1.5 GB\n"
+            "  parakeet int8 en CPU   WER  7.1%   RTF 0.19    639 MB\n"
+            "Lo que importa no es el punto y medio de WER: es que ese 0.19 es EN\n"
+            "CPU. Whisper small tarda siete veces mas sin GPU, y la mayoria de las\n"
+            "instalaciones no tienen CUDA configurado.\n"
+            "\nDonde pierde: nombres propios, 30.4% contra 21.7%, que es justo el\n"
+            "grupo que decide si abre el programa correcto -- no acepta el sesgo\n"
+            "de vocabulario que si acepta whisper. Por eso no es el default.\n"
+            "Sin cuantizar mejora los nombres propios pero pesa 2.4 GB.")
         self._row(t, "Modelo Whisper local", "stt_model",
                   ["tiny", "base", "small", "medium", "large-v3"])
         self._row(t, "Dispositivo", "stt_device", ["cpu", "cuda"])

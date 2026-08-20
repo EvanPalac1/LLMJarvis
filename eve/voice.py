@@ -249,9 +249,53 @@ def probar_gpu(cfg: dict) -> str:
     )
 
 
+_parakeet = None
+_parakeet_para = None
+
+
+def _abrir_parakeet(cuantizacion: str):
+    """Carga el modelo de NVIDIA, bajandolo la primera vez.
+
+    Entro porque gano medido sobre el mismo banco de 24 clips que whisper, y con
+    la misma metrica --no porque sea mas nuevo:
+
+        sistema                    TOTAL   RTF   disco
+        whisper small en gpu       10.9%  0.27   464 MB
+        whisper small en cpu       10.9%  1.38   464 MB
+        whisper medium en gpu       5.4%  0.61   1.5 GB
+        parakeet v3 int8 en CPU     7.1%  0.19   639 MB
+
+    Lo importante no es el punto y medio de WER: es que ese 0.19 es **en CPU**.
+    Whisper small tarda siete veces mas en la misma maquina sin GPU, y la mayoria
+    de las instalaciones no tienen CUDA configurado. Aca un reconocedor mejor deja
+    de costar una placa de video.
+
+    Donde pierde: nombres propios (30.4% contra 21.7% de whisper small con int8),
+    que es justo el grupo que decide si Eve abre el programa correcto, y no acepta
+    un sesgo de vocabulario como el `initial_prompt` de whisper. Por eso es una
+    opcion y no el default.
+    """
+    import onnx_asr
+
+    return onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3",
+                               quantization=cuantizacion or None)
+
+
 def transcribe(audio: np.ndarray, cfg: dict) -> str:
     if audio.size < SAMPLE_RATE // 4:  # menos de 250 ms: fue un toque, no una frase
         return ""
+
+    if cfg.get("stt_provider") == "parakeet":
+        global _parakeet, _parakeet_para
+        quiere = str(cfg.get("parakeet_cuantizacion", "int8"))
+        if _parakeet is None or _parakeet_para != quiere:
+            _parakeet = _abrir_parakeet(quiere)
+            _parakeet_para = quiere
+        # Sin VAD y sin sesgo de vocabulario: el modelo no los acepta, y no le
+        # hacen falta --sobre el grupo susurrado, donde whisper con el detector
+        # puesto devolvia vacio, este da 0.0% con el audio crudo.
+        return str(_parakeet.recognize(audio, sample_rate=SAMPLE_RATE,
+                                       language=cfg.get("language", "es"))).strip()
 
     if cfg["stt_provider"] == "openai":
         import requests
@@ -444,7 +488,13 @@ def precargar_stt(cfg: dict) -> None:
     no parecerlo. No se transcribe de prueba: cargar alcanza, y correr el modelo
     de verdad seria trabajo y CPU al pedo justo en el arranque.
     """
-    global _whisper, _whisper_para
+    global _whisper, _whisper_para, _parakeet, _parakeet_para
+    if cfg.get("stt_provider") == "parakeet":
+        quiere = str(cfg.get("parakeet_cuantizacion", "int8"))
+        if _parakeet is None or _parakeet_para != quiere:
+            _parakeet = _abrir_parakeet(quiere)
+            _parakeet_para = quiere
+        return
     if cfg.get("stt_provider") != "faster-whisper":
         return
     # La misma clave de tres partes que usa transcribe(): con dos, precargar

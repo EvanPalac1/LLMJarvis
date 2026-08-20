@@ -31,7 +31,7 @@ ARCH = "arm64" if _M in ("arm64", "aarch64") else "x64"
 
 OCULTOS = [
     "pystray._win32" if WINDOWS else "pystray._darwin" if MACOS else "pystray._appindicator",
-    "comtypes", "piper", "onnxruntime",
+    "comtypes", "piper", "onnxruntime", "onnx_asr",
     # El puente PIL->tkinter. Nada lo importa a nivel de modulo, asi que
     # PyInstaller no lo ve solo, y sin el no hay compositor de modulos. Que
     # viaje se comprueba corriendo el binario (`_verificar_imports`), no
@@ -55,7 +55,7 @@ else:
 # Paquetes que cargan archivos de datos en runtime. PyInstaller NO los copia si
 # no se le pide, y el fallo no aparece hasta que alguien usa la funcion: la v1.0.0
 # salio con el reconocimiento de voz roto porque faltaba silero_vad_v6.onnx.
-CON_DATOS = ["faster_whisper", "piper", "onnxruntime"]
+CON_DATOS = ["faster_whisper", "piper", "onnxruntime", "onnx_asr"]
 
 # Archivos sin los cuales el paquete esta roto aunque el build "haya salido bien".
 IMPRESCINDIBLES = [os.path.join("faster_whisper", "assets", "silero_vad_v6.onnx")]

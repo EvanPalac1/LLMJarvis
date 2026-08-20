@@ -124,6 +124,10 @@ DEFAULTS = {
     #   ruido     musica o el juego de fondo, y vos hablando fuerte
     #   bajo      de madrugada, hablando suave
     #   manual    usa stt_vad_umbral y stt_vad_aire_ms tal cual
+    # int8 o vacio para sin cuantizar. Solo aplica con stt_provider=parakeet.
+    # Medido: int8 pesa 639 MB contra 2.4 GB, anda igual de rapido y saca mejor
+    # WER total. Sin cuantizar solo gana en nombres propios.
+    "parakeet_cuantizacion": "int8",
     "stt_sensibilidad": "auto",
     # Activacion por palabra clave. Apagada de fabrica y a proposito: prenderla
     # deja el microfono abierto todo el tiempo, y eso lo elige el usuario.

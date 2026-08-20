@@ -46,6 +46,7 @@ IMPORTS_CRITICOS = [
     "faster_whisper",
     "piper",
     "onnxruntime",
+    "onnx_asr",      # el reconocedor opcional de NVIDIA; rueda pura, sin deps nuevas
 ]
 
 # Los modulos de Eve que NINGUN import a nivel de modulo alcanza: los carga el
