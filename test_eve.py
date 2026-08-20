@@ -6,6 +6,7 @@ seguridad y la ventana de contexto. Sin dependencias externas.
 
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -2276,6 +2277,58 @@ def modulos_de(st) -> int:
     from eve import modulos as mods
 
     return len(mods.identificadores(st.load_config()))
+
+
+def test_la_memoria_no_crece_para_siempre_en_el_prompt():
+    """`recordar` solo agrega, y todo eso viaja en cada llamada al modelo.
+
+    Con veinte hechos no se nota; con doscientos es medio presupuesto de
+    contexto gastado en cosas que no tienen nada que ver con lo que se acaba de
+    preguntar. Dos podas, las dos sin llamar a ningun modelo: sacar la cabecera
+    --que esta escrita para la persona que edita el archivo-- y acotar los
+    hechos a un presupuesto, dejando los que nombran cosas que Eve viene
+    tocando y los mas nuevos.
+
+    Lo que NO puede pasar: que un dato desaparezca sin que el modelo sepa que
+    existe. Por eso, cuando se poda, se avisa cuantos quedaron afuera y como
+    pedirlos.
+    """
+    from eve import memoria
+
+    cabecera = ("## Memoria\n\nDatos del usuario. Eve agrega aca con `recordar`.\n"
+                "Este archivo no va al repositorio: es tuyo.\n\n")
+
+    # Poco: viaja todo, pero sin la cabecera, que el modelo no necesita.
+    corto = cabecera + "- El navegador es Opera GX.\n- El server vive en D:\\Server.\n"
+    podado = memoria.podar(corto)
+    assert "no va al repositorio" not in podado, "la cabecera es para la persona"
+    assert "Opera GX" in podado and "D:\\Server" in podado
+    assert len(memoria.hechos(corto)) == 2
+
+    # Sin hechos no se manda un titulo solo.
+    assert memoria.podar(cabecera) == ""
+
+    # Mucho: se acota y se avisa.
+    largo = cabecera + "".join(
+        f"- Dato {i} sobre cosa{i} que no viene al caso.\n" for i in range(200))
+    apretado = memoria.podar(largo, tope=1200)
+    assert len(apretado) < len(largo) / 3, (len(apretado), len(largo))
+    assert "datos mas guardados" in apretado, "se comio datos sin decirlo"
+    assert "E recordado" in apretado, "y sin decir como pedirlos"
+
+    # Los hechos salen en el orden del archivo aunque se elijan por puntaje:
+    # leerlos salteados confunde mas de lo que ahorra.
+    numeros = [int(n) for n in re.findall(r"Dato (\d+) ", apretado)]
+    assert numeros == sorted(numeros), numeros
+
+    # Y lo que quedo afuera se puede pedir.
+    assert "Dato 150" in memoria.buscar("Dato 150", largo)
+    assert "no tengo nada" in memoria.buscar("zzz-inexistente", largo).lower()
+
+    # Las entidades son lo que da la relevancia: nombres propios, rutas y lo
+    # entrecomillado. Sin eso, la poda seria solo "los ultimos N".
+    encontradas = memoria.entidades('El server `D:\\Server` corre "KEO RPG" con NeoForge')
+    assert "neoforge" in encontradas and "keo rpg" in encontradas
 
 
 def test_lector_web():

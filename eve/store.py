@@ -669,6 +669,11 @@ def load_brief() -> str:
     Son dos archivos separados a proposito: `EVE.md` es el manual, igual para
     todos y versionado; `MEMORIA.md` son los datos del usuario, que no van al
     repositorio.
+
+    La memoria pasa por `memoria.podar()`: le saca la cabecera --que esta escrita
+    para la persona que edita el archivo, no para el modelo-- y la acota si
+    crecio de mas. `recordar` solo agrega y nunca saca, asi que sin esto el
+    archivo crece para siempre adentro de cada llamada.
     """
     partes = []
     if os.path.exists(BRIEF_PATH):
@@ -679,10 +684,12 @@ def load_brief() -> str:
         cuerpo = texto.split("\n## ", 1)
         partes.append("## " + cuerpo[1] if len(cuerpo) > 1 else texto)
     if os.path.exists(MEMORIA_PATH):
+        from . import memoria
+
         with open(MEMORIA_PATH, encoding="utf-8") as f:
-            memoria = f.read().strip()
-        if memoria:
-            partes.append(memoria)
+            recordado = memoria.podar(f.read())
+        if recordado:
+            partes.append("## Memoria\n\n" + recordado)
     return "\n\n".join(partes)
 
 

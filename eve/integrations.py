@@ -121,6 +121,7 @@ Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
 
   E mostrar --titulo "T" --texto "..."   todo lo que no entre en 2 frases habladas
   E recordar "dato reutilizable"
+  E recordado TEMA                       lo que ya sabes de algo, si no entro arriba
   E componer --app whatsapp|telegram|discord|mail --to DEST --text "MSJ"
       abre la app con el mensaje escrito; lo envia el usuario. Unica via para
       WhatsApp y Discord personal: automatizar esas cuentas las banea.
@@ -1268,6 +1269,9 @@ def main(argv=None) -> int:
 
     sub.add_parser("steam-info")
 
+    re_ = sub.add_parser("recordado")
+    re_.add_argument("tema", nargs="?", default="")
+
     pr = sub.add_parser("programa")
     pr.add_argument("nombre")
 
@@ -1341,6 +1345,14 @@ def main(argv=None) -> int:
             print(discord_postear(a.texto))
         elif a.cmd == "steam-info":
             print(steam_info())
+        elif a.cmd == "recordado":
+            from eve import memoria
+
+            if not os.path.exists(store.MEMORIA_PATH):
+                print("No tengo nada guardado todavia.")
+            else:
+                with open(store.MEMORIA_PATH, encoding="utf-8") as f:
+                    print(memoria.buscar(a.tema, f.read()))
         elif a.cmd == "programa":
             from eve import apps
 
