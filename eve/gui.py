@@ -1329,16 +1329,38 @@ class Panel(tk.Tk):
     def _bloque_voz(self, nb):
         t = ttk.Frame(nb)
         self._row(t, "STT (reconocimiento)", "stt_provider", ["faster-whisper", "openai"])
-        self._row(t, "Modelo Whisper local", "stt_model", ["tiny", "base", "small", "medium"])
+        self._row(t, "Modelo Whisper local", "stt_model",
+                  ["tiny", "base", "small", "medium", "large-v3"])
         self._row(t, "Dispositivo", "stt_device", ["cpu", "cuda"])
         self._row(t, "Tipo de computo", "stt_computo",
                   ["auto", "int8", "int8_float32", "int8_float16", "float16", "float32"])
         self._check(t, "Recortar silencios antes de transcribir (VAD)", "stt_vad")
+        self._row(t, "Sensibilidad", "stt_sensibilidad",
+                  ["auto", "normal", "ruido", "bajo", "manual"])
+        self._row(t, "Reglas por horario", "stt_horario", width=40)
+        self._ayuda(
+            t,
+            "Como escuchar. Los numeros salen de medir 24 grabaciones propias:\n"
+            "  normal  cuarto tranquilo         WER 10.9%  (con ruido 12.5%)\n"
+            "  ruido   musica o el juego atras  WER  8.7%  (con ruido  0.0%)\n"
+            "  bajo    de madrugada, voz suave  WER 12.0%  (con ruido 18.8%)\n"
+            "  manual  usa el umbral y el aire de mas abajo\n"
+            "Las reglas de horario van separadas por coma y solo pisan a 'auto':\n"
+            "  00:00-06:00=bajo, 20:00-23:59=ruido\n"
+            "Si elegis un modo a mano, el reloj no te lo cambia.")
+        self._row(t, "Umbral del detector", "stt_vad_umbral", width=10)
+        self._row(t, "Aire del detector (ms)", "stt_vad_aire_ms", width=10)
         ttk.Label(
             t,
             text="cuda necesita las librerias de NVIDIA instaladas; si faltan, cae a cpu\n"
             "solo y avisa. Medido en una GTX 1660 SUPER: 3.42s por orden en cpu\n"
-            "contra 0.71s en gpu. 'auto' elige int8 en cpu e int8_float16 en gpu.",
+            "contra 0.71s en gpu. 'auto' elige int8 en cpu e int8_float16 en gpu.\n"
+            "\nQue modelo conviene, medido sobre el banco de voz:\n"
+            "  small     WER 10.9%   0.9s por orden en gpu,  3.3s en cpu\n"
+            "  medium    WER  4.9%   1.8s en gpu, 10.2s en cpu  <- pedi gpu\n"
+            "  large-v3  WER  4.9%   2.7s en gpu, y PEOR en nombres propios\n"
+            "            (34.8% contra 17.4% de medium): mas grande no es\n"
+            "            mejor aca.",
             style="Ayuda.TLabel", justify="left",
         ).pack(anchor="w", padx=12, pady=(0, 6))
         ttk.Button(t, text="Probar GPU", command=self.gpu_probar).pack(anchor="w", padx=12)

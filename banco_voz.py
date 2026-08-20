@@ -17,6 +17,7 @@ verdad. Correr:
     python banco_voz.py                 mide todo con la config actual
     python banco_voz.py --modelo medium  pisa el modelo sin tocar la config
     python banco_voz.py --grupo propios  solo un grupo
+    python banco_voz.py --comparar small,medium,large-v3   tabla de modelos
 """
 
 from __future__ import annotations
@@ -100,14 +101,16 @@ def grupo_de(nombre: str) -> str:
     return re.sub(r"_\d+$", "", Path(nombre).stem)
 
 
-def medir(carpeta: Path, cfg: dict, solo: str = "") -> int:
+def _referencias(carpeta: Path) -> dict | None:
     ficha = carpeta / TRANSCRIPCIONES
     if not ficha.exists():
         print(f"Falta {ficha}.")
         print("Corre `python banco_voz.py --borrador` para generarlo y despues corregilo.")
-        return 1
-    refs = json.loads(ficha.read_text(encoding="utf-8"))
+        return None
+    return json.loads(ficha.read_text(encoding="utf-8"))
 
+
+def _correr(carpeta: Path, cfg: dict, refs: dict, solo: str = "") -> dict[str, list]:
     por_grupo: dict[str, list] = {}
     for nombre, esperado in sorted(refs.items()):
         if not esperado or (solo and grupo_de(nombre) != solo):
@@ -122,7 +125,40 @@ def medir(carpeta: Path, cfg: dict, solo: str = "") -> int:
         por_grupo.setdefault(grupo_de(nombre), []).append(
             (nombre, len(ref), sub, ins, dl, tardo, segundos, esperado, salida)
         )
+    return por_grupo
 
+
+def _totales(filas: list) -> tuple[int, int, float, float]:
+    """(palabras, errores, segundos de proceso, segundos de audio)."""
+    return (sum(f[1] for f in filas), sum(f[2] + f[3] + f[4] for f in filas),
+            sum(f[5] for f in filas), sum(f[6] for f in filas))
+
+
+def comparar(carpeta: Path, cfg: dict, modelos: list[str], solo: str = "") -> int:
+    """Una fila por modelo, una columna por grupo. Es la tabla que decide si un
+    motor nuevo entra: sin esto la comparacion es una opinion."""
+    refs = _referencias(carpeta)
+    if refs is None:
+        return 1
+    grupos = sorted({grupo_de(n) for n, t in refs.items() if t and (not solo or grupo_de(n) == solo)})
+    print(f"{'modelo':<12} " + " ".join(f"{g:>9}" for g in grupos) + f"{'TOTAL':>10}{'RTF':>7}")
+    print("-" * (12 + 10 * len(grupos) + 17))
+    for m in modelos:
+        por_grupo = _correr(carpeta, cfg | {"stt_model": m}, refs, solo)
+        fila, tp, te, tt, ts = f"{m:<12} ", 0, 0, 0.0, 0.0
+        for g in grupos:
+            p, e, t, sg = _totales(por_grupo.get(g, []))
+            tp, te, tt, ts = tp + p, te + e, tt + t, ts + sg
+            fila += f"{e / p:>8.1%} " if p else f"{'-':>9} "
+        print(fila + f"{te / tp:>9.1%}" + f"{tt / ts:>7.2f}")
+    return 0
+
+
+def medir(carpeta: Path, cfg: dict, solo: str = "") -> int:
+    refs = _referencias(carpeta)
+    if refs is None:
+        return 1
+    por_grupo = _correr(carpeta, cfg, refs, solo)
     if not por_grupo:
         print("No hay clips con transcripcion para medir.")
         return 1
@@ -131,10 +167,7 @@ def medir(carpeta: Path, cfg: dict, solo: str = "") -> int:
     tot_p = tot_e = 0
     tot_t = tot_s = 0.0
     for gr, filas in por_grupo.items():
-        p = sum(f[1] for f in filas)
-        e = sum(f[2] + f[3] + f[4] for f in filas)
-        t = sum(f[5] for f in filas)
-        s = sum(f[6] for f in filas)
+        p, e, t, s = _totales(filas)
         tot_p, tot_e, tot_t, tot_s = tot_p + p, tot_e + e, tot_t + t, tot_s + s
         print(f"{gr:<10} WER {e / p:6.1%}   {e}/{p} palabras   RTF {t / s:.2f}")
         for nombre, np_, sub, ins, dl, _, _, esperado, salida in filas:
@@ -172,7 +205,7 @@ def borrador(carpeta: Path, cfg: dict) -> int:
 def main(argv: list[str]) -> int:
     carpeta = CARPETA
     cfg = store.load_config()
-    solo, hacer_borrador = "", False
+    solo, hacer_borrador, modelos = "", False, []
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -190,6 +223,9 @@ def main(argv: list[str]) -> int:
             carpeta = Path(argv[i])
         elif a == "--borrador":
             hacer_borrador = True
+        elif a == "--comparar":
+            i += 1
+            modelos = argv[i].split(",")
         else:
             print(__doc__)
             return 1
@@ -198,7 +234,11 @@ def main(argv: list[str]) -> int:
     if not carpeta.exists():
         print(f"No existe {carpeta}. Dejá ahi los .wav del banco.")
         return 1
-    return borrador(carpeta, cfg) if hacer_borrador else medir(carpeta, cfg, solo)
+    if hacer_borrador:
+        return borrador(carpeta, cfg)
+    if modelos:
+        return comparar(carpeta, cfg, modelos, solo)
+    return medir(carpeta, cfg, solo)
 
 
 if __name__ == "__main__":

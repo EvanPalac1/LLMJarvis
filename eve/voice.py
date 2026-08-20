@@ -6,6 +6,7 @@ disponibles si el usuario carga sus propias claves en el panel.
 """
 
 import io
+import datetime
 import os
 import queue
 import tempfile
@@ -297,6 +298,84 @@ def transcribe(audio: np.ndarray, cfg: dict) -> str:
         return _decodificar(_whisper, audio, cfg)
 
 
+# Sensibilidad: los tres modos, y de donde salen los numeros.
+#
+# Barrido sobre el banco de 24 clips, modelo `small`, umbral del detector x aire
+# en milisegundos. El WER total del ajuste que venia de fabrica (0.5/400) era
+# 12.0%:
+#
+#   umbral/aire    lejos  limpio  propios  rapido   ruido  susurro   TOTAL
+#   0.5/400        15.2%    3.2%    26.1%   16.7%   18.8%     0.0%   12.0%
+#   0.5/100        15.2%    3.2%    21.7%   22.2%   12.5%     0.0%   10.9%
+#   0.85/250       15.2%    3.2%    26.1%   16.7%    0.0%     0.0%    8.7%
+#   sin VAD        15.2%    3.2%    26.1%   22.2%   18.8%     0.0%   12.5%
+#
+# Dos cosas que salieron al reves de lo que dice la intuicion:
+#
+# 1. Para hablar bajo NO sirve un detector permisivo. Con umbral 0.35 el susurro
+#    empeora a 26.7%, porque un detector flojo encuentra "voz" adentro del ruido,
+#    devuelve algo en vez de vacio, y asi le tapa la puerta al reintento sin VAD
+#    de mas abajo --que es lo que de verdad rescata un susurro, y lo deja en 0%.
+# 2. El aire de 400 ms que trae la libreria es demasiado: recortarlo a 100 baja
+#    el WER un punto entero y de paso acelera.
+MODOS = {
+    # nombre    umbral  aire_ms
+    "normal":   (0.50, 100),   # 10.9% total, y el mejor en nombres propios
+    "ruido":    (0.85, 250),   # el grupo con ruido de fondo pasa de 18.8% a 0.0%
+    "bajo":     (0.50, 250),   # mas aire para no comerse ataques suaves
+}
+
+
+def _rango(txt: str, ahora) -> bool:
+    """`22:30-06:00` incluye la medianoche; `08:00-12:00` no. Sin este caso el
+    horario que el usuario pidio --de las 12 de la noche a las 6-- no entraria."""
+    desde, hasta = (x.strip() for x in txt.split("-", 1))
+    h, m = ahora.hour * 60 + ahora.minute, lambda t: int(t[:2]) * 60 + int(t[3:5])
+    a, b = m(desde), m(hasta)
+    return a <= h < b if a <= b else (h >= a or h < b)
+
+
+def modo_horario(cfg: dict, ahora=None) -> str:
+    """El modo que corresponde a esta hora, o "" si ninguna regla aplica.
+
+    Formato: `00:00-06:00=bajo, 20:00-23:59=ruido`. Gana la primera que entra.
+    """
+    reglas = str(cfg.get("stt_horario", "")).strip()
+    if not reglas:
+        return ""
+    ahora = ahora or datetime.datetime.now()
+    for regla in reglas.split(","):
+        if "=" not in regla:
+            continue
+        rango, modo = (x.strip() for x in regla.split("=", 1))
+        try:
+            if modo in MODOS and _rango(rango, ahora):
+                return modo
+        except (ValueError, IndexError):
+            continue  # una regla mal escrita no puede dejar a Eve sorda
+    return ""
+
+
+def sensibilidad(cfg: dict, ahora=None) -> tuple[float, int, str]:
+    """(umbral, aire_ms, de donde salio). El horario solo pisa al modo `auto`.
+
+    Que `auto` sea el unico que el reloj puede pisar es a proposito: si elegiste
+    "modo ruido" a mano, que a las 12 de la noche te lo cambie una regla que
+    escribiste hace un mes es exactamente la sensacion de app poseida que el
+    ajuste de autoridad existe para evitar.
+    """
+    elegido = str(cfg.get("stt_sensibilidad", "auto"))
+    if elegido == "manual":
+        return (_frac(cfg, "stt_vad_umbral", 0.5, 0.05, 0.95),
+                _num(cfg, "stt_vad_aire_ms", 0, 2000), "manual")
+    if elegido in MODOS:
+        return (*MODOS[elegido], elegido)
+    por_hora = modo_horario(cfg, ahora)
+    if por_hora:
+        return (*MODOS[por_hora], f"{por_hora} (por horario)")
+    return (*MODOS["normal"], "normal")
+
+
 # Debajo de esto no hay voz que rescatar: el reintento sin VAD solo agregaria
 # una pasada del modelo sobre aire. Medido sobre el banco de voz, un susurro de
 # verdad pica en -27 dBFS y un clip inservible en -39.
@@ -306,6 +385,8 @@ PISO_REINTENTO = 0.008  # ~ -42 dBFS de pico
 def _decodificar(modelo, audio: np.ndarray, cfg: dict) -> str:
     from . import apps
 
+    umbral, aire, _ = sensibilidad(cfg)
+
     def correr(con_vad: bool) -> str:
         segments, _ = modelo.transcribe(
             audio,
@@ -314,6 +395,10 @@ def _decodificar(modelo, audio: np.ndarray, cfg: dict) -> str:
             # Recortar los silencios acelera (medido: 1.19x -> 1.09x de tiempo
             # real) y no cambia el texto.
             vad_filter=con_vad,
+            # El umbral del detector es LA perilla de sensibilidad: el 0.5 fijo
+            # de la libreria es lo que se comia los susurros enteros.
+            vad_parameters={"threshold": umbral, "speech_pad_ms": aire}
+            if con_vad else None,
             # Medido sobre una orden tipica: beam 5 tarda 4.4s y beam 1 tarda
             # 3.5s, con el MISMO texto. La busqueda por haz sirve para dictado
             # largo; una orden de ocho palabras no cambia de resultado por
@@ -365,6 +450,18 @@ def _num(cfg: dict, clave: str, minimo: int, maximo: int) -> int:
         return max(minimo, min(maximo, int(cfg.get(clave, minimo))))
     except (TypeError, ValueError):
         return minimo
+
+
+def _frac(cfg: dict, clave: str, defecto: float, minimo: float, maximo: float) -> float:
+    """Como `_num` pero sin redondear, y cayendo al defecto y no al minimo.
+
+    El umbral del VAD vive entre 0 y 1: con int() todo valor util se aplasta a
+    0. Y cayendo al minimo, un cfg incompleto --un test, una config vieja-- daria
+    el detector mas permisivo que existe en vez del que eligio el usuario."""
+    try:
+        return max(minimo, min(maximo, float(cfg.get(clave, defecto))))
+    except (TypeError, ValueError):
+        return defecto
 
 
 def hasta(texto: str, fraccion: float) -> str:

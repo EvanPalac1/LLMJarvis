@@ -117,6 +117,20 @@ DEFAULTS = {
     # Recorta los silencios antes de transcribir. Medido: 1.19x -> 1.09x de
     # tiempo real sobre el mismo audio, sin cambiar el texto.
     "stt_vad": True,
+    # Como escuchar. Los valores de cada modo salen de un barrido medido sobre el
+    # banco de voz; estan en `voice.MODOS` con la tabla al lado.
+    #   auto      normal, salvo que una regla de horario diga otra cosa
+    #   normal    para un cuarto tranquilo
+    #   ruido     musica o el juego de fondo, y vos hablando fuerte
+    #   bajo      de madrugada, hablando suave
+    #   manual    usa stt_vad_umbral y stt_vad_aire_ms tal cual
+    "stt_sensibilidad": "auto",
+    # Reglas de horario, separadas por coma: `00:00-06:00=bajo, 20:00-23:59=ruido`.
+    # Solo pisan al modo `auto`. Vacio = sin reglas.
+    "stt_horario": "",
+    # Los dos de abajo solo se usan con stt_sensibilidad = manual.
+    "stt_vad_umbral": 0.5,
+    "stt_vad_aire_ms": 100,
     "stt_vocabulary": "",
     # Como viaja el catalogo de programas en el system prompt.
     #   usados    solo los que aparecen en el log, ordenados por frecuencia.
@@ -156,15 +170,6 @@ DEFAULTS = {
     # Todo lo ejecutado sigue quedando en el log de auditoria (tabla `actions`),
     # que pasa a ser el unico registro de lo que hizo Eve.
     "confirm_destructive": True,
-    # Quien manda sobre un valor cuando los dos quieren cambiarlo.
-    #   usuario   lo que tocaste a mano queda trabado y Eve no lo pisa
-    #   eve       Eve cambia lo que quiera
-    #   preguntar Eve pide permiso antes de cada cambio
-    # Sin esto la app se siente poseida: pones opacidad 40, Eve la vuelve a 80
-    # y no hay forma de saber quien gano.
-    "autoridad": "usuario",
-    # Las claves que editaste vos, separadas por coma. Las escribe el panel.
-    "claves_del_usuario": "",
     # Quien manda sobre un valor cuando los dos quieren cambiarlo.
     #   usuario   lo que tocaste a mano queda trabado y Eve no lo pisa
     #   eve       Eve cambia lo que quiera
@@ -834,45 +839,6 @@ def historial_neutro(cfg: dict, ahora: float = 0.0) -> list[dict]:
     ]
     # La misma normalizacion que usan los motores: tiene que empezar en `user`.
     return trim_history(recientes, tope, minutos, ahora)
-
-
-AUTORIDADES = ("usuario", "eve", "preguntar")
-
-
-def marcar_tocadas(claves) -> None:
-    """Anota que estas claves las cambio el usuario a mano."""
-    claves = [c for c in claves if c]
-    if not claves:
-        return
-    cfg = load_config()
-    previas = {c.strip() for c in str(cfg.get("claves_del_usuario", "")).split(",") if c.strip()}
-    nuevas = previas | set(claves)
-    if nuevas != previas:
-        cfg["claves_del_usuario"] = ",".join(sorted(nuevas))
-        save_config(cfg)
-
-
-def trabada(clave: str, cfg: dict = None) -> bool:
-    """Si Eve NO puede tocar esta clave porque manda el usuario."""
-    cfg = cfg if cfg is not None else load_config()
-    if str(cfg.get("autoridad", "usuario")) != "usuario":
-        return False
-    marcadas = {c.strip() for c in str(cfg.get("claves_del_usuario", "")).split(",") if c.strip()}
-    return clave in marcadas
-
-
-def destrabar(clave: str = "") -> str:
-    """Suelta una clave, o todas si no se dice cual."""
-    cfg = load_config()
-    if not clave:
-        cfg["claves_del_usuario"] = ""
-        save_config(cfg)
-        return "Listo, ninguna clave queda trabada."
-    marcadas = {c.strip() for c in str(cfg.get("claves_del_usuario", "")).split(",") if c.strip()}
-    marcadas.discard(clave)
-    cfg["claves_del_usuario"] = ",".join(sorted(marcadas))
-    save_config(cfg)
-    return f"{clave} queda libre."
 
 
 AUTORIDADES = ("usuario", "eve", "preguntar")

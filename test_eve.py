@@ -3217,6 +3217,51 @@ def test_animados_no_solo_gif():
     assert gui.count("*.webp") == 3, "quedo un dialogo de imagen sin los animados"
 
 
+def test_sensibilidad_por_modo_y_horario():
+    """Los modos de escucha, y que el reloj no le gane a una eleccion a mano."""
+    import datetime
+
+    from eve import voice
+
+    cfg = dict(store.DEFAULTS)
+    assert cfg["stt_sensibilidad"] == "auto"
+    # Sin reglas, auto es normal. Y los numeros del modo salen del banco, asi que
+    # cambiarlos sin volver a medir tiene que romper esto.
+    assert voice.sensibilidad(cfg) == (0.50, 100, "normal")
+    assert voice.MODOS["ruido"] == (0.85, 250), "los valores salen de medir, no de opinar"
+
+    cfg["stt_horario"] = "00:00-06:00=bajo, 20:00-23:59=ruido"
+    a_las = lambda h: datetime.datetime(2026, 8, 20, h, 0)
+    assert voice.sensibilidad(cfg, a_las(3))[2] == "bajo (por horario)"
+    assert voice.sensibilidad(cfg, a_las(10))[2] == "normal"
+    assert voice.sensibilidad(cfg, a_las(21))[2] == "ruido (por horario)"
+
+    # Un modo elegido a mano no lo pisa el reloj: que a las 3 de la manana te
+    # cambie el modo una regla de hace un mes es la app poseida que el ajuste de
+    # autoridad existe para evitar.
+    assert voice.sensibilidad({**cfg, "stt_sensibilidad": "ruido"}, a_las(3)) == (
+        0.85, 250, "ruido")
+
+    # Cruzar la medianoche es el caso que se pidio, y el que un rango ingenuo
+    # rompe: 22:00-02:00 tiene que incluir la 1 AM y excluir el mediodia.
+    cruza = {**cfg, "stt_horario": "22:00-02:00=bajo"}
+    assert voice.sensibilidad(cruza, a_las(23))[2] == "bajo (por horario)"
+    assert voice.sensibilidad(cruza, a_las(1))[2] == "bajo (por horario)"
+    assert voice.sensibilidad(cruza, a_las(12))[2] == "normal"
+
+    # Una regla mal escrita no puede dejar a Eve sorda.
+    for basura in ("basura", "25:99-xx=bajo", "00:00-06:00=inventado", "=", ","):
+        assert voice.sensibilidad({**cfg, "stt_horario": basura})[2] == "normal", basura
+
+    # manual usa los valores crudos, y los acota.
+    manual = {**cfg, "stt_sensibilidad": "manual", "stt_vad_umbral": 0.31,
+              "stt_vad_aire_ms": 700}
+    assert voice.sensibilidad(manual) == (0.31, 700, "manual")
+    assert voice.sensibilidad({**manual, "stt_vad_umbral": 9})[0] == 0.95
+    # Y un cfg incompleto cae al defecto, no al detector mas permisivo que existe.
+    assert voice._frac({}, "stt_vad_umbral", 0.5, 0.05, 0.95) == 0.5
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):
