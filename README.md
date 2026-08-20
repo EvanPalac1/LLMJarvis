@@ -737,6 +737,30 @@ nombre: `Eve, abri Spotify` salia `Mb.Avris.phi.`.
 nada llega al disco salvo el segmento que disparo; pausar cierra el stream de verdad, no lo
 ignora; y cada despertar queda anotado en el log de acciones.
 
+**Con el juego y Discord de verdad.** Las seis frases de control de arriba son voz
+sintetica en una habitacion en silencio: sirven para descartar lo obvio y no para decir si
+esto se puede dejar prendido. Eso se midio aparte, con Rainbow Six corriendo y una
+conversacion por Discord:
+
+```
+--- 5 minutos ---
+segmentos de voz detectados : 18  (62s de audio, 21% del tiempo)
+despertares                 : 0
+falsos positivos por hora   : 0.0
+costo del modelo de la puerta: corrio 18 veces, 3.6 por minuto
+```
+
+Dos cosas que solo se ven asi. **El microfono ABRE** con los dos programas tomandolo:
+WASAPI en modo compartido convive, que era la duda principal antes de escribir esto. Y el
+modelo de la puerta corre **3.6 veces por minuto**, no todo el tiempo: el resto son 62
+segundos de silero sobre 300, que cuestan 0.20% de un core. El costo de tener esto
+encendido esta acotado por cuanto hablas, no por cuanto dura la sesion.
+
+Y una advertencia sobre el numero: **cero en cinco minutos descarta que la puerta este
+rota, no prueba que la tasa sea baja**. Con cero eventos en un doceavo de hora el techo
+estadistico sigue siendo alto. Para afirmar algo mas fuerte hace falta una sesion larga.
+
+
 ### La camara, y por que no
 
 Se evaluo activarla por gestos vistos por la webcam. **No entra**, y no es una opinion:
