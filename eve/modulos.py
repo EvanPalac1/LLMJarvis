@@ -234,6 +234,12 @@ def por_defecto_tablero():
         "tcuentas": {"tipo": "contexto", "superficie": "tablero", "x": 40, "y": 360,
                      "ancho": 300, "alto": 90, "detalle": "numeros",
                      "cuando": "siempre", "z": 1},
+        # Lo que Eve hizo, sacado del log de auditoria que ya se escribia.
+        "tgrafo": {"tipo": "grafo", "superficie": "tablero", "x": 700, "y": 30,
+                   "ancho": 360, "alto": 300, "cuando": "siempre", "z": 1},
+        # Lo ultimo que se le pidio leer de la web.
+        "tlector": {"tipo": "lector", "superficie": "tablero", "x": 700, "y": 350,
+                    "ancho": 360, "alto": 220, "tam": 11, "cuando": "siempre", "z": 1},
     }
 
 
