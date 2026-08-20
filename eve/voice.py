@@ -297,26 +297,46 @@ def transcribe(audio: np.ndarray, cfg: dict) -> str:
         return _decodificar(_whisper, audio, cfg)
 
 
+# Debajo de esto no hay voz que rescatar: el reintento sin VAD solo agregaria
+# una pasada del modelo sobre aire. Medido sobre el banco de voz, un susurro de
+# verdad pica en -27 dBFS y un clip inservible en -39.
+PISO_REINTENTO = 0.008  # ~ -42 dBFS de pico
+
+
 def _decodificar(modelo, audio: np.ndarray, cfg: dict) -> str:
     from . import apps
 
-    segments, _ = modelo.transcribe(
-        audio,
-        language=cfg["language"],
-        initial_prompt=apps.vocabulary(cfg.get("stt_vocabulary", "")),
-        # Recortar los silencios acelera (medido: 1.19x -> 1.09x de tiempo real)
-        # y no cambia el texto. Se puede apagar porque el detector a veces se
-        # come palabras dichas muy bajo, y ahi es peor el remedio.
-        vad_filter=bool(cfg.get("stt_vad", True)),
-        # Medido sobre una orden tipica: beam 5 tarda 4.4s y beam 1 tarda 3.5s,
-        # con el MISMO texto. La busqueda por haz sirve para dictado largo; una
-        # orden de ocho palabras no cambia de resultado por explorar cinco ramas.
-        beam_size=int(_num(cfg, "stt_beam", 1, 5)),
-        # Cada orden es independiente: arrastrar la anterior como contexto solo
-        # agrega trabajo y le da al modelo una excusa para inventar continuidad.
-        condition_on_previous_text=False,
-    )
-    return " ".join(s.text for s in segments).strip()
+    def correr(con_vad: bool) -> str:
+        segments, _ = modelo.transcribe(
+            audio,
+            language=cfg["language"],
+            initial_prompt=apps.vocabulary(cfg.get("stt_vocabulary", "")),
+            # Recortar los silencios acelera (medido: 1.19x -> 1.09x de tiempo
+            # real) y no cambia el texto.
+            vad_filter=con_vad,
+            # Medido sobre una orden tipica: beam 5 tarda 4.4s y beam 1 tarda
+            # 3.5s, con el MISMO texto. La busqueda por haz sirve para dictado
+            # largo; una orden de ocho palabras no cambia de resultado por
+            # explorar cinco ramas.
+            beam_size=int(_num(cfg, "stt_beam", 1, 5)),
+            # Cada orden es independiente: arrastrar la anterior como contexto
+            # solo agrega trabajo y le da al modelo una excusa para inventar
+            # continuidad.
+            condition_on_previous_text=False,
+        )
+        return " ".join(s.text for s in segments).strip()
+
+    con_vad = bool(cfg.get("stt_vad", True))
+    texto = correr(con_vad)
+    # El VAD no "se come alguna palabra" dicha bajo: se come la frase entera. En
+    # el banco se tragó 3 de 29 clips --los tres susurrados-- y el modelo los
+    # transcribia perfecto con el detector apagado. Reintentar solo cuando no
+    # salio nada no cuesta nada en el caso normal, y el turno ya estaba perdido.
+    # No inventa texto sobre ruido: probado con silencio puro y con ruido blanco
+    # a -30 y -20 dB, las tres veces devuelve vacio.
+    if not texto and con_vad and float(np.abs(audio).max(initial=0.0)) > PISO_REINTENTO:
+        texto = correr(False)
+    return texto
 
 
 def precargar_stt(cfg: dict) -> None:

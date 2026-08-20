@@ -3101,6 +3101,64 @@ def test_listener_no_hook_leak():
     assert count() == base, count()
 
 
+def test_vad_no_se_come_el_susurro():
+    """El VAD devolvia vacio en 3 de 29 clips del banco, todos susurrados, y el
+    modelo los transcribia bien con el detector apagado. El reintento tiene que
+    dispararse solo cuando no salio nada, y solo si hubo senal."""
+    import numpy as np
+
+    from eve import voice
+
+    llamadas = []
+
+    class ModeloFalso:
+        def transcribe(self, audio, **kw):
+            llamadas.append(kw["vad_filter"])
+
+            class Seg:
+                text = "" if kw["vad_filter"] else "hola en voz baja"
+
+            return ([] if kw["vad_filter"] else [Seg()]), None
+
+    cfg = {"language": "es", "stt_vad": True, "stt_beam": 1, "stt_vocabulary": ""}
+    fuerte = (np.sin(np.arange(16000) / 8.0) * 0.05).astype("float32")  # -26 dBFS
+    assert voice._decodificar(ModeloFalso(), fuerte, cfg) == "hola en voz baja"
+    assert llamadas == [True, False], "tenia que reintentar sin VAD"
+
+    # Debajo del piso no se reintenta: seria una pasada del modelo sobre aire.
+    llamadas.clear()
+    aire = (fuerte * 0.05).astype("float32")  # -52 dBFS
+    assert voice._decodificar(ModeloFalso(), aire, cfg) == ""
+    assert llamadas == [True], "no tenia que reintentar sobre silencio"
+
+    # Con el VAD ya apagado a mano no hay nada que reintentar.
+    llamadas.clear()
+    voice._decodificar(ModeloFalso(), fuerte, {**cfg, "stt_vad": False})
+    assert llamadas == [False]
+
+
+def test_wer_del_banco():
+    """La cuenta que decide si un motor de voz nuevo entra o no. Si el WER esta
+    mal, la comparacion no significa nada."""
+    import banco_voz
+
+    # Sin acentos y sin puntuacion: el matcher de comandos ya es insensible a
+    # los dos, asi que contarlos como error inflaria el WER con fallas que a la
+    # aplicacion no le cambian nada.
+    assert banco_voz.normalizar("¿Abrí Spotify, por favor?") == [
+        "abri", "spotify", "por", "favor"
+    ]
+
+    n = banco_voz.normalizar
+    assert banco_voz.distancia(n("abre spotify"), n("abre spotify")) == (0, 0, 0)
+    assert banco_voz.distancia(n("abre spotify"), n("abre spotifai")) == (1, 0, 0)
+    assert banco_voz.distancia(n("abre spotify"), n("abre spotify ya")) == (0, 1, 0)
+    assert banco_voz.distancia(n("abre spotify ya"), n("abre spotify")) == (0, 0, 1)
+    # Un vacio son todos borrados: es como cuenta un clip que el VAD se trago.
+    assert banco_voz.distancia(n("abre spotify ya"), []) == (0, 0, 3)
+    assert banco_voz.grupo_de("propios_03.wav") == "propios"
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):
