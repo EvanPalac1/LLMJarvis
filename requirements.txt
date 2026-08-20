@@ -36,6 +36,12 @@ winrt-Windows.Foundation>=3.0; sys_platform == "win32"
 winrt-Windows.Foundation.Collections>=3.0; sys_platform == "win32"
 winrt-Windows.ApplicationModel>=3.0; sys_platform == "win32"
 
+# Reconocedor opcional (Parakeet TDT de NVIDIA). Rueda pura, y sus tres
+# dependencias --numpy, onnxruntime, huggingface-hub-- ya venian con
+# faster-whisper: no agrega una sola libreria nativa. Entro porque gano medido,
+# no porque sea nuevo; los numeros estan en el README.
+onnx-asr[hub]>=0.12
+
 # Addon de OBS: obs-websocket v5 viene dentro de OBS 28+, no hace falta plugin.
 # Solo el cliente, que son ~200 KB.
 websocket-client>=1.6
