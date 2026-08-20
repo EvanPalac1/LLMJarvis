@@ -57,6 +57,13 @@ else:
 # salio con el reconocimiento de voz roto porque faltaba silero_vad_v6.onnx.
 CON_DATOS = ["faster_whisper", "piper", "onnxruntime", "onnx_asr"]
 
+# Paquetes que leen su PROPIA version al importarse, con importlib.metadata.
+# PyInstaller no copia los .dist-info salvo que se le pida, asi que el import
+# revienta con PackageNotFoundError adentro del binario y anda perfecto en
+# desarrollo. `--collect-data` no alcanza: eso trae los datos del paquete, no su
+# metadata. Lo encontro `_verificar_imports`, que es para lo que esta.
+CON_METADATA = ["onnx-asr"]
+
 # Archivos sin los cuales el paquete esta roto aunque el build "haya salido bien".
 IMPRESCINDIBLES = [os.path.join("faster_whisper", "assets", "silero_vad_v6.onnx")]
 
@@ -94,6 +101,8 @@ def _construir(nombre: str, ventana: bool, extra: list[str]) -> None:
         cmd += ["--hidden-import", m]
     for paquete in CON_DATOS:
         cmd += ["--collect-data", paquete]
+    for paquete in CON_METADATA:
+        cmd += ["--copy-metadata", paquete]
     # Los addons se importan por nombre en tiempo de ejecucion, asi que el
     # analisis estatico de PyInstaller no los ve y quedarian afuera: el addon
     # existiria corriendo desde el codigo y faltaria en la version instalada.
