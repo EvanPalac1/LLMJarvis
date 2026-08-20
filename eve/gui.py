@@ -846,6 +846,14 @@ class Panel(tk.Tk):
         self._row(t, "Tecla del keypad", "hotkey")
         self._row(t, "Turnos de contexto", "context_turns")
         self._row(t, "Minutos de contexto", "context_minutes")
+        self._row(t, "Quien manda sobre un ajuste", "autoridad",
+                  ["usuario", "eve", "preguntar"])
+        self._ayuda(
+            t,
+            "usuario: lo que cambies a mano queda trabado y Eve no lo pisa.\n"
+            "eve: puede cambiar lo que quiera.  preguntar: pide permiso cada vez.\n"
+            "Para soltar lo trabado, decile 'destraba <clave>' o borra la lista abajo.")
+        self._row(t, "Claves que fijaste vos", "claves_del_usuario", width=44)
 
         ttk.Label(t, text="Rutas de trabajo permitidas (una por linea)").pack(
             anchor="w", padx=12, pady=(12, 2)
@@ -1689,6 +1697,7 @@ class Panel(tk.Tk):
             else:
                 modulo[prop] = valor
         store.save_config(mods.guardar(cfg, modulo))
+        store.marcar_tocadas([mods.clave(self.mod_sel, prop) for prop in self.mod_vars])
         self._mods_refrescar(self.mod_sel)
         self.estado.config(text=f"modulo '{self.mod_sel}' guardado")
 
@@ -2101,6 +2110,7 @@ class Panel(tk.Tk):
         # usuario esta editando gana igual: se aplica encima, clave por clave.
         cfg = {**store.load_config(), **{k: v for k, v in self.cfg.items()
                                          if k not in store.DEFAULTS}}
+        tocadas = []
         for key, var in self.vars.items():
             value = var.get()
             # Si el widget sigue mostrando lo mismo que cuando el panel leyo la
@@ -2110,6 +2120,7 @@ class Panel(tk.Tk):
             # cargado desde la bandeja mientras el panel estaba abierto.
             if key in self.cfg and str(value) == str(self.cfg[key]):
                 continue
+            tocadas.append(key)
             default = store.DEFAULTS.get(key)
             if default is None and key.startswith(modulos.PREFIJO):
                 # Las claves de modulo se inventan en runtime, asi que no estan
@@ -2172,6 +2183,9 @@ class Panel(tk.Tk):
         )
 
         store.save_config(cfg)
+        # Lo que cambiaste vos queda anotado: con `autoridad = usuario`, Eve no
+        # lo pisa despues. Va tras guardar para no anotar algo que no se escribio.
+        store.marcar_tocadas(tocadas)
         # Los widgets y self.cfg tienen que quedar iguales a lo que se acaba de
         # escribir. Si no, el guardado siguiente ve que un widget difiere de
         # self.cfg, lo toma como "el usuario lo edito" y lo escribe encima: bastaba

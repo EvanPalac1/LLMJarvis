@@ -2292,6 +2292,68 @@ def test_lista_blanca_de_perfiles():
     assert not store.perfilable("token_secreto_del_futuro")
 
 
+def test_autoridad_sobre_un_ajuste():
+    """Quien manda sobre un valor es una eleccion, no una regla del programa.
+
+    Sin esto la app se siente poseida: pones opacidad 40, Eve la vuelve a 80, y
+    no hay forma de saber quien gano ni de trabar el valor. El panel anota lo
+    que cambiaste a mano y `autoridad` decide que pasa cuando los dos quieren
+    tocar lo mismo.
+    """
+    from eve import integrations
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real_c, real_db = store.CONFIG_PATH, store.DB_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        store._migradas.discard(store.DB_PATH)
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            assert store.load_config()["autoridad"] == "usuario", "el default protege"
+
+            # Eve puede tocar lo que el usuario nunca toco.
+            assert "quedo en 70" in integrations.ajustar("hud_opacidad", "70")
+            assert store.load_config()["hud_opacidad"] == 70
+
+            # Y lo que no existe no se inventa.
+            assert "No existe" in integrations.ajustar("clave_inventada_zzz", "1")
+            # Ni se guarda basura donde va un numero.
+            assert "numero" in integrations.ajustar("hud_opacidad", "ochenta")
+            assert store.load_config()["hud_opacidad"] == 70, "lo pisó igual"
+
+            # Ahora el usuario la fija a mano: Eve deja de poder.
+            store.marcar_tocadas(["hud_opacidad"])
+            respuesta = integrations.ajustar("hud_opacidad", "30")
+            assert "manda el usuario" in respuesta, respuesta
+            assert store.load_config()["hud_opacidad"] == 70, "la piso igual"
+
+            # Con `autoridad = eve`, la misma clave se puede cambiar.
+            cfg = store.load_config()
+            cfg["autoridad"] = "eve"
+            store.save_config(cfg)
+            assert "quedo en 30" in integrations.ajustar("hud_opacidad", "30")
+
+            # Y destrabar la suelta aunque vuelva a mandar el usuario.
+            cfg = store.load_config()
+            cfg["autoridad"] = "usuario"
+            store.save_config(cfg)
+            assert store.trabada("hud_opacidad")
+            store.destrabar("hud_opacidad")
+            assert not store.trabada("hud_opacidad")
+            assert "quedo en 55" in integrations.ajustar("hud_opacidad", "55")
+
+            # Tambien funciona sobre claves de modulo, que se inventan en runtime.
+            from eve import modulos as mods
+
+            store.save_config(mods.guardar(store.load_config(),
+                                           {"id": "m1", "tipo": "onda"}))
+            assert "quedo en 60" in integrations.ajustar("mod_m1_alto", "60")
+            assert mods.leer(store.load_config(), "m1")["alto"] == 60
+        finally:
+            store.CONFIG_PATH, store.DB_PATH = real_c, real_db
+            store._migradas.discard(os.path.join(raiz, "eve.db"))
+
+
 def test_bloque_tono():
     """La personalidad va subordinada al manual, y acotada."""
     assert store.bloque_tono({}) == ""

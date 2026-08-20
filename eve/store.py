@@ -147,6 +147,24 @@ DEFAULTS = {
     # Todo lo ejecutado sigue quedando en el log de auditoria (tabla `actions`),
     # que pasa a ser el unico registro de lo que hizo Eve.
     "confirm_destructive": True,
+    # Quien manda sobre un valor cuando los dos quieren cambiarlo.
+    #   usuario   lo que tocaste a mano queda trabado y Eve no lo pisa
+    #   eve       Eve cambia lo que quiera
+    #   preguntar Eve pide permiso antes de cada cambio
+    # Sin esto la app se siente poseida: pones opacidad 40, Eve la vuelve a 80
+    # y no hay forma de saber quien gano.
+    "autoridad": "usuario",
+    # Las claves que editaste vos, separadas por coma. Las escribe el panel.
+    "claves_del_usuario": "",
+    # Quien manda sobre un valor cuando los dos quieren cambiarlo.
+    #   usuario   lo que tocaste a mano queda trabado y Eve no lo pisa
+    #   eve       Eve cambia lo que quiera
+    #   preguntar Eve pide permiso antes de cada cambio
+    # Sin esto la app se siente poseida: pones opacidad 40, Eve la vuelve a 80
+    # y no hay forma de saber quien gano.
+    "autoridad": "usuario",
+    # Las claves que editaste vos, separadas por coma. Las escribe el panel.
+    "claves_del_usuario": "",
     "speak_replies": True,
     "gmail_address": "",
     "steam_id": "",
@@ -794,6 +812,84 @@ def historial_neutro(cfg: dict, ahora: float = 0.0) -> list[dict]:
     ]
     # La misma normalizacion que usan los motores: tiene que empezar en `user`.
     return trim_history(recientes, tope, minutos, ahora)
+
+
+AUTORIDADES = ("usuario", "eve", "preguntar")
+
+
+def marcar_tocadas(claves) -> None:
+    """Anota que estas claves las cambio el usuario a mano."""
+    claves = [c for c in claves if c]
+    if not claves:
+        return
+    cfg = load_config()
+    previas = {c.strip() for c in str(cfg.get("claves_del_usuario", "")).split(",") if c.strip()}
+    nuevas = previas | set(claves)
+    if nuevas != previas:
+        cfg["claves_del_usuario"] = ",".join(sorted(nuevas))
+        save_config(cfg)
+
+
+def trabada(clave: str, cfg: dict = None) -> bool:
+    """Si Eve NO puede tocar esta clave porque manda el usuario."""
+    cfg = cfg if cfg is not None else load_config()
+    if str(cfg.get("autoridad", "usuario")) != "usuario":
+        return False
+    marcadas = {c.strip() for c in str(cfg.get("claves_del_usuario", "")).split(",") if c.strip()}
+    return clave in marcadas
+
+
+def destrabar(clave: str = "") -> str:
+    """Suelta una clave, o todas si no se dice cual."""
+    cfg = load_config()
+    if not clave:
+        cfg["claves_del_usuario"] = ""
+        save_config(cfg)
+        return "Listo, ninguna clave queda trabada."
+    marcadas = {c.strip() for c in str(cfg.get("claves_del_usuario", "")).split(",") if c.strip()}
+    marcadas.discard(clave)
+    cfg["claves_del_usuario"] = ",".join(sorted(marcadas))
+    save_config(cfg)
+    return f"{clave} queda libre."
+
+
+AUTORIDADES = ("usuario", "eve", "preguntar")
+
+
+def marcar_tocadas(claves) -> None:
+    """Anota que estas claves las cambio el usuario a mano."""
+    claves = [c for c in claves if c]
+    if not claves:
+        return
+    cfg = load_config()
+    previas = {c.strip() for c in str(cfg.get("claves_del_usuario", "")).split(",") if c.strip()}
+    nuevas = previas | set(claves)
+    if nuevas != previas:
+        cfg["claves_del_usuario"] = ",".join(sorted(nuevas))
+        save_config(cfg)
+
+
+def trabada(clave: str, cfg: dict = None) -> bool:
+    """Si Eve NO puede tocar esta clave porque manda el usuario."""
+    cfg = cfg if cfg is not None else load_config()
+    if str(cfg.get("autoridad", "usuario")) != "usuario":
+        return False
+    marcadas = {c.strip() for c in str(cfg.get("claves_del_usuario", "")).split(",") if c.strip()}
+    return clave in marcadas
+
+
+def destrabar(clave: str = "") -> str:
+    """Suelta una clave, o todas si no se dice cual."""
+    cfg = load_config()
+    if not clave:
+        cfg["claves_del_usuario"] = ""
+        save_config(cfg)
+        return "Listo, ninguna clave queda trabada."
+    marcadas = {c.strip() for c in str(cfg.get("claves_del_usuario", "")).split(",") if c.strip()}
+    marcadas.discard(clave)
+    cfg["claves_del_usuario"] = ",".join(sorted(marcadas))
+    save_config(cfg)
+    return f"{clave} queda libre."
 
 
 def olvidar() -> None:
