@@ -3262,6 +3262,119 @@ def test_sensibilidad_por_modo_y_horario():
     assert voice._frac({}, "stt_vad_umbral", 0.5, 0.05, 0.95) == 0.5
 
 
+def test_palabra_clave():
+    """La puerta: que separe bien, y que un despertar entre por la misma cola."""
+    import numpy as np
+
+    from eve import despertar
+
+    # Tiene que ir al principio. Si valiera en cualquier lado, contarle a
+    # alguien "le dije a Eve que abra Spotify" seria una orden.
+    assert despertar.separar("Eve, abrí Spotify.", "eve") == "abrí Spotify"
+    assert despertar.separar("¿Eve? poné música", "eve") == "poné música"
+    assert despertar.separar("decile a Eve que abra Spotify", "eve") is None
+    assert despertar.separar("evidentemente no", "eve") is None
+    # Solo el nombre es una llamada valida, y es distinto de que no coincida.
+    assert despertar.separar("Eve.", "eve") == ""
+    assert despertar.separar("", "eve") is None
+    # Varias palabras, y sin importar acentos ni mayusculas en ninguno de los dos.
+    assert despertar.separar("Hola Jarvis, abrí Steam", "hola jarvis") == "abrí Steam"
+    assert despertar.separar("EVÉ apagá la musica", "eve") == "apagá la musica"
+    # Sin palabra configurada no despierta con nada.
+    assert despertar.separar("lo que sea", "") is None
+
+    # El recorte, sin microfono: dos frases separadas por silencio tienen que
+    # salir como dos, y con el arranque entero (el buffer previo existe para no
+    # comerse justo la silaba de la palabra clave).
+    class VadFalso:
+        """Voz = el bloque tiene energia. Alcanza para probar los buffers."""
+
+        def __call__(self, plano):
+            return np.array([1.0 if float(np.abs(plano).max()) > 0.05 else 0.0])
+
+    r = despertar.Recortador(VadFalso())
+    tono = (np.sin(np.arange(int(1.5 * 16000)) / 6.0) * 0.4).astype("float32")
+    silencio = np.zeros(int(1.2 * 16000), dtype="float32")
+    pista = np.concatenate([silencio, tono, silencio, tono, silencio])
+    frases = []
+    for i in range(0, len(pista) - despertar.BLOQUE, despertar.BLOQUE):
+        f = r.empujar(pista[i:i + despertar.BLOQUE])
+        if f is not None:
+            frases.append(len(f) / 16000)
+    assert len(frases) == 2, frases
+    # Cada frase trae el tono entero mas el aire de antes y el silencio de cierre.
+    for largo in frases:
+        assert 1.5 <= largo <= 1.5 + despertar.COLA_S + despertar.CIERRE_S + 0.6, largo
+
+    # Un ruidito corto no es una frase.
+    r2 = despertar.Recortador(VadFalso())
+    corto = np.concatenate([
+        np.zeros(despertar.BLOQUE, dtype="float32"),
+        (np.sin(np.arange(despertar.BLOQUE) / 6.0) * 0.4).astype("float32"),
+        np.zeros(despertar.BLOQUE * 8, dtype="float32"),
+    ])
+    salidas = [r2.empujar(corto[i:i + despertar.BLOQUE])
+               for i in range(0, len(corto) - despertar.BLOQUE, despertar.BLOQUE)]
+    assert all(x is None for x in salidas), "un ruido de 0.26s no puede ser una orden"
+
+
+def test_wake_entra_por_la_misma_cola():
+    """Un despertar tiene que terminar en el mismo obrero que la tecla, y la
+    palabra clave no puede llegar al modelo como parte de la orden."""
+    import numpy as np
+
+    from eve import despertar, voice as voz
+    from eve.listener import Listener
+
+    with tempfile.TemporaryDirectory() as raiz:
+        reales = store.CONFIG_PATH, store.OVERLAY_PATH
+        voz_real = voz.transcribe, voz.speak
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.OVERLAY_PATH = os.path.join(raiz, "overlay.json")
+        try:
+            cfg = dict(store.DEFAULTS)
+            assert cfg["wake_activo"] is False, "tiene que venir apagado de fabrica"
+            cfg.update(wake_activo=True, wake_palabra="eve", hotkey="f13")
+            store.save_config(cfg)
+
+            dichos = []
+            Listener._build_engine = lambda self: type(
+                "M", (), {"ask": lambda s, t: dichos.append(t) or "listo",
+                          "reset_context": lambda s: None})()
+            lis = Listener(store.load_config())
+            # El modelo grande escribe la frase entera, con el nombre adelante.
+            voz.transcribe = lambda audio, c: "Eve, abrí Spotify"
+            voz.speak = lambda *a, **k: None
+            lis._obrero = threading.Thread(target=lis._atender_cola, daemon=True)
+            lis._obrero.start()
+
+            # La puerta ya decidio; se simula lo que hace _desperto.
+            lis.cola.put((np.zeros(16000, dtype="float32"), True))
+            for _ in range(100):
+                if dichos:
+                    break
+                time.sleep(0.05)
+            assert dichos == ["abrí Spotify"], dichos
+
+            # Y por la tecla, sin quitar nada: entra tal cual.
+            dichos.clear()
+            lis.cola.put(np.zeros(16000, dtype="float32"))
+            for _ in range(100):
+                if dichos:
+                    break
+                time.sleep(0.05)
+            assert dichos == ["Eve, abrí Spotify"], dichos
+
+            # Apagada de fabrica, no se levanta ninguna escucha.
+            assert lis.escucha is None
+            lis.cfg["wake_activo"] = False
+            lis._escucha_wake()
+            assert lis.escucha is None
+        finally:
+            store.CONFIG_PATH, store.OVERLAY_PATH = reales
+            voz.transcribe, voz.speak = voz_real
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):

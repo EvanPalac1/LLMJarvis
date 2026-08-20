@@ -125,6 +125,17 @@ DEFAULTS = {
     #   bajo      de madrugada, hablando suave
     #   manual    usa stt_vad_umbral y stt_vad_aire_ms tal cual
     "stt_sensibilidad": "auto",
+    # Activacion por palabra clave. Apagada de fabrica y a proposito: prenderla
+    # deja el microfono abierto todo el tiempo, y eso lo elige el usuario.
+    "wake_activo": False,
+    # Variantes separadas por `|`. La primera es la que conviene decir: medido,
+    # "Computadora" despierta 4 de 4 con el modelo mas chico y "Eve" 2 de 4,
+    # porque tres letras no le dan al reconocedor con que agarrarse. Las de Eve
+    # quedan igual, para el que prefiera llamarla por el nombre.
+    "wake_palabra": "computadora|eve|ebe|eva",
+    # El modelo de la puerta, aparte del de transcribir. Chico porque solo tiene
+    # que reconocer una palabra que ya conoce.
+    "wake_modelo": "tiny",
     # Reglas de horario, separadas por coma: `00:00-06:00=bajo, 20:00-23:59=ruido`.
     # Solo pisan al modo `auto`. Vacio = sin reglas.
     "stt_horario": "",

@@ -1350,6 +1350,30 @@ class Panel(tk.Tk):
             "Si elegis un modo a mano, el reloj no te lo cambia.")
         self._row(t, "Umbral del detector", "stt_vad_umbral", width=10)
         self._row(t, "Aire del detector (ms)", "stt_vad_aire_ms", width=10)
+        self._check(t, "Activar diciendo una palabra (deja el microfono abierto)",
+                    "wake_activo")
+        self._row(t, "Palabra para despertarla", "wake_palabra", width=20)
+        self._row(t, "Modelo de la puerta", "wake_modelo", ["tiny", "base", "small"])
+        self._ayuda(
+            t,
+            "Apagado de fabrica: prenderlo deja el microfono abierto todo el\n"
+            "tiempo. Decile el nombre y la orden de un tirón, en la misma frase:\n"
+            "  \"Eve, abri Spotify\"\n"
+            "El nombre tiene que ir al principio. Aceptarlo en cualquier lado\n"
+            "convertiria en orden cualquier charla que te lo mencione.\n"
+            "\nNo corre ningun modelo de lenguaje en reposo: primero un detector\n"
+            "de voz de 1.2 MB que ya viaja en el paquete decide si hay alguien\n"
+            "hablando --medido, 0.20% de un core-- y recien sobre ese pedazo\n"
+            "corre el modelo de la puerta. Ese es chico a proposito: solo tiene\n"
+            "que reconocer una palabra que ya conoce.\n"
+            "\nLa palabra pesa mas que el modelo. Medido, 4 ordenes y 6 frases\n"
+            "de control que NO tienen que despertarla:\n"
+            "  Computadora  tiny   desperto 4/4    falsos 0/6\n"
+            "  Eve          small  desperto 3/4    falsos 0/6\n"
+            "  Eve          tiny   desperto 2/4    falsos 0/6\n"
+            "Tres letras no alcanzan para ser una puerta. Por eso se aceptan\n"
+            "variantes separadas por |, y de fabrica vienen las dos. Para ver\n"
+            "como te escribe a vos:  Eve --probar-voz \"Eve, abri Spotify\"")
         ttk.Label(
             t,
             text="cuda necesita las librerias de NVIDIA instaladas; si faltan, cae a cpu\n"

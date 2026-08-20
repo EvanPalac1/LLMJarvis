@@ -31,6 +31,8 @@ class Listener:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.paused = False
+        # La escucha continua, si el usuario la prendio. None = apagada.
+        self.escucha = None
         self.recorder = voice.Recorder()
         self._down = False  # filtra el autorepeat de keydown de Windows
         self._hook = None
@@ -101,6 +103,36 @@ class Listener:
         voice.speak(f"Necesito tu confirmacion. {reason}.", self.cfg)
         return ask_yes_no(reason, detail)
 
+    def _desperto(self, audio) -> None:
+        """Le llega una frase que silero recorto. Decide si era para Eve.
+
+        Corre en el hilo de la escucha, asi que lo unico que hace es la puerta
+        --el modelo chico-- y despues delega en la misma cola de siempre. Un
+        despertar no es distinto de apretar la tecla: entra por el mismo lado.
+        """
+        if self.paused or self._down:
+            return
+        try:
+            from . import despertar
+
+            pedido = despertar.escuchado(audio, self.cfg)
+        except Exception as exc:  # noqa: BLE001 - la escucha no puede morir
+            store.log_action("listener", "wake", f"ERROR: {exc}")
+            return
+        if pedido is None:
+            return
+        store.log_action("listener", "wake", pedido or "(solo la palabra)")
+        if not pedido:
+            # Dijo la palabra y nada mas. Se avisa y se corta: encadenar una
+            # segunda ventana de captura seria una maquina de estados entera
+            # para ahorrarle al usuario decir la orden en la misma respiracion.
+            voice.speak("Decime la orden junto con mi nombre.", self.cfg)
+            return
+        self.cola.put((audio, True))
+        if not self._trabajando:
+            self.mostrar(estado="pensando", detalle=self._con_cola("TRANSCRIBIENDO"),
+                         nivel=0.1)
+
     def _on_down(self, _tecla) -> None:
         # A proposito NO se rechaza mientras trabaja: podes apretar y hablarle de
         # nuevo mientras piensa, y lo que grabes espera turno.
@@ -150,10 +182,15 @@ class Listener:
         microfono, los parlantes y el contexto de la conversacion.
         """
         while True:
-            audio = self.cola.get()
+            item = self.cola.get()
+            # La cola lleva audio suelto (la tecla) o (audio, quitar_palabra)
+            # cuando entro por la palabra clave. Un solo obrero para los dos
+            # caminos: la alternativa era una segunda cola que se pisaria con
+            # esta por el microfono, los parlantes y el contexto.
+            audio, quitar = item if isinstance(item, tuple) else (item, False)
             self._trabajando = True
             try:
-                self._process(audio)
+                self._process(audio, quitar)
             except Exception as exc:  # noqa: BLE001 - el obrero no puede morir
                 traceback.print_exc()
                 store.log_action("listener", "cola", f"ERROR: {exc}")
@@ -163,11 +200,20 @@ class Listener:
                 if self.cola.empty() and not self._down:
                     self.mostrar(estado="reposo", detalle="", nivel=0.0)
 
-    def _process(self, audio) -> None:
+    def _process(self, audio, quitar_palabra: bool = False) -> None:
         try:
             text = voice.transcribe(audio, self.cfg)
             if not text:
                 return
+            if quitar_palabra:
+                # La puerta ya decidio que era para Eve con el modelo chico;
+                # esto es la misma frase transcrita bien. Si el modelo bueno
+                # escribio la palabra clave se le saca, y si no la escribio se
+                # usa igual: quien decide es la puerta, no la ortografia.
+                from . import despertar
+
+                sin = despertar.separar(text, str(self.cfg.get("wake_palabra", "eve")))
+                text = sin if sin else text
             print(f"[usuario] {text}")
             self.mostrar(estado="pensando", detalle=self._con_cola("PENSANDO"),
                          usuario=text, eve="")
@@ -205,6 +251,21 @@ class Listener:
             self._obrero.start()
             threading.Thread(target=self._sostener_overlay, daemon=True).start()
             self._precalentar()
+        self._escucha_wake()
+
+    def _escucha_wake(self) -> None:
+        """Prende o apaga la escucha continua segun la config del momento."""
+        quiere = bool(self.cfg.get("wake_activo"))
+        if quiere and self.escucha is None:
+            from . import despertar
+
+            self.escucha = despertar.Escucha(self._desperto)
+            self.escucha.arrancar()
+            print(f"Escuchando por la palabra '{self.cfg.get('wake_palabra', 'eve')}'. "
+                  "El microfono queda abierto.")
+        elif not quiere and self.escucha is not None:
+            self.escucha.parar()
+            self.escucha = None
 
     def _precalentar(self) -> None:
         """Deja los modelos cargados antes de la primera orden.
@@ -233,6 +294,9 @@ class Listener:
         )
 
     def stop(self) -> None:
+        if self.escucha is not None:
+            self.escucha.parar()
+            self.escucha = None
         if self._hook is not None:
             plataforma.unhook_teclado(self._hook)
             self._hook = None

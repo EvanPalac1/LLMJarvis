@@ -391,7 +391,12 @@ def _decodificar(modelo, audio: np.ndarray, cfg: dict) -> str:
         segments, _ = modelo.transcribe(
             audio,
             language=cfg["language"],
-            initial_prompt=apps.vocabulary(cfg.get("stt_vocabulary", "")),
+            # Quien llama puede pisar el sesgo. La puerta de la palabra clave
+            # lo usa: servirle el catalogo de 80 juegos a un modelo que solo
+            # tiene que reconocer un nombre lo empuja a escribir cualquier cosa
+            # menos ese nombre --medido, "Eve, abri Spotify" salia "Mb.Avris.phi.".
+            initial_prompt=(cfg["stt_prompt"] if "stt_prompt" in cfg
+                            else apps.vocabulary(cfg.get("stt_vocabulary", ""))),
             # Recortar los silencios acelera (medido: 1.19x -> 1.09x de tiempo
             # real) y no cambia el texto.
             vad_filter=con_vad,
@@ -408,6 +413,13 @@ def _decodificar(modelo, audio: np.ndarray, cfg: dict) -> str:
             # solo agrega trabajo y le da al modelo una excusa para inventar
             # continuidad.
             condition_on_previous_text=False,
+            # Por defecto la libreria prueba temperaturas 0, 0.2 ... 1.0 hasta
+            # que el resultado le convence, y eso hace que la MISMA onda de un
+            # texto distinto entre corridas. Para dictar esta bien. Para la
+            # puerta de la palabra clave es fatal: despertaria al azar. Por eso
+            # `despertar.escuchado` fija esta clave en 0 y nadie mas la usa.
+            **({"temperature": cfg["stt_temperatura"]}
+               if "stt_temperatura" in cfg else {}),
         )
         return " ".join(s.text for s in segments).strip()
 
