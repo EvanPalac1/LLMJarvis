@@ -2084,6 +2084,101 @@ def modulos_de(st) -> int:
     return len(mods.identificadores(st.load_config()))
 
 
+def test_lector_web():
+    """Sacar el texto de una pagina, sin motor web y sin dependencias nuevas.
+
+    Renderizar un sitio arbitrario ES un motor web. Pero Eve no necesita
+    pixeles: necesita texto que entre al contexto y que se pueda marcar como
+    escrito por terceros. Lo segundo es lo que un navegador embebido NO puede
+    dar, asi que el lector no es un consuelo, es la forma correcta.
+    """
+    from eve import integrations, lector
+
+    html = (
+        "<html><head><title>Titulo</title><style>.a{color:red}</style></head>"
+        "<body><h1>Encabezado</h1><script>malo()</script>"
+        "<p>Primer parrafo.</p><p>Segundo   parrafo.</p>"
+        "<noscript>oculto</noscript></body></html>"
+    )
+    titulo, texto = lector.extraer(html)
+    assert titulo == "Titulo"
+    assert "malo()" not in texto and "color:red" not in texto and "oculto" not in texto
+    assert "Primer parrafo." in texto and "Segundo parrafo." in texto, texto
+    # Los parrafos quedan en lineas distintas: sin eso vuelve todo en un renglon.
+    assert texto.count("\n") >= 2, repr(texto)
+
+    # Un HTML roto no puede tumbar nada: la web real esta llena.
+    assert lector.extraer("<p>suelto<div><span>") is not None
+
+    # Y lo que vuelve va marcado como ajeno antes de que lo vea el modelo.
+    class Falsa:
+        status_code = 200
+        headers = {"Content-Type": "text/html"}
+        text = html
+
+    real = lector.requests.get
+    lector.requests.get = lambda *_a, **_k: Falsa()
+    try:
+        datos = lector.leer("ejemplo.com")
+        assert datos["titulo"] == "Titulo" and not datos["error"]
+        assert datos["url"].startswith("https://"), "tiene que completar el esquema"
+    finally:
+        lector.requests.get = real
+
+    envuelto = integrations.envolver_ajeno(datos["texto"])
+    assert integrations.AJENO_ABRE in envuelto and integrations.AJENO_CIERRA in envuelto
+
+
+def test_grafo_de_lo_que_hizo():
+    """Los nodos son cosas reconocibles, no pedazos de ruta.
+
+    La primera version partia el detalle en palabras y se quedaba con la primera
+    larga. Sobre comandos de Windows eso daba "C" como el nodo mas pesado del
+    grafo, y despues "Users": ruido puro. El nombre sale del comando y, si es
+    una ruta, del ejecutable.
+
+    Extraccion determinista y sin LLM, que es lo unico que entra en el
+    presupuesto de un asistente de voz.
+    """
+    from eve import grafo
+
+    def fila(tool, detalle):
+        return (0.0, tool, detalle, "ok")
+
+    assert grafo._nombre(fila("PowerShell", "{'command': 'Get-Date -Format \"HH:mm\"'}")) \
+        == "Get-Date"
+    # Una ruta larga tiene que quedar en el nombre del ejecutable.
+    ruta = '{"command": "& \\"D:\\\\Juegos\\\\LLMJarvis\\\\Eve.exe\\" --help"}'
+    assert grafo._nombre(fila("PowerShell", ruta)) == "Eve.exe", grafo._nombre(fila("PowerShell", ruta))
+    # Y si pasa por la CLI, el subcomando dice mucho mas que "run_command".
+    assert grafo._nombre(fila("PowerShell", 'x --cli discord-enviar --text "a"')) \
+        == "discord-enviar"
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.DB_PATH
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        store._migradas.discard(store.DB_PATH)
+        try:
+            assert grafo.leer() == ([], []), "sin acciones no hay grafo"
+            for cmd in ("Get-Date", "Start-Process", "Get-Date", "Start-Process",
+                        "Get-Date"):
+                store.log_action("PowerShell", "{'command': '" + cmd + " x'}", "ok")
+            nodos, aristas = grafo.leer()
+            nombres = {n["nombre"]: n["peso"] for n in nodos}
+            assert nombres == {"Get-Date": 3, "Start-Process": 2}, nombres
+            # Salieron uno detras del otro cuatro veces, en un solo par.
+            assert len(aristas) == 1 and aristas[0][2] == 4, aristas
+
+            # El acomodado no puede sacar los nodos del rectangulo.
+            acomodo = grafo.Acomodo(len(nodos), 200, 120)
+            acomodo.avanzar(aristas, pasos=40)
+            assert (acomodo.pos[:, 0] >= 0).all() and (acomodo.pos[:, 0] <= 200).all()
+            assert (acomodo.pos[:, 1] >= 0).all() and (acomodo.pos[:, 1] <= 120).all()
+        finally:
+            store.DB_PATH = real
+            store._migradas.discard(os.path.join(raiz, "eve.db"))
+
+
 def test_lienzo_repinta_solo_lo_que_cambia():
     """El compositor no vuelve a dibujar lo que no cambio.
 

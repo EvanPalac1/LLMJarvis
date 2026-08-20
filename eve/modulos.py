@@ -64,6 +64,12 @@ TIPOS = {
     # El medidor de contexto. Es el unico modulo que muestra un numero medido y
     # no un adorno: sale de `prompt.partes()` y del gasto real de cada turno.
     "contexto": {"detalle": ("barra", "barra | numeros")},
+    # Lo que Eve hizo de verdad, sacado del log de auditoria. Los nodos son las
+    # herramientas que se ejecutaron y las aristas las que salieron seguidas.
+    "grafo": {"cuantas": (150, "cuantas acciones se miran hacia atras"),
+              "etiquetas": (True, "escribir el nombre de cada nodo")},
+    # El texto de una pagina que se pidio leer. Se llena con `E leer URL`.
+    "lector": {"tam": (12, "puntos"), "lineas": (14, "cuantas entran")},
 }
 
 # Props que son de eleccion cerrada. Es lo que hace que el panel se GENERE en

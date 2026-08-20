@@ -49,6 +49,7 @@ class Consola:
         self._arrastre = None
         self._partes = None
         self._lista = None
+        self._pagina_cache = None
 
         self._armar()
         self._aplicar_tema()
@@ -373,6 +374,19 @@ class Consola:
                 self._partes = {}
         return self._partes
 
+    def _pagina(self, lista) -> str:
+        """Lo ultimo que se leyo de la web, si hay algun modulo que lo muestre."""
+        if not any(m["tipo"] == "lector" for m in lista):
+            return ""
+        if self.cuadro % 30 != 0 and self._pagina_cache is not None:
+            return self._pagina_cache
+        from . import lector
+
+        datos = lector.ultima()
+        titulo = datos.get("titulo") or ""
+        self._pagina_cache = ((titulo + "\n\n") if titulo else "") + datos.get("texto", "")
+        return self._pagina_cache
+
     def tick(self) -> None:
         self.cuadro += 1
         if self.cuadro % CADA_LECTURA == 0:
@@ -390,6 +404,7 @@ class Consola:
             "usuario": self.estado.get("usuario", ""),
             "eve": self.estado.get("eve", ""),
             "partes": self._partes_del_prompt(lista),
+            "pagina": self._pagina(lista),
         }
         if editando:
             lista = [dict(m, cuando="siempre") for m in lista]

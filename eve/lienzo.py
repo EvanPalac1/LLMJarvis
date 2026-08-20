@@ -27,6 +27,7 @@ from collections import deque
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from . import grafo as grafo_mod
 from . import imagenes, modulos, plataforma, tema
 
 # Tope por modulo. Medido: con seis modulos animando 500 particulas cada uno el
@@ -135,6 +136,7 @@ class Lienzo:
         self._particulas = {}
         self._fondos = {}
         self._ondas = {}
+        self._grafos = {}
         self._t0 = time.monotonic()
 
     def aplicar(self, cfg):
@@ -161,6 +163,7 @@ class Lienzo:
         self._particulas.pop(ident, None)
         self._fondos.pop(ident, None)
         self._ondas.pop(ident, None)
+        self._grafos.pop(ident, None)
 
     def dibujar(self, lista, estado):
         """Pinta los modulos visibles. Devuelve cuantos hubo que repintar."""
@@ -218,6 +221,10 @@ class Lienzo:
             return base + (self._texto_de(modulo, estado), modulo.get("tam"))
         if tipo == "contexto":
             return base + (str(estado.get("partes")), modulo.get("detalle"))
+        if tipo == "grafo":
+            return base + (round(ahora, 2),)
+        if tipo == "lector":
+            return base + (str(estado.get("pagina", ""))[:80], modulo.get("tam"))
         if tipo == "icono":
             # Un GIF, APNG o WebP animado cambia solo; una imagen fija no.
             fondo = self._fondos.get(modulo["id"])
@@ -276,6 +283,10 @@ class Lienzo:
             self._pintar_particulas(img, modulo, estado, ancho, alto, acento)
         elif tipo == "contexto":
             self._pintar_contexto(dibujo, modulo, estado, ancho, alto, opac)
+        elif tipo == "grafo":
+            self._pintar_grafo(dibujo, modulo, ancho, alto, opac)
+        elif tipo == "lector":
+            self._pintar_lector(dibujo, modulo, estado, ancho, alto, opac)
 
         if modulo.get("rotacion"):
             img = img.rotate(-float(modulo["rotacion"]), expand=False,
@@ -411,6 +422,72 @@ class Lienzo:
                         float(modulo.get("gravedad", 0.0)), empuje)
         sistema.pintar(img, acento)
 
+    def _pintar_grafo(self, dibujo, modulo, ancho, alto, opac):
+        """Lo que Eve hizo: herramientas y las que salen una detras de otra.
+
+        Se relee cada tantos cuadros y no en todos: leer el log en cada cuadro
+        serian treinta consultas por segundo a una base que casi nunca cambia.
+        El acomodado si avanza siempre, que es lo que se ve moverse.
+        """
+        guardado = self._grafos.get(modulo["id"])
+        cuantas = int(modulo.get("cuantas", 150))
+        if guardado is None or guardado["cuadros"] > 90 or guardado["tam"] != (ancho, alto):
+            nodos, aristas = grafo_mod.leer(cuantas)
+            guardado = {"nodos": nodos, "aristas": aristas, "cuadros": 0,
+                        "tam": (ancho, alto),
+                        "acomodo": grafo_mod.Acomodo(len(nodos), ancho, alto)}
+            self._grafos[modulo["id"]] = guardado
+        guardado["cuadros"] += 1
+        nodos, aristas = guardado["nodos"], guardado["aristas"]
+        if not nodos:
+            dibujo.text((0, 0), "todavia no hice nada que graficar",
+                        font=self._fuente_pt(10),
+                        fill=_rgba(self.paleta["texto_tenue"], opac))
+            return
+        guardado["acomodo"].avanzar(aristas)
+        pos = guardado["acomodo"].pos
+
+        for a, b, veces in aristas:
+            if a >= len(pos) or b >= len(pos):
+                continue
+            dibujo.line([tuple(pos[a]), tuple(pos[b])],
+                        fill=_rgba(self.paleta["borde"], opac),
+                        width=max(1, min(int(veces), 3)))
+        mayor = max(n["peso"] for n in nodos)
+        fuente = self._fuente_pt(8)
+        for i, nodo in enumerate(nodos):
+            if i >= len(pos):
+                break
+            r = 4 + 8 * (nodo["peso"] / mayor)
+            x, y = pos[i]
+            color = _rgba(tema.mezclar(self.paleta["acento2"], self.paleta["acento"],
+                                       nodo["peso"] / mayor), opac)
+            dibujo.ellipse([x - r, y - r, x + r, y + r], fill=color)
+            if modulo.get("etiquetas", True):
+                dibujo.text((x + r + 3, y - 5), nodo["nombre"], font=fuente,
+                            fill=_rgba(self.paleta["texto"], opac))
+
+    def _pintar_lector(self, dibujo, modulo, estado, ancho, alto, opac):
+        """El texto de la ultima pagina leida, cortado al ancho del modulo."""
+        pagina = str(estado.get("pagina") or "")
+        if not pagina:
+            dibujo.text((0, 0), "pedile que lea una pagina",
+                        font=self._fuente_pt(10),
+                        fill=_rgba(self.paleta["texto_tenue"], opac))
+            return
+        fuente = self._fuente_pt(modulo.get("tam", 12))
+        alto_linea = max(10, int(float(modulo.get("tam", 12)) * self.por_punto * 1.4))
+        maximo = int(modulo.get("lineas", 14))
+        y = 0
+        for cruda in pagina.splitlines():
+            for linea in _cortar(cruda, fuente, ancho, dibujo):
+                if y + alto_linea > alto or maximo <= 0:
+                    return
+                dibujo.text((0, y), linea, font=fuente,
+                            fill=_rgba(self.paleta["texto"], opac))
+                y += alto_linea
+                maximo -= 1
+
     def _pintar_contexto(self, dibujo, modulo, estado, ancho, alto, opac):
         """El medidor: lo unico que muestra un numero medido y no un adorno."""
         partes = estado.get("partes") or {}
@@ -437,3 +514,20 @@ class Lienzo:
             w = ancho * valor / total
             dibujo.rectangle([x, 0, x + w, alto], fill=_rgba(colores[i % len(colores)], opac))
             x += w
+
+
+def _cortar(texto, fuente, ancho, dibujo):
+    """Parte una linea larga en varias que entren en el ancho."""
+    palabras = texto.split()
+    if not palabras:
+        return [""]
+    lineas, actual = [], palabras[0]
+    for palabra in palabras[1:]:
+        prueba = actual + " " + palabra
+        if dibujo.textlength(prueba, font=fuente) <= ancho:
+            actual = prueba
+        else:
+            lineas.append(actual)
+            actual = palabra
+    lineas.append(actual)
+    return lineas
