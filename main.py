@@ -47,6 +47,19 @@ IMPORTS_CRITICOS = [
     "piper",
     "onnxruntime",
 ]
+
+# Los modulos de Eve que NINGUN import a nivel de modulo alcanza: los carga el
+# codigo cuando hacen falta, o los lanza otro proceso. PyInstaller no los ve
+# solo, por eso estan en OCULTOS de build.py, y esta lista es lo que comprueba
+# que esa entrada sigue estando. Sin esto, borrar un nombre de OCULTOS sale en
+# verde y la funcion falla recien cuando el usuario la usa, en la version
+# instalada y no en la de desarrollo, que es la peor clase de falla.
+PROPIOS_DIFERIDOS = [
+    "eve.brain", "eve.cc_engine", "eve.ollama_engine", "eve.compat_engine",
+    "eve.gui", "eve.consola", "eve.overlay", "eve.integrations", "eve.hook_gate",
+    "eve.voices", "eve.modulos", "eve.lienzo", "eve.prompt",
+    "eve.lector", "eve.grafo", "eve.memoria", "eve.despertar",
+]
 if sys.platform == "win32":
     # Lo usa `plataforma.archivo_de_fuente` para traducir "Constantia" a
     # "constan.ttf". Va importado adentro de una funcion, que es justo el caso
@@ -59,7 +72,7 @@ def _probar_imports() -> int:
     import importlib
 
     faltan = []
-    for nombre in IMPORTS_CRITICOS:
+    for nombre in IMPORTS_CRITICOS + PROPIOS_DIFERIDOS:
         try:
             importlib.import_module(nombre)
         except Exception as exc:  # noqa: BLE001 - vale cualquier motivo
@@ -73,7 +86,8 @@ def _probar_imports() -> int:
             print("  " + linea)
         return 1
     print("")
-    print(f"Los {len(IMPORTS_CRITICOS)} imports criticos andan.")
+    print(f"Los {len(IMPORTS_CRITICOS)} imports criticos y los "
+          f"{len(PROPIOS_DIFERIDOS)} modulos diferidos andan.")
     return 0
 
 

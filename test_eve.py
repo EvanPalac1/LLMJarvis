@@ -3375,6 +3375,32 @@ def test_wake_entra_por_la_misma_cola():
             voz.transcribe, voz.speak = voz_real
 
 
+def test_los_modulos_diferidos_viajan():
+    """Que la lista que comprueba el binario congelado no se quede vieja.
+
+    Un submodulo que PyInstaller no ve no deja ningun archivo faltante a la
+    vista: el build sale en verde y el programa falla recien cuando el usuario
+    usa la funcion, y solo en la version instalada. Es la falla que llevo a
+    evitar PIL.ImageTk a mano durante meses.
+
+    Aca no se exige que todo diferido este en OCULTOS: un `from . import x`
+    adentro de una funcion PyInstaller SI lo ve, y pedir la entrada igual
+    llenaria build.py de lineas que no hacen nada. Lo que se exige es lo util:
+    que cada nombre exista, y que nada de lo que se declaro oculto se quede sin
+    comprobar --porque justamente lo oculto es lo que nadie mas va a notar."""
+    import importlib
+
+    import build
+    import main
+
+    for nombre in main.PROPIOS_DIFERIDOS:
+        importlib.import_module(nombre)
+
+    sin_probar = [n for n in build.OCULTOS
+                  if n.startswith("eve.") and n not in main.PROPIOS_DIFERIDOS]
+    assert not sin_probar, f"en OCULTOS pero sin comprobar en el binario: {sin_probar}"
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):
