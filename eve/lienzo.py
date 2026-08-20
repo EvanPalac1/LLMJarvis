@@ -346,10 +346,16 @@ class Lienzo:
         if str(modulo.get("detalle")) == "numeros":
             fuente = _fuente(12, self.familia)
             y = 0
+            # El color va en un cuadradito y el texto siempre en el color de
+            # texto. Pintar la linea entera del color de su tramo dejaba dos de
+            # las cinco filas ilegibles: el ciclo llega a `borde` y a
+            # `texto_tenue`, que existen para cosas que NO se leen.
             for i, (nombre, valor) in enumerate(ordenadas[:5]):
-                dibujo.text((0, y), nombre + ": " + str(valor), font=fuente,
-                            fill=_rgba(colores[i % len(colores)], opac))
-                y += 14
+                dibujo.rectangle([0, y + 2, 8, y + 10],
+                                 fill=_rgba(colores[i % len(colores)], opac))
+                dibujo.text((13, y), nombre + ": " + str(valor), font=fuente,
+                            fill=_rgba(self.paleta["texto"], opac))
+                y += 15
             return
         x = 0.0
         for i, (_, valor) in enumerate(ordenadas):

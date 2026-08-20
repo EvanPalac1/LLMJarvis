@@ -1568,8 +1568,10 @@ class Panel(tk.Tk):
 
         fila2 = ttk.Frame(lista)
         fila2.pack(anchor="w", padx=12, pady=(0, 10))
+        ttk.Button(fila2, text="Armar el tablero de arranque",
+                   command=self._mods_semilla_tablero).pack(side="left")
         ttk.Button(fila2, text="Abrir la ventana de actividad",
-                   command=self._abrir_consola).pack(side="left")
+                   command=self._abrir_consola).pack(side="left", padx=6)
         self._ayuda(fila2, "  ahi se acomodan los modulos del tablero con el mouse")
 
         self.mod_caja = self._seccion(t, "Ajustes del modulo")
@@ -1579,6 +1581,17 @@ class Panel(tk.Tk):
         return t
 
     # --- modulos ------------------------------------------------------------
+
+    def _mods_semilla_tablero(self) -> None:
+        """Un tablero que ya muestre algo, en vez de una ventana en blanco."""
+        from . import modulos as mods
+
+        cfg = store.load_config()
+        for ident, m in mods.por_defecto_tablero().items():
+            cfg = mods.guardar(cfg, dict(m, id=ident))
+        store.save_config(cfg)
+        self._mods_refrescar()
+        self.estado.config(text="tablero armado: abri la ventana de actividad")
 
     def _abrir_consola(self) -> None:
         from . import consola

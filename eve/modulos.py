@@ -197,6 +197,36 @@ def _flotante(valor, defecto):
         return defecto
 
 
+def por_defecto_tablero():
+    """Un tablero que sirva apenas se abre, en vez de una ventana vacia.
+
+    Muestra lo que Eve ya sabe y hasta ahora no se veia junto: en que anda, que
+    se escucho, que esta contestando, y en que se va el contexto.
+    """
+    return {
+        "tnombre": {"tipo": "texto", "superficie": "tablero", "x": 40, "y": 30,
+                    "ancho": 400, "alto": 44, "tam": 28, "origen": "nombre",
+                    "cuando": "siempre", "z": 1},
+        "testado": {"tipo": "texto", "superficie": "tablero", "x": 40, "y": 78,
+                    "ancho": 400, "alto": 24, "tam": 13, "origen": "detalle",
+                    "cuando": "siempre", "z": 1},
+        "tonda": {"tipo": "onda", "superficie": "tablero", "x": 40, "y": 112,
+                  "ancho": 620, "alto": 60, "fuente": "microfono",
+                  "cuando": "siempre", "z": 1},
+        "tvos": {"tipo": "texto", "superficie": "tablero", "x": 40, "y": 200,
+                 "ancho": 620, "alto": 40, "tam": 15, "origen": "usuario",
+                 "cuando": "siempre", "z": 1},
+        "teve": {"tipo": "texto", "superficie": "tablero", "x": 40, "y": 250,
+                 "ancho": 620, "alto": 40, "tam": 15, "origen": "eve",
+                 "cuando": "siempre", "z": 1},
+        "tcontexto": {"tipo": "contexto", "superficie": "tablero", "x": 40, "y": 330,
+                      "ancho": 620, "alto": 18, "cuando": "siempre", "z": 1},
+        "tcuentas": {"tipo": "contexto", "superficie": "tablero", "x": 40, "y": 360,
+                     "ancho": 300, "alto": 90, "detalle": "numeros",
+                     "cuando": "siempre", "z": 1},
+    }
+
+
 def por_defecto():
     """El cartel de hoy, descrito como modulos.
 
