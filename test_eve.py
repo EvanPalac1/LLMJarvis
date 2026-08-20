@@ -2163,11 +2163,38 @@ def test_grafo_de_lo_que_hizo():
             for cmd in ("Get-Date", "Start-Process", "Get-Date", "Start-Process",
                         "Get-Date"):
                 store.log_action("PowerShell", "{'command': '" + cmd + " x'}", "ok")
-            nodos, aristas = grafo.leer()
+            nodos, aristas = grafo.leer(workdirs=[])
             nombres = {n["nombre"]: n["peso"] for n in nodos}
             assert nombres == {"Get-Date": 3, "Start-Process": 2}, nombres
             # Salieron uno detras del otro cuatro veces, en un solo par.
             assert len(aristas) == 1 and aristas[0][2] == 4, aristas
+            assert {n["clase"] for n in nodos} == {"herramienta"}
+
+            # Y ahora los PROYECTOS, que es lo que dice DONDE se trabajo. Un
+            # proyecto es lo que cuelga de un directorio permitido: lo de afuera
+            # --temporales, Archivos de Programa, el propio Python-- llenaba el
+            # grafo de nodos como "s:" y "0" que no le dicen nada a nadie.
+            trabajo = "C:\\Users\\yo\\Documentos"
+            store.log_action("write_file",
+                             "{'path': '" + trabajo + "\\ProyectoUno\\src\\a.py'}", "ok")
+            store.log_action("PowerShell",
+                             '{"command": "python \\"' + trabajo
+                             + '\\ProyectoUno\\b.py\\""}', "ok")
+            store.log_action("PowerShell",
+                             '{"command": "python C:\\Temp\\suelto\\x.py"}', "ok")
+            nodos, _ = grafo.leer(workdirs=[trabajo])
+            proyectos = {n["nombre"] for n in nodos if n["clase"] == "proyecto"}
+            assert proyectos == {"ProyectoUno"}, proyectos
+            assert "Temp" not in {n["nombre"] for n in nodos}, "entro plomeria"
+
+            # Una ruta con espacios no se corta a la mitad: "Trabajos GOD" salia
+            # como "Trabajos" porque el patron paraba en el espacio.
+            assert grafo._proyecto("C:\\Users\\yo\\Documentos\\Dos Palabras\\x.py",
+                                   [trabajo]) == "Dos Palabras"
+            # Ni la que trae las barras dobles del escapado JSON: quedaba
+            # "C://Users//..." y dejaba de coincidir con el directorio.
+            assert grafo._proyecto("C:\\\\Users\\\\yo\\\\Documentos\\\\Tres\\\\x.py",
+                                   [trabajo]) == "Tres"
 
             # El acomodado no puede sacar los nodos del rectangulo.
             acomodo = grafo.Acomodo(len(nodos), 200, 120)

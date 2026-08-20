@@ -100,31 +100,109 @@ def _nombre(fila) -> str:
     return tool[:22]
 
 
-def leer(limite: int = 150) -> tuple[list, list]:
+# Rutas que aparecen en los detalles. Sirve tanto para `path` como para las que
+# vienen sueltas adentro de un comando.
+_RUTA = re.compile(
+    # Entre comillas primero: las rutas con espacios --"Trabajos GOD"-- vienen
+    # asi, y cortarlas en el espacio dejaba el proyecto con medio nombre.
+    r'"([A-Za-z]:[\\/][^"]*)"'
+    r"|'([A-Za-z]:[\\/][^']*)'"
+    r"|([A-Za-z]:[\\/][^\"'\s,}]+)"
+    r"|(/(?:home|Users|mnt|opt)/[^\"'\s,}]+)"
+)
+
+
+def _proyecto(ruta: str, workdirs) -> str:
+    """A que proyecto pertenece una ruta, o "" si no es un proyecto.
+
+    Un proyecto es la primera carpeta que cuelga de un directorio permitido:
+    es donde el usuario trabaja y es lo unico donde Eve puede tocar sin pedir
+    confirmacion. Todo lo demas --temporales, Archivos de Programa, el propio
+    Python-- es plomeria, y meterla en el grafo lo llenaba de nodos como "s:",
+    "0" y carpetas temporales que no le dicen nada a nadie.
+
+    Un archivo suelto tampoco dice nada; la carpeta que lo contiene si.
+    """
+    # Las barras dobles del escapado JSON se colapsan: sin esto la ruta queda
+    # como `C://Users//...` y deja de coincidir con el directorio permitido.
+    normal = re.sub(r"/{2,}", "/", ruta.replace("\\", "/")).rstrip("/")
+    for base in workdirs or []:
+        raiz = re.sub(r"/{2,}", "/", str(base).replace("\\", "/")).rstrip("/")
+        if not raiz or not normal.lower().startswith(raiz.lower() + "/"):
+            continue
+        resto = [x for x in normal[len(raiz) + 1:].split("/") if x]
+        if not resto:
+            continue
+        # Si lo unico que cuelga es un archivo, el proyecto es el directorio.
+        nombre = resto[0] if len(resto) > 1 or "." not in resto[0] else os.path.basename(raiz)
+        return nombre[:26]
+    return ""
+
+
+def _proyectos_de(fila, workdirs) -> list:
+    """Los proyectos que toco esta accion, sin repetir."""
+    detalle = str(fila[2] or "")
+    vistos = []
+    for grupos in _RUTA.findall(detalle):
+        ruta = next((g for g in grupos if g), "")
+        nombre = _proyecto(ruta, workdirs) if ruta else ""
+        if nombre and nombre not in vistos:
+            vistos.append(nombre)
+    return vistos[:2]
+
+
+
+def leer(limite: int = 150, workdirs=None) -> tuple[list, list]:
     """(nodos, aristas) de las ultimas acciones.
 
-    nodos: [{"nombre", "peso"}]  aristas: [(i, j, veces)]
+    Hay dos clases de nodo y eso es lo que hace util al grafo: las HERRAMIENTAS
+    que se ejecutaron y los PROYECTOS sobre los que se ejecutaron. Solo con
+    herramientas se ve que hace Eve; con las dos se ve donde lo hace, que es la
+    pregunta que ninguna lista contesta bien.
+
+    nodos: [{"nombre", "peso", "clase"}]   aristas: [(i, j, veces)]
     """
     filas = store.recent_actions(limite)
     if not filas:
         return [], []
-    secuencia = [_nombre(f) for f in reversed(filas)]
+    if workdirs is None:
+        try:
+            workdirs = store.load_config().get("workdirs") or []
+        except Exception:  # noqa: BLE001 - el grafo no puede tumbar la ventana
+            workdirs = []
 
+    secuencia = []
     pesos: dict = {}
-    for nombre in secuencia:
-        pesos[nombre] = pesos.get(nombre, 0) + 1
-    elegidos = [n for n, _ in sorted(pesos.items(), key=lambda p: -p[1])[:TOPE_NODOS]]
-    indice = {n: i for i, n in enumerate(elegidos)}
-
     juntos: dict = {}
+
+    def sumar(nombre, clase):
+        clave = (clase, nombre)
+        pesos[clave] = pesos.get(clave, 0) + 1
+        return clave
+
+    for fila in reversed(filas):
+        herramienta = sumar(_nombre(fila), "herramienta")
+        secuencia.append(herramienta)
+        for proyecto in _proyectos_de(fila, workdirs):
+            clave = sumar(proyecto, "proyecto")
+            # La arista que importa: esta herramienta toco este proyecto.
+            par = tuple(sorted((herramienta, clave)))
+            juntos[par] = juntos.get(par, 0) + 1
+
+    elegidos = [c for c, _ in sorted(pesos.items(), key=lambda p: -p[1])[:TOPE_NODOS]]
+    indice = {c: i for i, c in enumerate(elegidos)}
+
+    # Y las herramientas que salieron una detras de otra.
     for antes, despues in zip(secuencia, secuencia[1:]):
         if antes == despues or antes not in indice or despues not in indice:
             continue
-        par = (min(indice[antes], indice[despues]), max(indice[antes], indice[despues]))
+        par = tuple(sorted((antes, despues)))
         juntos[par] = juntos.get(par, 0) + 1
 
-    nodos = [{"nombre": n, "peso": pesos[n]} for n in elegidos]
-    aristas = [(a, b, v) for (a, b), v in juntos.items()]
+    nodos = [{"nombre": nombre, "peso": pesos[(clase, nombre)], "clase": clase}
+             for clase, nombre in elegidos]
+    aristas = [(indice[a], indice[b], v) for (a, b), v in juntos.items()
+               if a in indice and b in indice]
     return nodos, aristas
 
 

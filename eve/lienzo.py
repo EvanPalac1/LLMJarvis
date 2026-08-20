@@ -432,7 +432,7 @@ class Lienzo:
         guardado = self._grafos.get(modulo["id"])
         cuantas = int(modulo.get("cuantas", 150))
         if guardado is None or guardado["cuadros"] > 90 or guardado["tam"] != (ancho, alto):
-            nodos, aristas = grafo_mod.leer(cuantas)
+            nodos, aristas = grafo_mod.leer(cuantas, self.cfg.get("workdirs"))
             guardado = {"nodos": nodos, "aristas": aristas, "cuadros": 0,
                         "tam": (ancho, alto),
                         "acomodo": grafo_mod.Acomodo(len(nodos), ancho, alto)}
@@ -460,9 +460,15 @@ class Lienzo:
                 break
             r = 4 + 8 * (nodo["peso"] / mayor)
             x, y = pos[i]
-            color = _rgba(tema.mezclar(self.paleta["acento2"], self.paleta["acento"],
-                                       nodo["peso"] / mayor), opac)
-            dibujo.ellipse([x - r, y - r, x + r, y + r], fill=color)
+            # Los proyectos se dibujan cuadrados y con el otro acento: de un
+            # vistazo se separa DONDE trabajo de QUE uso para trabajar.
+            if nodo.get("clase") == "proyecto":
+                color = _rgba(self.paleta["acento2"], opac)
+                dibujo.rectangle([x - r, y - r, x + r, y + r], fill=color)
+            else:
+                color = _rgba(tema.mezclar(self.paleta["acento2"], self.paleta["acento"],
+                                           nodo["peso"] / mayor), opac)
+                dibujo.ellipse([x - r, y - r, x + r, y + r], fill=color)
             if modulo.get("etiquetas", True):
                 dibujo.text((x + r + 3, y - 5), nodo["nombre"], font=fuente,
                             fill=_rgba(self.paleta["texto"], opac))
