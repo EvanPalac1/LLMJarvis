@@ -19,8 +19,15 @@ import os
 import tempfile
 import tkinter as tk
 
-MAX_CUADROS = 60      # un GIF largo no justifica ocupar memoria de a 60 PNG
-MS_POR_DEFECTO = 100  # si el GIF no declara duracion
+MAX_CUADROS = 60      # una animacion larga no justifica ocupar memoria de a 60 PNG
+MS_POR_DEFECTO = 100  # si el archivo no declara duracion
+
+# El recorrido de cuadros de abajo no sabe de formatos: pide `n_frames`, hace
+# `seek` y lee `info["duration"]`, y eso en PIL vale igual para GIF, APNG y
+# WebP animado. O sea que los dos ultimos ya andaban desde siempre y lo unico
+# que los tapaba era el filtro del dialogo de archivos. Sale barato y se nota:
+# el mismo dibujo de tres cuadros guardado como GIF queda en 2 colores unicos
+# --paleta de 256 y alpha de un bit-- y como APNG en 92, con alpha de 8 bits.
 
 _DIR = None
 

@@ -96,11 +96,26 @@ pip install pyinstaller
 python build.py --paquete
 ```
 
-Arma lo del sistema donde lo corras: en Windows necesita
-[Inno Setup](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`),
-en Linux `dpkg-deb` y `rpmbuild`.
+Arma lo del sistema donde lo corras. `build.py` no sabe armar instaladores: llama al
+guion de `packaging/` que corresponda, con la version y la arquitectura como argumentos.
+
+| Sistema | Guion | Hace falta |
+|---|---|---|
+| Windows | `packaging/windows/eve.iss` | [Inno Setup](https://jrsoftware.org/isinfo.php) — `winget install JRSoftware.InnoSetup` |
+| macOS | `packaging/macos/dmg.sh` | `hdiutil`, que ya viene |
+| Debian, Ubuntu | `packaging/linux/build_deb.sh` | `dpkg-deb` |
+| Fedora, RHEL | `packaging/linux/build_rpm.sh` | `rpmbuild` |
+
+En Linux se intentan los dos y **se saltea en silencio el que no tenga su herramienta**,
+asi que un runner con solo `dpkg-deb` saca el `.deb` y sigue. Lo que no se saltea es un
+guion que falla: se corren con `check=True` a proposito, porque con `check=False` un
+script roto dejaba el job en verde sin ningun paquete, y asi se publico una release vacia.
+
+Los dos de Linux comparten `packaging/linux/eve.desktop`, que es lo que pone a Eve en el
+menu de aplicaciones; el `.dmg` usa `packaging/macos/Info.plist` para el bundle.
 
 **PyInstaller no cross-compila**: cada paquete se arma en su sistema y arquitectura.
+
 Los seis salen de `.github/workflows/release.yml`, que corre al empujar un tag `v*`.
 
 ### Que hace falta para hablarle
@@ -359,19 +374,34 @@ los controles por nuestra cuenta en vez de usar los de Windows.
 
 ### Fondos e imagenes
 
-El cartel y los subtitulos aceptan una imagen de fondo, **PNG o GIF animado**, cada uno
-por su lado. Se elige el ajuste (recortar, estirar o mosaico), la opacidad y cuanto se
-tiñe con el color de acento.
+El cartel y los subtitulos aceptan una imagen de fondo, cada uno por su lado: **PNG, GIF,
+APNG y WebP animado**. Se elige el ajuste (recortar, estirar o mosaico), la opacidad y
+cuanto se tiñe con el color de acento.
+
+Los dos ultimos entraron sin escribir una linea de codigo nuevo. El recorrido de cuadros
+pide `n_frames`, hace `seek` y lee `info["duration"]`, y en PIL eso vale igual para los
+cuatro formatos: **ya andaban, y lo unico que los tapaba era el filtro `*.png *.gif` del
+dialogo de archivos**. Vale la pena porque el GIF es de 1998: paleta de 256 colores y
+alpha de un bit. El mismo dibujo de tres cuadros con un degradado suave da 2 colores
+unicos guardado como GIF y 92 como APNG, con alpha de 8 bits en vez de "transparente o
+no".
 
 La opacidad de la imagen **no** es el `-alpha` de la ventana. Se mezcla contra el color
 del panel al cargarla, con PIL: asi el fondo queda tenue y las letras siguen enteras. Con
 el alpha de la ventana, bajar el fondo se llevaria puesto tambien el texto.
 
-Tampoco se usa `PIL.ImageTk`, que seria el puente natural: es un submodulo aparte que
-puede no viajar en el binario empaquetado, y un fondo que solo falla en la version
-instalada es la peor clase de falla. En vez de eso PIL escala y mezcla, guarda un PNG
-temporal (cacheado por hash de los parametros) y lo carga `tk.PhotoImage`, que lee PNG de
-forma nativa desde Tk 8.6.
+Aca no se usa `PIL.ImageTk`, que seria el puente natural: PIL escala y mezcla, guarda un
+PNG temporal (cacheado por hash de los parametros) y lo carga `tk.PhotoImage`, que lee PNG
+de forma nativa desde Tk 8.6. El motivo original era el miedo a que ese submodulo no
+viajara en el binario empaquetado, porque `build.py` verificaba **archivos** presentes y
+no que un import funcionara: un submodulo que PyInstaller no ve no deja ningun archivo
+faltante a la vista y el programa recien falla cuando el usuario usa la funcion.
+
+Ese miedo ya no aplica. `python build.py --probar-imports` corre **el binario recien
+armado** y le pide que importe lo critico, en los cinco objetivos de la CI, y `ImageTk`
+esta en la lista. Por eso el compositor de modulos (`eve/lienzo.py`) si lo usa: ahi no
+alcanza con escribir un PNG por cuadro. Este camino sigue como esta porque para un fondo
+estatico el PNG cacheado es mas barato, no porque haya algo que temer.
 
 **Forma recortada**: con `hud_forma = recortado` el cartel deja de ser un rectangulo. Los
 contornos hexagonal y biselado pasan a dejar ver el escritorio por las esquinas cortadas.
@@ -511,6 +541,44 @@ Dos arreglos, ambos por defecto:
 El indice se cachea en `apps.json` y se refresca solo cada 7 dias. Para forzarlo:
 panel > **Voz** > *Reescanear programas*. Ahi mismo hay un campo de vocabulario extra
 para nombres que el reconocimiento siga errando.
+
+---
+
+### El banco de voz
+
+Todo lo de arriba se midio con audio **sintetizado**, y eso tiene un techo: la voz de
+Piper no tiene ruido de fondo, no se aleja del microfono y no susurra. Asi que hay un
+banco de grabaciones de verdad, 24 clips en seis grupos --limpio, nombres propios, lejos,
+con ruido, rapido y susurro-- con nivel de pico controlado en cada uno.
+
+```bash
+python banco_voz.py                     # WER por grupo con la config actual
+python banco_voz.py --modelo medium     # pisa el modelo sin tocar la config
+python banco_voz.py --borrador          # transcribe todo para corregir a mano
+```
+
+Saca el WER desglosado en sustituciones, inserciones y borrados por separado --un motor
+que inventa palabras y otro que se las come dan el mismo numero y se arreglan distinto--
+y el RTF, que es la mitad del argumento de cualquier modelo nuevo. Compara sin acentos y
+sin puntuacion, a proposito: el matcher de comandos y de contactos ya es insensible a los
+dos, asi que contarlos como error inflaria la cuenta con fallas que a la aplicacion no le
+cambian nada.
+
+**Las grabaciones no viajan en el repo.** Son la voz de una persona, asi que viven en la
+carpeta de datos junto a los contactos y los perfiles, en `banco_voz/`.
+
+### Lo que encontro apenas se enchufo
+
+Cuatro de esos clips volvian **vacios**, y no era el modelo: con el detector de voz
+apagado, tres de los cuatro se transcribian perfecto. El VAD no "se come alguna palabra
+dicha bajo" como decia el comentario en `voice.py`: se come **la frase entera**, y el
+turno se pierde sin dejar rastro de por que.
+
+Ahora, si con VAD no salio nada y el audio tenia senal, se reintenta una vez sin VAD. En
+el caso normal no cuesta nada porque no se dispara, y cuando se dispara el turno ya
+estaba perdido igual. No inventa texto sobre ruido: probado con silencio puro y con ruido
+blanco a -30 y -20 dB, las tres veces devuelve vacio. El piso de -42 dBFS sale del mismo
+banco, donde un susurro real pica en -27 y un clip inservible en -39.
 
 ---
 
@@ -905,6 +973,7 @@ percibida es todo. Tampoco se envuelve el `/voice` de Claude Code: es un REPL, n
 | `eve/ollama_engine.py` | Motor `ollama`: modelo local, sin nube |
 | `eve/voices.py` | Catalogo y descarga de voces de la comunidad |
 | `build.py` | Arma los binarios y el instalador del sistema |
+| `banco_voz.py` | Mide el WER del reconocimiento sobre grabaciones reales |
 | `packaging/` | Instaladores: Inno Setup, dmg, deb y rpm |
 | `eve/voice.py` | STT (faster-whisper / OpenAI) y TTS (Piper / SAPI / ElevenLabs) |
 | `eve/store.py` | config.json, keyring, SQLite, ventana de contexto |

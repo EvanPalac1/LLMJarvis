@@ -3159,6 +3159,54 @@ def test_wer_del_banco():
     assert banco_voz.grupo_de("propios_03.wav") == "propios"
 
 
+def test_animados_no_solo_gif():
+    """APNG y WebP animado tienen que dar los mismos cuadros que un GIF.
+
+    El recorrido de imagenes.py pide n_frames, hace seek y lee info["duration"],
+    y eso en PIL es agnostico del formato: los dos formatos buenos ya andaban y
+    lo unico que los tapaba era el filtro del dialogo. Este test es lo que evita
+    que alguien vuelva a cerrarlo por las dudas."""
+    from PIL import Image
+
+    from eve import imagenes
+
+    cuadros = []
+    for i in range(3):
+        im = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+        for y in range(16):
+            for x in range(16):
+                # Degradado de 24 bits con alpha suave: justo lo que el GIF no
+                # puede guardar, o sea lo que se gana con el cambio.
+                im.putpixel((x, y), (8 * x + i, 8 * y, 200, 8 * x))
+        cuadros.append(im)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vistos = {}
+        for nombre, extra in (("a.png", {}), ("a.webp", {"lossless": True}), ("a.gif", {})):
+            ruta = os.path.join(tmp, nombre)
+            base = cuadros[0] if not nombre.endswith(".gif") else cuadros[0].convert("P")
+            resto = cuadros[1:] if not nombre.endswith(".gif") else [
+                c.convert("P") for c in cuadros[1:]]
+            base.save(ruta, save_all=True, append_images=resto, duration=120, loop=0, **extra)
+
+            rutas, ms = imagenes.procesar(ruta, 16, 16, "encajar", 100, 0,
+                                          "#101010", "#ffffff", True)
+            assert len(rutas) == 3, f"{nombre} dio {len(rutas)} cuadros"
+            assert ms == [120, 120, 120], f"{nombre} perdio las duraciones: {ms}"
+            with Image.open(rutas[0]) as c0:
+                vistos[nombre] = len(set(c0.getdata()))
+
+        # Y el motivo del cambio, medido: el GIF aplasta el degradado contra su
+        # paleta y los otros dos no.
+        assert vistos["a.gif"] < vistos["a.png"], vistos
+        assert vistos["a.gif"] < vistos["a.webp"], vistos
+
+    # El dialogo del panel tiene que dejar elegirlos, que es lo unico que faltaba.
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    gui = open(os.path.join(raiz, "eve", "gui.py"), encoding="utf-8").read()
+    assert gui.count("*.webp") == 3, "quedo un dialogo de imagen sin los animados"
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):

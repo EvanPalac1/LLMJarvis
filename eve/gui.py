@@ -1528,7 +1528,8 @@ class Panel(tk.Tk):
 
             ruta = filedialog.askopenfilename(
                 title="Imagen de cabecera", parent=self,
-                filetypes=[("Imagenes", "*.png *.gif"), ("Todos", "*.*")],
+                filetypes=[("Imagenes", "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
+                       ("Todos", "*.*")],
             )
             if ruta:
                 var.set(ruta)
@@ -1898,7 +1899,8 @@ class Panel(tk.Tk):
         def elegir():
             ruta = filedialog.askopenfilename(
                 title=titulo, parent=self,
-                filetypes=[("Imagenes", "*.png *.gif"), ("Todos", "*.*")],
+                filetypes=[("Imagenes", "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
+                       ("Todos", "*.*")],
             )
             if ruta:
                 var.set(ruta)
@@ -1958,7 +1960,8 @@ class Panel(tk.Tk):
 
         ruta = filedialog.askopenfilename(
             title="Imagen para el icono", parent=self,
-            filetypes=[("Imagenes", "*.png *.gif"), ("Todos", "*.*")],
+            filetypes=[("Imagenes", "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
+                       ("Todos", "*.*")],
         )
         if ruta:
             self.vars["hud_icono"].set(ruta)
