@@ -2093,6 +2093,68 @@ def test_hud_dibuja_modulos():
         raiz.destroy()
 
 
+def test_eve_arma_un_modulo_sola():
+    """Eve puede armar una pieza de la interfaz de una sola vuelta.
+
+    Todo esto se podria hacer con `ajustar`, pero colocar un modulo con seis
+    propiedades serian seis comandos, o sea seis idas y vueltas al modelo por
+    algo que se pidio en una frase. Con cada vuelta costando varios segundos,
+    esa es la diferencia entre util e inservible.
+
+    Y valida: un tipo que no existe, un id repetido o una propiedad que ese tipo
+    no tiene se rechazan con el motivo, en vez de guardar algo que despues no se
+    dibuja y no se sabe por que.
+    """
+    import types
+
+    from eve import integrations, modulos as mods
+
+    def pedido(accion, ident="", tipo="texto", donde="tablero", prop=None):
+        return types.SimpleNamespace(accion=accion, id=ident, tipo=tipo,
+                                     donde=donde, prop=prop or [])
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real_c, real_db = store.CONFIG_PATH, store.DB_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        store._migradas.discard(store.DB_PATH)
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            assert "No hay ningun modulo" in integrations.modulo_cmd(pedido("listar"))
+
+            hecho = integrations.modulo_cmd(pedido(
+                "crear", "chispas", "particulas",
+                prop=["x=300", "y=120", "ancho=400", "cantidad=350",
+                      "fuente=microfono"]))
+            assert "Listo" in hecho, hecho
+            puesto = mods.leer(store.load_config(), "chispas")
+            assert puesto["x"] == 300 and puesto["cantidad"] == 350
+            assert puesto["fuente"] == "microfono"
+            assert isinstance(puesto["x"], int), "guardo la posicion como texto"
+
+            # Lo que no puede pasar en silencio.
+            assert "Ya existe" in integrations.modulo_cmd(
+                pedido("crear", "chispas", "onda"))
+            assert "no existe el tipo" in integrations.modulo_cmd(
+                pedido("crear", "otro", "inventado")).lower()
+            assert "no tiene la propiedad" in integrations.modulo_cmd(
+                pedido("crear", "otro", "particulas", prop=["estilo=barras"]))
+            assert "numero" in integrations.modulo_cmd(
+                pedido("crear", "otro", "particulas", prop=["x=mucho"]))
+            assert mods.identificadores(store.load_config()) == ["chispas"]
+
+            # Y lo que el usuario fijo a mano no se lo lleva puesto.
+            store.marcar_tocadas([mods.clave("chispas", "tipo")])
+            assert "manda el usuario" in integrations.modulo_cmd(
+                pedido("borrar", "chispas"))
+            store.destrabar(mods.clave("chispas", "tipo"))
+            assert "Borre" in integrations.modulo_cmd(pedido("borrar", "chispas"))
+            assert mods.identificadores(store.load_config()) == []
+        finally:
+            store.CONFIG_PATH, store.DB_PATH = real_c, real_db
+            store._migradas.discard(os.path.join(raiz, "eve.db"))
+
+
 def test_el_layout_viaja_en_el_perfil():
     """Un perfil exportado se lleva los modulos, y sigue rechazando basura.
 
