@@ -591,6 +591,61 @@ Tres cosas que salieron de ahi:
   exactos en bandeja** deja el mismo 26.1%. No es un problema de vocabulario, es acustico:
   ahi la unica palanca es el modelo.
 
+### Que espanol habla
+
+En **Voz > Que espanol habla**. Cambia como Eve **escribe**: `rioplatense` (vos, abri,
+pone, dale), `neutro` (tu, sin regionalismos), `mexicano` (ahorita, ya quedo) o
+`castellano` (vale, ordenador). Vacio no le dice nada. Cuesta unos **40 tokens por
+llamada**, que es todo lo que puede costar algo que viaja en cada una.
+
+**La voz va aparte, y eso no es un descuido.** Se midieron las siete voces de Piper en
+espanol sobre las mismas diez frases, sintetizando y volviendo a transcribir con el mejor
+reconocedor que hay: si el reconocedor no la entiende, una persona con el juego de fondo
+tampoco.
+
+```
+voz                       WER al re-oirla
+es_ES-sharvard-medium               7.2%
+es_MX-claude-high                   8.4%
+es_MX-ald-x_low                     8.4%
+es_ES-davefx-medium                 8.4%
+es_MX-ald-medium                    9.6%
+es_ES-carlfm-x_low                  9.6%
+es_AR-daniela-high                 19.3%
+```
+
+Repetir la MISMA voz tres veces da 7.2%, 8.4% y 7.2%, asi que **la banda de ruido es de
+un punto largo** --Piper sintetiza con algo de azar, no es determinista-- y todas empatan
+salvo una. `es_AR-daniela-high` esta once puntos afuera de esa banda y ademas es la unica
+cuyo RTF pasa de 1.0: tarda mas en generarse que en escucharse.
+
+Por eso **hasta la variante rioplatense sugiere una voz mexicana**, y hay un test que
+impide que alguna variante recomiende la argentina. La voz es el canal, no el acento del
+que habla: que Eve escriba "abri" y lo diga con acento neutro se entiende; que lo diga con
+una voz que se escucha mal, no. Si igual la queres, elegila a mano en **Voz de Piper** --el
+boton "usar la voz que le corresponde" sugiere, no impone, que es la misma regla de
+**Quien manda sobre un ajuste**.
+
+**Del lado de entender, no hizo falta nada.** La idea de instalar vocabularios por
+variante se probo y no mueve la aguja:
+
+```
+sesgo del reconocedor              TOTAL
+catalogo de programas (hoy)        10.9%
++ vocabulario rioplatense          10.9%
++ vocabulario neutro               12.0%
+solo rioplatense, sin catalogo     17.4%
+sin ningun sesgo                   15.8%
+```
+
+Agregar palabras rioplatenses **no cambia nada**, agregar vocabulario neutro **empeora**, y
+reemplazar el catalogo de programas por vocabulario de dialecto empeora mucho. Lo que se
+gana con el sesgo lo gana el catalogo de programas instalados, no el dialecto: whisper ya
+sabe voseo, y lo que no sabe son los nombres de tus juegos. Un ajuste que no mueve un
+numero no entra, aunque quede lindo en el panel.
+
+---
+
 ### Parakeet y Kokoro, medidos contra la linea base
 
 La regla era que entraban solo si ganaban medidos. Se midieron los dos sobre el mismo banco

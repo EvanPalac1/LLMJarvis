@@ -1182,6 +1182,33 @@ class Panel(tk.Tk):
         self.after(300, self.voces_buscar)
         return t
 
+    def voz_del_dialecto(self) -> None:
+        """Pone la voz que le corresponde a la variante elegida.
+
+        Con un boton y no solo: cambiar la voz de alguien porque toco otro
+        control es exactamente la app poseida que el ajuste de autoridad existe
+        para evitar. Se ofrece, no se impone.
+        """
+        from tkinter import messagebox
+
+        from . import voices
+
+        elegido = self.vars["dialecto"].get()
+        clave = store.voz_del_dialecto(elegido)
+        if not clave:
+            messagebox.showinfo("Voz", "Elegi una variante primero.", parent=self)
+            return
+        if clave not in voices.instaladas():
+            try:
+                messagebox.showinfo("Voz", voices.descargar(clave), parent=self)
+            except Exception as exc:  # noqa: BLE001
+                messagebox.showerror("Voz", f"No pude bajarla: {exc}", parent=self)
+                return
+        self.vars["piper_voice"].set(clave)
+        self.vars["tts_provider"].set("piper")
+        messagebox.showinfo("Voz", f"Voz puesta en {clave}. Guarda para aplicarlo.",
+                            parent=self)
+
     def _voz_sel(self) -> str:
         sel = self.voz_tree.selection()
         return self.voz_tree.item(sel[0], "values")[0] if sel else ""
@@ -1415,6 +1442,29 @@ class Panel(tk.Tk):
         self._row(t, "Voz de Windows", "tts_voice", voice.list_sapi_voices() or None)
         self._row(t, "ElevenLabs voice_id", "elevenlabs_voice_id")
         self._check(t, "Leer las respuestas en voz alta", "speak_replies")
+
+        hab = ttk.LabelFrame(t, text="Que espanol habla")
+        hab.pack(fill="x", padx=12, pady=(12, 4))
+        self._row(hab, "Variante", "dialecto",
+                  ["", "rioplatense", "neutro", "mexicano", "castellano"])
+        ttk.Button(hab, text="Usar la voz que le corresponde",
+                   command=self.voz_del_dialecto).pack(anchor="w", padx=12, pady=(0, 4))
+        self._ayuda(
+            hab,
+            "Cambia como ESCRIBE: vos contra tu, vale contra dale. Vacio = no se\n"
+            "le dice nada. Cuesta unos 40 tokens por llamada.\n"
+            "\nLa voz va aparte porque no es lo mismo. Medido sobre diez frases,\n"
+            "sintetizando y volviendo a transcribir --si el mejor reconocedor que\n"
+            "hay no la entiende, vos con el juego de fondo tampoco:\n"
+            "  es_ES-sharvard-medium   7.2%    es_MX-ald-medium     9.6%\n"
+            "  es_MX-claude-high       8.4%    es_ES-carlfm-x_low   9.6%\n"
+            "  es_MX-ald-x_low         8.4%    es_AR-daniela-high  19.3%\n"
+            "  es_ES-davefx-medium     8.4%\n"
+            "Repetir la misma voz da +-1.2 puntos, asi que todas empatan menos\n"
+            "una: es_AR-daniela-high se entiende mucho peor Y es la unica que\n"
+            "tarda mas en generarse que en escucharse. Por eso hasta la variante\n"
+            "rioplatense sugiere una voz mexicana: la voz es el canal, no el\n"
+            "acento del que habla. Si igual la queres, elegila a mano.")
 
         pers = ttk.LabelFrame(t, text="Personalidad")
         pers.pack(fill="x", padx=12, pady=(12, 4))

@@ -128,6 +128,9 @@ DEFAULTS = {
     # Medido: int8 pesa 639 MB contra 2.4 GB, anda igual de rapido y saca mejor
     # WER total. Sin cuantizar solo gana en nombres propios.
     "parakeet_cuantizacion": "int8",
+    # Que espanol habla Eve: "", rioplatense, neutro, mexicano o castellano.
+    # Vacio = no se le dice nada y escribe como le salga.
+    "dialecto": "",
     "stt_sensibilidad": "auto",
     # Activacion por palabra clave. Apagada de fabrica y a proposito: prenderla
     # deja el microfono abierto todo el tiempo, y eso lo elige el usuario.
@@ -360,6 +363,53 @@ def solo_cosmetico(antes: dict, despues: dict) -> bool:
 
 
 TOPE_TONO = 400
+
+
+# Las variantes de espanol que se pueden elegir. Cada una es UNA linea porque
+# viaja en cada llamada, y el proyecto se paso un dia entero recortando el prompt
+# como para gastarlo en un ensayo sobre dialectologia.
+#
+# `voz` es la voz de Piper que le corresponde. La eleccion no es de gusto:
+# `es_AR-daniela-high` es la unica voz medida que se entiende notoriamente peor
+# --19.3% de WER al volver a transcribirla, contra 7-10% de todas las demas-- y
+# la unica cuyo RTF pasa de 1.0, o sea que tarda mas en generarse que en
+# escucharse. Por eso hasta el dialecto rioplatense sugiere una voz mexicana:
+# la voz es el canal, no el acento del que habla.
+DIALECTOS = {
+    "": ("", ""),
+    "rioplatense": (
+        "Hablas rioplatense: vos y nunca tu. Abri, pone, cerra, tenes, queres, "
+        "mira. Dale, listo, joya. Nada de vosotros ni de vale.",
+        "es_MX-claude-high"),
+    "neutro": (
+        "Hablas espanol latinoamericano neutro: tu, sin regionalismos de ningun "
+        "pais. Abre, pon, cierra, tienes, quieres.",
+        "es_MX-claude-high"),
+    "mexicano": (
+        "Hablas espanol de Mexico: tu, con giros de ahi. Ahorita, ya quedo, "
+        "orale, sale.",
+        "es_MX-ald-medium"),
+    "castellano": (
+        "Hablas espanol de Espana: tu, con giros de ahi. Vale, ordenador, movil, "
+        "vosotros cuando hablas de varios.",
+        "es_ES-sharvard-medium"),
+}
+
+
+def bloque_dialecto(cfg: dict) -> str:
+    """Una linea diciendo que espanol hablar, o '' si al usuario le da igual.
+
+    Va aparte del tono a proposito: el tono es COMO sonas --de eso ya se ocupa
+    `persona_tono`, que es texto libre-- y esto es QUE espanol, que es una
+    eleccion cerrada y por eso se puede acompanar de una voz medida.
+    """
+    texto = DIALECTOS.get(str(cfg.get("dialecto", "") or ""), ("", ""))[0]
+    return f"## Como hablas\n\n{texto}\n\n" if texto else ""
+
+
+def voz_del_dialecto(dialecto: str) -> str:
+    """La voz de Piper que le corresponde, o '' si no hay preferencia."""
+    return DIALECTOS.get(str(dialecto or ""), ("", ""))[1]
 
 
 def bloque_tono(cfg: dict) -> str:

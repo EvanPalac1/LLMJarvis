@@ -2626,14 +2626,16 @@ def test_bloque_tono():
     assert len(largo) < 1200, "un tono gigante no puede inundar el system prompt"
     assert largo.count("x") == store.TOPE_TONO
 
-    # Los tres motores comparten la costura: si a alguno le falta el hueco, el
+    # Los tres motores comparten la costura: si a alguno le falta un hueco, el
     # format explota. Vale mas que falle un test que la primera orden hablada.
-    from eve import brain, cc_engine
+    # Los valores salen de `prompt.piezas` y no de una lista escrita aca: sino
+    # cada hueco nuevo rompe este test por no estar enumerado, que es ruido y no
+    # una falla --paso al agregar el bloque de dialecto.
+    from eve import brain, cc_engine, prompt
+    huecos = {k: "" for k in prompt.piezas(dict(store.DEFAULTS))}
     for plantilla in (brain.SYSTEM, cc_engine.PERSONA):
         assert "{tono}" in plantilla
-        plantilla.format(name="Eve", lang="espanol", workdirs="C:/", brief="",
-                         catalog="", catalog_header="", integrations="",
-                         tono=texto)
+        plantilla.format(**{**huecos, "tono": texto})
 
 
 def test_voz_por_personaje():
@@ -3455,6 +3457,43 @@ def test_parakeet_es_opcion_no_default():
                                "eve", "voice.py"), encoding="utf-8").read()
     assert 'cfg.get("stt_provider") == "parakeet"' in fuente
     assert hasattr(voice, "_abrir_parakeet")
+
+
+def test_variante_de_espanol():
+    """Que espanol habla, y que no se cuele en el prompt cuando no se eligio."""
+    from eve import prompt
+
+    cfg = dict(store.DEFAULTS)
+    assert cfg["dialecto"] == "", "de fabrica no se le dice nada"
+    assert store.bloque_dialecto(cfg) == ""
+    assert store.voz_del_dialecto("") == ""
+    # Una variante inventada tampoco puede meter basura en el prompt.
+    assert store.bloque_dialecto({**cfg, "dialecto": "klingon"}) == ""
+
+    for nombre in ("rioplatense", "neutro", "mexicano", "castellano"):
+        bloque = store.bloque_dialecto({**cfg, "dialecto": nombre})
+        assert bloque.startswith("## Como hablas"), nombre
+        # Viaja en CADA llamada. Un ensayo sobre dialectologia aca se paga en
+        # tokens para siempre; el proyecto se paso un dia recortando el prompt.
+        assert len(bloque) < 220, f"{nombre} ocupa {len(bloque)} chars"
+        assert store.voz_del_dialecto(nombre), f"{nombre} sin voz asignada"
+
+    # Lo que distingue rioplatense de los demas es el voseo, y eso tiene que
+    # estar dicho: sin eso el bloque es decorativo.
+    assert "vos" in store.bloque_dialecto({**cfg, "dialecto": "rioplatense"}).lower()
+    assert "tu" in store.bloque_dialecto({**cfg, "dialecto": "neutro"}).lower()
+
+    # Ninguna variante sugiere es_AR-daniela-high: es la unica voz medida que se
+    # entiende notoriamente peor (19.3% contra 7-10%) y la unica que tarda mas
+    # en generarse que en escucharse. Elegirla a mano se puede; sugerirla no.
+    sugeridas = {store.voz_del_dialecto(d) for d in store.DIALECTOS if d}
+    assert "es_AR-daniela-high" not in sugeridas, sugeridas
+
+    # Y que `partes()` siga sumando exacto con el bloque puesto: el medidor de
+    # contexto se apoya en esa igualdad.
+    con = {**cfg, "dialecto": "rioplatense"}
+    assert sum(prompt.partes(con).values()) == len(prompt.construir(con))
+    assert prompt.partes(cfg)["dialecto"] == 0, "sin elegir no ocupa nada"
 
 
 if __name__ == "__main__":
