@@ -144,6 +144,46 @@ def _probar_imports() -> int:
     return 0
 
 
+def _avisar_donde_esta(icono) -> None:
+    """La primera vez que Eve corre, decir DONDE quedo su icono.
+
+    Windows 11 manda los iconos nuevos al desplegable de la flechita y no a la
+    barra de tareas. Medido en la PC donde se encontro esto: de 88 iconos
+    registrados hay UNO promovido a la barra, y es de Microsoft --Steam,
+    Discord, Spotify, OBS y NVIDIA estan todos guardados donde esta Eve.
+
+    Sin esto Eve arranca, anda, registra el icono, y no da ninguna señal de
+    donde esta. Desde afuera eso es indistinguible de que no arranco: se
+    reporto dos veces como "no aparece el proceso".
+
+    La marca va en un archivo y no en una clave de config: no es una
+    preferencia del usuario, es algo que pasa una vez. Y todo el cuerpo va
+    envuelto porque un globo que no se puede mostrar no puede impedir que Eve
+    arranque.
+    """
+    from eve import store, textos  # adentro: main.py no los importa arriba
+    from eve.textos import t as tr
+
+    marca = os.path.join(store.BASE, ".aviso_bandeja")
+    try:
+        if os.path.exists(marca):
+            return
+        textos.desde_config(store.load_config())
+        icono.notify(
+            tr("Windows 11 guarda los iconos nuevos en el desplegable de la "
+               "flechita de la barra de tareas. Ahi esta Eve, junto a Steam y "
+               "Discord.\n\n"
+               "Para fijarlo en la barra: arrastralo fuera del desplegable, o "
+               "Configuracion > Personalizacion > Barra de tareas > Otros iconos "
+               "de la bandeja."),
+            tr("Eve esta corriendo"),
+        )
+        with open(marca, "w", encoding="utf-8") as f:
+            f.write("mostrado una vez\n")
+    except Exception:  # noqa: BLE001 - arrancar no puede fallar por un globo
+        pass
+
+
 def main() -> int:
     argv = sys.argv[1:]
     if not argv:
@@ -347,6 +387,7 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             pass
         icono.visible = True
+        _avisar_donde_esta(icono)
 
     motivo = "sin llegar a arrancar la bandeja"
     try:

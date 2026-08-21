@@ -64,7 +64,10 @@ def t(texto: str) -> str:
 # Solo corre desde el repo: en el binario congelado no hay .py que leer, y no
 # hace falta --esto es para el test, no para el usuario.
 
-ARCHIVOS = ("gui.py", "consola.py", "tray.py", "overlay.py", "textos.py")
+# `main.py` esta un nivel arriba del paquete: el aviso de donde quedo el icono
+# de bandeja vive ahi, y es el primer texto que ve quien instala Eve.
+ARCHIVOS = ("gui.py", "consola.py", "tray.py", "overlay.py", "textos.py",
+            os.path.join("..", "main.py"))
 
 
 def usados_en_el_codigo(carpeta: str = "") -> set:
@@ -139,6 +142,14 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Eve esta corriendo":
+        "Eve is running",
+    "Windows 11 guarda los iconos nuevos en el desplegable de la flechita de la barra de tareas. Ahi esta Eve, junto a Steam y Discord.\n"
+    "\n"
+    "Para fijarlo en la barra: arrastralo fuera del desplegable, o Configuracion > Personalizacion > Barra de tareas > Otros iconos de la bandeja.":
+        "Windows 11 keeps new icons in the flyout behind the arrow on the taskbar. That is where Eve is, next to Steam and Discord.\n"
+        "\n"
+        "To pin it to the taskbar: drag it out of the flyout, or go to Settings > Personalization > Taskbar > Other system tray icons.",
     "Buscar un ajuste...   (Ctrl+F)":
         "Search a setting...   (Ctrl+F)",
     "Cartel":

@@ -4553,6 +4553,58 @@ def test_la_ventana_vacia_dice_que_esta_vacia():
         gc.collect()
 
 
+def test_eve_dice_donde_quedo_su_icono():
+    """Una vez, y solo una, y sin poder impedir que Eve arranque.
+
+    Windows 11 manda los iconos nuevos al desplegable de la flechita. Eve
+    arrancaba, andaba, registraba el icono --y no daba ninguna señal de donde
+    estaba, que desde afuera es indistinguible de que no arranco. Se reporto
+    dos veces asi: "no aparece el proceso en segundo plano".
+
+    Las tres cosas que se comprueban fallan por separado:
+      - que avise la primera vez
+      - que NO avise la segunda, porque un globo en cada arranque es spam
+      - que si el globo falla, ni tire ni deje la marca; sin la marca se
+        reintenta el arranque siguiente, que es lo que uno quiere de un aviso
+        que nunca se llego a ver
+    """
+    import tempfile
+
+    import main
+
+    base_real = store.BASE
+    try:
+        store.BASE = tempfile.mkdtemp()
+        vistos = []
+
+        class Falso:
+            def notify(self, mensaje, titulo):
+                vistos.append((titulo, mensaje))
+
+        main._avisar_donde_esta(Falso())
+        main._avisar_donde_esta(Falso())
+        assert len(vistos) == 1, f"aviso {len(vistos)} veces"
+        titulo, mensaje = vistos[0]
+        assert titulo, "sin titulo no hay globo"
+        # Tiene que decir DONDE esta y COMO fijarlo; si no, no resuelve nada.
+        assert "flechita" in mensaje.lower() or "arrow" in mensaje.lower(), mensaje
+        assert os.path.exists(os.path.join(store.BASE, ".aviso_bandeja"))
+
+        # Un globo que revienta no puede llevarse puesto el arranque, y sin
+        # mostrarse no puede darse por mostrado.
+        store.BASE = tempfile.mkdtemp()
+
+        class Roto:
+            def notify(self, *_a):
+                raise RuntimeError("esta plataforma no soporta globos")
+
+        main._avisar_donde_esta(Roto())
+        assert not os.path.exists(os.path.join(store.BASE, ".aviso_bandeja")), \
+            "se dio por avisado sin haber avisado"
+    finally:
+        store.BASE = base_real
+
+
 def test_ningun_boton_apunta_a_la_nada():
     """`command=self.algo` tiene que resolver a un metodo que exista.
 
