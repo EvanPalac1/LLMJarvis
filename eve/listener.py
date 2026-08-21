@@ -27,6 +27,29 @@ def ask_yes_no(reason: str, detail: str) -> bool:
     )
 
 
+def armar_motor(cfg: dict, confirm=None, on_status=None):
+    """El motor que dice la config, ya armado.
+
+    Vive suelta y no adentro del Listener porque el panel necesita exactamente
+    este mismo motor para su boton de probar: si fueran dos caminos, el boton
+    podria decir que anda mientras el asistente usa otro que no.
+    """
+    motor = cfg.get("engine")
+    if motor == "claude-code":
+        return cc_engine.ClaudeCodeEve(cfg, on_status=on_status)
+    if motor == "compat":
+        from . import compat_engine
+
+        return compat_engine.CompatEve(cfg, confirm=confirm, on_status=on_status)
+    if motor == "ollama":
+        from . import ollama_engine
+
+        return ollama_engine.OllamaEve(cfg, confirm=confirm, on_status=on_status)
+    from . import brain  # import perezoso: el motor CLI no necesita `anthropic`
+
+    return brain.Eve(cfg, confirm=confirm, on_status=on_status)
+
+
 class Listener:
     def __init__(self, cfg: dict):
         self.cfg = cfg
@@ -80,24 +103,7 @@ class Listener:
                      detalle=self._con_cola(texto.upper().rstrip(". ")), nivel=0.12)
 
     def _build_engine(self):
-        motor = self.cfg.get("engine")
-        if motor == "claude-code":
-            return cc_engine.ClaudeCodeEve(self.cfg, on_status=self._estado)
-        if motor == "compat":
-            from . import compat_engine
-
-            return compat_engine.CompatEve(
-                self.cfg, confirm=self._confirm, on_status=self._estado
-            )
-        if motor == "ollama":
-            from . import ollama_engine
-
-            return ollama_engine.OllamaEve(
-                self.cfg, confirm=self._confirm, on_status=self._estado
-            )
-        from . import brain  # import perezoso: el motor CLI no necesita `anthropic`
-
-        return brain.Eve(self.cfg, confirm=self._confirm, on_status=self._estado)
+        return armar_motor(self.cfg, confirm=self._confirm, on_status=self._estado)
 
     def _confirm(self, reason: str, detail: str) -> bool:
         voice.speak(f"Necesito tu confirmacion. {reason}.", self.cfg)

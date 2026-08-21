@@ -39,6 +39,7 @@ El parametro dice que probar. Interpretalo asi:
 | `seguridad` o `frenos` | safety, addons, `NUNCA_POR_EVE`, rutas permitidas |
 | `modulos` | Registro, compositor, retrato y golden image |
 | `accesibilidad` o `qol` | Lo de abajo en "Accesibilidad" |
+| `idioma` o `i18n` | Cobertura de traduccion y el panel armado en los dos idiomas |
 | `regresion` | Solo `test_eve.py`, tres corridas, buscando intermitencias |
 | un sintoma en prosa | Reproducilo primero; recien despues buscá la causa |
 
@@ -148,6 +149,14 @@ Lo que hay que mirar, y por que cada uno:
 - **Cada control tiene que decir que hace y, si hay un numero medido, cual es.**
 - **Nada critico escondido detras de otra funcion.** La ventana de actividad
   estuvo sin pestaña propia y su unico boton vivia adentro de Modulos.
+- **Plegado no puede ser escondido.** Una seccion cerrada tiene que decir cuantas
+  opciones guarda, y los frenos --rutas, permisos, addons-- no se pliegan nunca.
+- **El buscador tiene que LLEVAR, no solo nombrar.** Pestaña, sub-pestaña, abrir la
+  seccion y correr el scroll: con tres de los cuatro, el control queda abajo del
+  pliegue y es igual que no haberlo encontrado.
+- **Cada boton de probar, en la seccion de lo que prueba.** Y probando el camino
+  real: si `probar el motor` armara un motor distinto del que usa el asistente,
+  podria decir que todo anda mientras el camino de verdad esta roto.
 - **El texto no puede mentir.** Si dice "cambiala en el panel", tiene que haber
   donde.
 
@@ -156,6 +165,24 @@ Un golden image detecta regresiones de dibujo sin ojos:
 ```bash
 cd "C:/Users/ADMIN/Documents/Trabajos GOD/Eve" && python main.py --retrato salida.png --todos
 ```
+
+## Idioma
+
+La clave del diccionario es el texto en espanol, asi que cambiarle una coma a un
+rotulo lo deja sin traduccion y en pantalla sale en el idioma equivocado. Se
+comprueba en las dos direcciones:
+
+```bash
+cd "C:/Users/ADMIN/Documents/Trabajos GOD/Eve" && python -X utf8 -c "
+from eve import textos
+print('muestra:', len(textos.usados_en_el_codigo()))
+print('sin traducir:', textos.sin_traducir('en'))
+print('sobran:', [k for k in textos.EN if k not in textos.usados_en_el_codigo()])"
+```
+
+Las tres lineas tienen que dar: un numero > 250, una lista vacia y una lista
+vacia. Y el panel tiene que ARMAR con el idioma puesto, no solo tener el
+diccionario completo: `test_el_panel_arma_en_ingles`.
 
 ## Lo que NO podes probar solo
 

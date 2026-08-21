@@ -24,7 +24,8 @@ import tkinter as tk
 from collections import deque
 from tkinter import ttk
 
-from . import lienzo, modulos, plataforma, store, tema
+from . import lienzo, modulos, plataforma, store, tema, textos
+from .textos import t as tr
 
 CUADRO = 33          # ms entre cuadros, ~30 fps
 CADA_LECTURA = 3     # el estado se relee a 10 Hz, como en el cartel
@@ -35,8 +36,9 @@ ANCHO, ALTO = 1100, 700
 class Consola:
     def __init__(self):
         self.cfg = store.load_config()
+        textos.desde_config(self.cfg)
         self.raiz = tk.Tk()
-        self.raiz.title(f"{self.cfg.get('assistant_name', 'Eve')} — actividad")
+        self.raiz.title(f"{self.cfg.get('assistant_name', 'Eve')} — {tr('actividad')}")
         self.raiz.geometry(f"{ANCHO}x{ALTO}")
         self.raiz.minsize(640, 420)
 
@@ -66,11 +68,15 @@ class Consola:
                             style="Toolbutton").pack(side="left", padx=(6, 0), pady=6)
         self.aviso = ttk.Label(barra, text="", style="Ayuda.TLabel")
         self.aviso.pack(side="left", padx=16)
+        # Solo aparece con el tablero vacio: un boton que no hace falta es ruido,
+        # pero no tenerlo obliga a volver al panel a buscar donde estaba.
+        self.boton_semilla = ttk.Button(barra, text=tr("Armar el tablero"),
+                                        command=self._armar_tablero)
         self.botones_edit = ttk.Frame(barra)
         self.botones_edit.pack(side="right", padx=6)
-        for texto, accion in (("Deshacer", self._deshacer),
-                              ("Duplicar", self._duplicar),
-                              ("Borrar", self._borrar)):
+        for texto, accion in ((tr("Deshacer"), self._deshacer),
+                              (tr("Duplicar"), self._duplicar),
+                              (tr("Borrar"), self._borrar)):
             ttk.Button(self.botones_edit, text=texto, command=accion).pack(side="left", padx=3)
 
         cuerpo = ttk.Frame(self.raiz)
@@ -94,6 +100,38 @@ class Consola:
         self.raiz.bind("<Delete>", lambda _e: self._borrar())
         self._cambio_modo()
 
+    def _armar_tablero(self) -> None:
+        """Pone los modulos de arranque y los dibuja, sin cerrar la ventana."""
+        cfg = store.load_config()
+        for ident, m in modulos.por_defecto_tablero().items():
+            cfg = modulos.guardar(cfg, dict(m, id=ident))
+        store.save_config(cfg)
+        self.cfg = cfg
+        self._lista = None
+        self.mtime = self._mtime()
+        self.aviso.config(text=tr("listo, ahi estan"))
+
+    def _dibujar_vacio(self) -> None:
+        """Que la ventana diga por que esta vacia en vez de estarlo y ya.
+
+        Un rectangulo negro no se distingue de un programa que no arranco, y ese
+        fue el reporte textual: no saber si la ventana existia. Ahora dice que
+        existe, por que no muestra nada, y donde esta el boton que lo arregla.
+        """
+        self.lienzo.delete("vacio")
+        paleta = tema.resolver(self.cfg, "ui")
+        ancho = max(1, self.lienzo.winfo_width())
+        alto = max(1, self.lienzo.winfo_height())
+        self.lienzo.create_text(
+            ancho // 2, alto // 2 - 24, tags="vacio", fill=paleta["texto"],
+            font=(None, 13), justify="center",
+            text=tr("Esta ventana esta vacia porque el tablero no tiene modulos."))
+        self.lienzo.create_text(
+            ancho // 2, alto // 2 + 12, tags="vacio", fill=paleta["texto_tenue"],
+            font=(None, 10), justify="center",
+            text=tr("Toca 'Armar el tablero' aca arriba para poner los de arranque,\n"
+                    "o agregalos uno por uno desde el panel, en Apariencia > Modulos."))
+
     def _aplicar_tema(self) -> None:
         paleta = tema.resolver(self.cfg, "ui")
         if tema.pinta_panel(self.cfg):
@@ -113,7 +151,7 @@ class Consola:
         if editando:
             self.botones_edit.pack(side="right", padx=6)
             self.panel.pack(side="right", fill="y")
-            self.aviso.config(text="clic para elegir · Ctrl suma · Shift agrega un rango · arrastra para mover")
+            self.aviso.config(text=tr("clic para elegir · Ctrl suma · Shift agrega un rango · arrastra para mover"))
         else:
             self.botones_edit.pack_forget()
             self.panel.pack_forget()
@@ -233,7 +271,7 @@ class Consola:
             hijo.destroy()
         self.vars = {}
         if not self.seleccion:
-            ttk.Label(self.props, text="Nada elegido.", style="Ayuda.TLabel").pack(
+            ttk.Label(self.props, text=tr("Nada elegido."), style="Ayuda.TLabel").pack(
                 anchor="w", padx=10, pady=10)
             return
         ttk.Label(self.props, text=f"{len(self.seleccion)} elegido(s)").pack(
@@ -256,7 +294,7 @@ class Consola:
             else:
                 ttk.Entry(fila, textvariable=var, width=15).pack(side="left")
             self.vars[prop] = (var, defecto, valor)
-        ttk.Button(self.props, text="Aplicar a los elegidos",
+        ttk.Button(self.props, text=tr("Aplicar a los elegidos"),
                    command=self._aplicar_props).pack(anchor="w", padx=10, pady=10)
 
     def _aplicar_props(self) -> None:
@@ -288,7 +326,7 @@ class Consola:
 
     def _deshacer(self) -> None:
         if not self.deshacer:
-            self.aviso.config(text="no hay nada para deshacer")
+            self.aviso.config(text=tr("no hay nada para deshacer"))
             return
         previos = json.loads(self.deshacer.pop())
         cfg = {k: v for k, v in store.load_config().items()
@@ -409,6 +447,18 @@ class Consola:
         if editando:
             lista = [dict(m, cuando="siempre") for m in lista]
         self.pintor.dibujar(lista, vista)
+        # Sin modulos no hay nada que dibujar y la ventana queda negra, que es
+        # indistinguible de "no arranco". Se dice por que, y aparece el boton.
+        if lista:
+            self.lienzo.delete("vacio")
+            self.boton_semilla.pack_forget()
+        else:
+            self._dibujar_vacio()
+            # `winfo_manager` y no `winfo_ismapped`: el segundo es False mientras
+            # la ventana este oculta, asi que esto volveria a empaquetar el boton
+            # treinta veces por segundo sin que se vea nada raro.
+            if not self.boton_semilla.winfo_manager():
+                self.boton_semilla.pack(side="left", padx=6)
         if editando:
             self.lienzo.tag_raise("marca")
         self.raiz.after(CUADRO, self.tick)

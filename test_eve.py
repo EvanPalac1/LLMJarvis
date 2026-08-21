@@ -2673,7 +2673,7 @@ def test_bloque_tono():
     assert "Seca y condescendiente." in texto
     # Sin este encuadre un personaje verboso se come la disciplina del manual.
     assert "gana el manual" in texto
-    assert "COMO sonas" in texto and "QUE hacer" in texto
+    assert "COMO suenas" in texto and "QUE hacer" in texto
 
     largo = store.bloque_tono({"persona_tono": "x" * 5000})
     assert len(largo) < 1200, "un tono gigante no puede inundar el system prompt"
@@ -3517,13 +3517,16 @@ def test_variante_de_espanol():
     from eve import prompt
 
     cfg = dict(store.DEFAULTS)
-    assert cfg["dialecto"] == "", "de fabrica no se le dice nada"
-    assert store.bloque_dialecto(cfg) == ""
+    # De fabrica es neutro y no vacio. Sin ninguna instruccion cada motor elige
+    # su propio registro, asi que la misma pregunta suena distinta segun quien
+    # conteste; y el vacio, ademas, tira a castellano en varios modelos.
+    assert cfg["dialecto"] == "neutro"
+    assert store.bloque_dialecto({**cfg, "dialecto": ""}) == ""
     assert store.voz_del_dialecto("") == ""
     # Una variante inventada tampoco puede meter basura en el prompt.
     assert store.bloque_dialecto({**cfg, "dialecto": "klingon"}) == ""
 
-    for nombre in ("rioplatense", "neutro", "mexicano", "castellano"):
+    for nombre in ("rioplatense", "neutro", "mexicano", "colombiano", "castellano"):
         bloque = store.bloque_dialecto({**cfg, "dialecto": nombre})
         assert bloque.startswith("## Como hablas"), nombre
         # Viaja en CADA llamada. Un ensayo sobre dialectologia aca se paga en
@@ -3546,7 +3549,7 @@ def test_variante_de_espanol():
     # contexto se apoya en esa igualdad.
     con = {**cfg, "dialecto": "rioplatense"}
     assert sum(prompt.partes(con).values()) == len(prompt.construir(con))
-    assert prompt.partes(cfg)["dialecto"] == 0, "sin elegir no ocupa nada"
+    assert prompt.partes({**cfg, "dialecto": ""})["dialecto"] == 0, "vacio no ocupa nada"
 
 
 def test_sprite_sheets():
@@ -4171,10 +4174,307 @@ def test_todo_ajuste_se_puede_tocar_desde_el_panel():
             assert clave in POR_OTRO_CAMINO, (
                 f"{clave} se le niega a Eve y el usuario tampoco puede cambiarla")
         # Y los botones que reemplazan a esos campos tienen que existir.
+        # Las dos formas: los rotulos pasan por `tr()` para poder traducirse, y
+        # se aceptan igual sin envolver por si alguno se agrega despues.
         for texto in ("Aprobar", "Revocar"):
-            assert f'text="{texto}"' in fuente, f"falta el boton {texto}"
+            assert (f'text=tr("{texto}")' in fuente
+                    or f'text="{texto}"' in fuente), f"falta el boton {texto}"
     finally:
         panel.destroy()
+        gc.collect()
+
+
+def test_ingles_cubre_todo_lo_que_el_panel_muestra():
+    """Ningun texto de pantalla se queda sin traduccion.
+
+    La clave del diccionario es el texto en espanol, asi que cambiarle una coma
+    a un rotulo lo deja sin traducir y en pantalla sale en espanol. Eso no se
+    descubre leyendo: se descubre cuando alguien cambia el idioma y encuentra
+    media ventana en el idioma equivocado. Este test lo dice antes.
+    """
+    from eve import textos
+
+    usados = textos.usados_en_el_codigo()
+    assert len(usados) > 250, f"solo {len(usados)} textos envueltos: falta envolver"
+    faltan = textos.sin_traducir("en")
+    assert not faltan, f"{len(faltan)} sin traducir al ingles: {faltan[:5]}"
+
+    # Y al reves: una traduccion cuya clave ya no existe es peso muerto que
+    # tapa un desfasaje real.
+    sobran = [k for k in textos.EN if k not in usados]
+    assert not sobran, f"traducciones de textos que ya no existen: {sobran[:5]}"
+
+
+def test_traducir_no_rompe_nada_si_falta():
+    """Sin entrada, sale el espanol. Nunca una clave cruda ni un error."""
+    from eve import textos
+
+    anterior = textos.actual()
+    try:
+        textos.usar("en")
+        assert textos.t("Guardar") == "Save"
+        assert textos.t("esto no existe en el diccionario") == \
+            "esto no existe en el diccionario"
+        # Un idioma que no conocemos cae a espanol, no deja la ventana vacia.
+        assert textos.usar("klingon") == "es"
+        assert textos.t("Guardar") == "Guardar"
+    finally:
+        textos.usar(anterior)
+
+
+def test_el_panel_arma_en_ingles():
+    """Que se pueda cambiar el idioma no sirve si el panel no arma con el puesto."""
+    import gc
+
+    from eve import gui, store, textos
+
+    anterior_cfg = store.load_config()
+    anterior_idioma = textos.actual()
+    store.save_config({**anterior_cfg, "ui_idioma": "en"})
+    panel = None
+    try:
+        panel = gui.Panel()
+        panel.withdraw()
+        pestanas = [panel._nb.tab(i, "text").strip()
+                    for i in range(panel._nb.index("end"))]
+        assert "Accounts" in pestanas and "Appearance" in pestanas, pestanas
+        titulos = [e[0]["titulo"] for e in panel._secciones]
+        assert "Who Eve is" in titulos, titulos[:5]
+    finally:
+        if panel is not None:
+            panel.destroy()
+        store.save_config(anterior_cfg)
+        textos.usar(anterior_idioma)
+        gc.collect()
+
+
+def test_el_panel_no_muestra_todo_de_una():
+    """Modo `esencial`: lo de ajuste fino arranca plegado, y nada desaparece.
+
+    El pedido era que un usuario comun no se sature y que el que quiere ver todo
+    llegue facil. Se comprueban las dos mitades: que en `esencial` haya
+    secciones cerradas, y que en `completo` no quede ninguna --si esconder fuera
+    permanente, seria una opcion que no existe.
+    """
+    import gc
+
+    from eve import gui, store
+
+    anterior = store.load_config()
+    store.save_config({**anterior, "ui_modo_panel": "esencial"})
+    panel = None
+    try:
+        panel = gui.Panel()
+        panel.withdraw()
+        assert len(panel._secciones) >= 20, "el panel deberia estar en secciones"
+        cerradas = [e[0]["titulo"] for e in panel._secciones if not e[0]["abierta"]]
+        assert cerradas, "en modo esencial algo tiene que arrancar plegado"
+
+        # Los frenos NO se pliegan. Esconderlos por prolijidad es apagarlos.
+        for critica in ("Hasta donde puede meterse", "Sin revisar", "Aprobados"):
+            for estado, _c, _p in panel._secciones:
+                if estado["titulo"] == critica:
+                    assert estado["abierta"], f"{critica} no se puede esconder"
+
+        panel.modo_panel.set("completo")
+        panel._aplicar_modo_panel()
+        assert not [e for e in panel._secciones if not e[0]["abierta"]], \
+            "en modo completo no puede quedar nada plegado"
+
+        # Y una cerrada se abre con su boton, sin cambiar de modo.
+        panel.modo_panel.set("esencial")
+        panel._aplicar_modo_panel()
+        estado = next(e[0] for e in panel._secciones if not e[0]["abierta"])
+        estado["abrir"]()
+        assert estado["abierta"]
+    finally:
+        if panel is not None:
+            panel.destroy()
+        store.save_config(anterior)
+        gc.collect()
+
+
+def test_el_buscador_encuentra_y_sabe_donde_esta():
+    """Buscar tiene que llevar hasta el control, no solo nombrarlo."""
+    import gc
+
+    from eve import gui
+
+    panel = None
+    try:
+        panel = gui.Panel()
+        panel.withdraw()
+        assert len(panel._indice) > 60, f"indice corto: {len(panel._indice)}"
+
+        # Cada entrada sabe su pestaña; sin eso el buscador no puede saltar.
+        sin_pestana = [e for e in panel._indice if not e["pestana"]]
+        assert not sin_pestana, f"{len(sin_pestana)} controles sin pestaña"
+
+        # Un ajuste que vive tres niveles adentro se encuentra igual.
+        panel.buscar_var.set("velocidad")
+        panel._buscar()
+        assert panel._aciertos, "no encontro 'velocidad'"
+        assert any(a["clave"] == "piper_velocidad" for a in panel._aciertos)
+
+        # Se busca tambien por el nombre de la clave, que es como lo nombra Eve
+        # cuando dice "cambiala en el panel".
+        panel.buscar_var.set("consola_modo")
+        panel._buscar()
+        assert any(a["clave"] == "consola_modo" for a in panel._aciertos)
+
+        # Y saltar hasta uno no puede tirar.
+        panel._ir_a(panel._aciertos[0])
+        panel.update_idletasks()
+    finally:
+        if panel is not None:
+            panel.destroy()
+        gc.collect()
+
+
+def test_la_ventana_de_actividad_se_alcanza_desde_cualquier_lado():
+    """Es imperativa para el proyecto y estuvo escondida tres niveles.
+
+    Se comprueba que existan las dos puertas independientes: el pie del panel
+    --visible desde las siete pestañas-- y el item de la bandeja. Una sola no
+    alcanza: la de la bandeja ya fallo una vez en Windows 11 y el usuario se
+    quedo sin ninguna forma de abrirla.
+    """
+    import os
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(raiz, "eve", "gui.py"), encoding="utf-8") as f:
+        gui_src = f.read()
+    with open(os.path.join(raiz, "eve", "tray.py"), encoding="utf-8") as f:
+        tray_src = f.read()
+
+    # El boton del pie: se arma junto al de Guardar, fuera del Notebook.
+    pie = gui_src.split("nb = self._nb = ttk.Notebook")[0]
+    assert 'tr("Ventana de actividad")' in pie, \
+        "el boton del pie tiene que estar antes del notebook, o queda adentro de una pestaña"
+    assert "self._abrir_consola" in pie
+
+    assert 'tr("Ventana de actividad"), lambda: _abrir_consola()' in tray_src
+
+    # Y su ajuste de cuando se abre sigue existiendo.
+    from eve import store
+
+    assert store.DEFAULTS["consola_modo"] in ("nunca", "con_eve")
+
+
+def test_los_botones_de_prueba_existen_y_prueban_el_camino_entero():
+    """Cada prueba corre el mismo codigo que usa Eve, no una version aparte."""
+    import inspect
+    import os
+
+    from eve import gui, listener
+
+    for nombre in ("probar_stt", "probar_tts", "probar_overlay", "gpu_probar",
+                   "probar_tecla", "probar_motor", "probar_wake",
+                   "probar_subtitulo", "probar_webhook"):
+        assert callable(getattr(gui.Panel, nombre, None)), f"falta {nombre}"
+
+    # El de motor tiene que armar EL MISMO motor que el asistente. Si armara uno
+    # propio podria decir que todo anda mientras el camino real esta roto.
+    assert "armar_motor" in inspect.getsource(gui.Panel.probar_motor)
+    # Del ARCHIVO y no de `inspect.getsource` sobre el metodo: media docena de
+    # tests reemplazan `Listener._build_engine` por un motor falso, asi que leer
+    # el atributo devuelve el ultimo lambda que alguien dejo puesto. Esto pasaba
+    # solo cuando se corria la suite entera, que es la peor forma de enterarse.
+    ruta_listener = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "eve", "listener.py")
+    with open(ruta_listener, encoding="utf-8") as f:
+        fuente_listener = f.read()
+    assert "return armar_motor(self.cfg" in fuente_listener
+
+    # Y el de la palabra clave, la misma puerta.
+    assert "despertar.escuchado" in inspect.getsource(gui.Panel.probar_wake)
+
+    # Cada boton vive en la seccion de lo que prueba, no todos juntos en el
+    # medio de una pestaña: un boton de probar lejos de lo que prueba es un
+    # boton mas.
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(raiz, "eve", "gui.py"), encoding="utf-8") as f:
+        fuente = f.read()
+    for seccion, boton in (
+        ("Como te escucha", "Probar que te escucha"),
+        ("Como te habla", "Probar que te habla"),
+        ("Cartel en pantalla", "Mostrar el cartel"),
+        ("Subtitulos", "Mostrar un subtitulo de prueba"),
+        ("Despertarla diciendo su nombre", "Probar la palabra"),
+    ):
+        i = fuente.index(f'_seccion(t, tr("{seccion}")')
+        # La seccion siguiente marca el final de esta.
+        j = fuente.find("self._seccion(", i + 10)
+        trozo = fuente[i:j if j > 0 else len(fuente)]
+        assert f'tr("{boton}")' in trozo, f"{boton} no esta dentro de {seccion}"
+
+
+def test_la_ventana_vacia_dice_que_esta_vacia():
+    """Una ventana negra no se distingue de un programa que no arranco.
+
+    Era literalmente el reporte: no saber si la ventana existia. El tablero de
+    fabrica viene sin modulos, asi que abrirla mostraba un rectangulo negro y
+    nada mas. Ahora dice por que, y trae el boton que lo arregla al lado.
+    """
+    import gc
+    import os
+    import tempfile
+
+    from eve import consola, modulos, store
+
+    antes = store.CONFIG_PATH
+    tmp = tempfile.mkdtemp()
+    store.CONFIG_PATH = os.path.join(tmp, "config.json")
+    store.save_config(dict(store.DEFAULTS))
+    c = None
+    try:
+        c = consola.Consola()
+        c.raiz.withdraw()
+        assert not c._modulos(), "de fabrica el tablero viene vacio"
+
+        c.tick()
+        c.raiz.update_idletasks()
+        # El texto esta dibujado en el canvas, con su etiqueta.
+        assert c.lienzo.find_withtag("vacio"), "la ventana vacia no dice nada"
+        # `winfo_manager` porque la ventana esta oculta y `ismapped` seria
+        # False aunque el boton este puesto.
+        assert c.boton_semilla.winfo_manager() == "pack", "sin boton para arreglarlo"
+
+        # Y el boton arma un tablero de verdad.
+        c._armar_tablero()
+        puestos = c._modulos()
+        assert len(puestos) >= 5, f"el tablero de arranque puso {len(puestos)}"
+        assert set(m["tipo"] for m in puestos) & {"contexto", "grafo"}, \
+            "el tablero de arranque tiene que traer algo que muestre estado"
+
+        c.tick()
+        c.raiz.update_idletasks()
+        assert not c.lienzo.find_withtag("vacio"), "con modulos no puede seguir el cartel"
+    finally:
+        if c is not None:
+            c.raiz.destroy()
+        store.CONFIG_PATH = antes
+        gc.collect()
+
+
+def test_la_rueda_no_cambia_ningun_valor():
+    """Rodar para leer no te puede cambiar el motor de voz sin que te enteres."""
+    import gc
+
+    from eve import gui
+
+    panel = None
+    try:
+        panel = gui.Panel()
+        panel.withdraw()
+        # Se frena por CLASE, asi que vale para los combos que se agreguen
+        # despues y no solo para los que habia el dia que se escribio esto.
+        for clase in ("TCombobox", "TSpinbox"):
+            atado = panel.bind_class(clase, "<MouseWheel>")
+            assert atado, f"{clase} sin freno de rueda"
+    finally:
+        if panel is not None:
+            panel.destroy()
         gc.collect()
 
 

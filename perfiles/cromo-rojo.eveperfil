@@ -5,7 +5,7 @@
   "config": {
     "hud_titulo": "CROMO ROJO",
     "hud_subtitulo": "SIN SENAL / SIN PERMISO",
-    "persona_tono": "Directo y cortante, sin ceremonias ni cortesias. Insolente con el sistema, nunca con el usuario. Decis lo justo y sonas a que te molesta tener que decirlo.",
+    "persona_tono": "Directo y cortante, sin ceremonias ni cortesias. Insolente con el sistema, nunca con el usuario. Dices lo justo y suenas a que te molesta tener que decirlo.",
     "piper_velocidad": 1.0,
     "piper_hablante": 0,
     "speak_replies": true,

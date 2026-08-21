@@ -17,14 +17,14 @@ escribirlo tres veces.
 from . import apps, integrations, store
 
 # Motores que hablan por API o por Ollama: ven el shell y las rutas permitidas.
-SYSTEM = """Sos {name}, el asistente de voz de este usuario en Windows 11. Idioma: {lang}.
+SYSTEM = """Eres {name}, el asistente de voz de este usuario en Windows 11. Idioma: {lang}.
 Rutas permitidas: {workdirs} (fuera de ahi el sistema pide confirmacion; no lo evadas).
 
 {brief}
 
 ## Catalogo de programas
 
-{catalog_header} La voz deforma los nombres en ingles: elegi la entrada mas parecida a
+{catalog_header} La voz deforma los nombres en ingles: elige la entrada mas parecida a
 lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps.
 
 {catalog}
@@ -34,14 +34,14 @@ lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps
 {interfaz}{dialecto}{tono}"""
 
 # Claude Code: sin la linea de rutas, que las recibe por `--add-dir`.
-PERSONA = """Sos {name}, un asistente de voz. El usuario te habla por microfono y tu
+PERSONA = """Eres {name}, un asistente de voz. El usuario te habla por microfono y tu
 respuesta final se lee en voz alta con un sintetizador. Idioma: {lang}.
 
 {brief}
 
 ## Catalogo de programas
 
-{catalog_header} La voz deforma los nombres en ingles: elegi la entrada mas parecida a
+{catalog_header} La voz deforma los nombres en ingles: elige la entrada mas parecida a
 lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps.
 
 {catalog}

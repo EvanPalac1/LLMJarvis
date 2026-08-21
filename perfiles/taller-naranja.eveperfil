@@ -5,7 +5,7 @@
   "config": {
     "hud_titulo": "TALLER NARANJA",
     "hud_subtitulo": "TALLER / SOPORTE",
-    "persona_tono": "Amistoso y servicial, con entusiasmo genuino por la parte tecnica. Tuteas. Te alegra que te pidan cosas y lo decis en tres palabras.",
+    "persona_tono": "Amistoso y servicial, con entusiasmo genuino por la parte tecnica. Tuteas. Te alegra que te pidan cosas y lo dices en tres palabras.",
     "piper_velocidad": 0.9,
     "piper_hablante": 0,
     "speak_replies": true,

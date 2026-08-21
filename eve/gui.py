@@ -14,12 +14,23 @@ import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from . import modulos, plataforma, store, voice
+from . import modulos, plataforma, store, textos, voice
+from .textos import t as tr
 
 CREATE_NEW_CONSOLE = 0x00000010
 
 PAD = 12
 GRIS, ROJO, VERDE = "#666666", "#c0392b", "#1e8449"
+
+# Cuanto se muestra de una. `esencial` deja abiertas las secciones que usa
+# cualquiera y cierra las de ajuste fino; `completo` abre todo.
+#
+# Cerrada NO es escondida: el titulo se sigue viendo y dice cuantas opciones hay
+# adentro, y un clic la abre. Esconder de verdad una opcion detras de un modo que
+# no sabes que existe es lo mismo que no tenerla --y este panel ya se comio una
+# vez el precio de eso, con una ventana entera cuyo unico boton vivia adentro de
+# otra pestaña.
+BASICO, AVANZADO = "basico", "avanzado"
 
 def _parece_app_password(valor: str) -> bool:
     """Google las emite como 16 letras minusculas en 4 grupos de 4."""
@@ -72,6 +83,20 @@ class Panel(tk.Tk):
         super().__init__()
         self._vivo = True
         self.cfg = store.load_config()
+        # Antes de crear un solo widget: si el idioma se fijara despues, la
+        # primera mitad de la ventana quedaria en espanol y la segunda en ingles.
+        textos.desde_config(self.cfg)
+        # Donde vive cada control, para el buscador; y las secciones plegables,
+        # para poder abrirlas desde el.
+        self._indice: list[dict] = []
+        self._secciones: list = []
+        self._tabs: dict = {}
+        self._subtabs: dict = {}
+        self._subnb = None
+        self._aciertos: list = []
+        self._ctx_pestana = self._ctx_sub = self._ctx_seccion = ""
+        self._ctx_abrir = None
+        self._ctx_lienzo = None
         self._estilo()
         self.title("LLMJarvis - configuracion")
         self.geometry("800x790")
@@ -91,11 +116,20 @@ class Panel(tk.Tk):
         self.estado.pack(side="left")
         # Guardar es LA accion de esta ventana: tiene que verse distinta de las
         # secundarias, no igual. Es lo unico que se destaca en el pie.
-        ttk.Button(fila, text="Guardar", command=self.save,
+        ttk.Button(fila, text=tr("Guardar"), command=self.save,
                    style="Principal.TButton").pack(side="right")
-        ttk.Button(fila, text="Buscar actualizaciones", command=self.buscar_update).pack(
+        ttk.Button(fila, text=tr("Buscar actualizaciones"), command=self.buscar_update).pack(
             side="right", padx=(0, 6)
         )
+        # La ventana de actividad va en el PIE y no adentro de una pestaña.
+        #
+        # Es la tercera ventana del programa y hasta ahora la unica forma de
+        # llegar era el menu de la bandeja --que en Windows 11 hay que sacar de
+        # la flechita, apretar con el boton derecho y encontrar-- o un boton
+        # enterrado tres niveles adentro de Apariencia. El pie se ve desde las
+        # siete pestañas y desde el primer segundo.
+        ttk.Button(fila, text=tr("Ventana de actividad"),
+                   command=self._abrir_consola).pack(side="left", padx=(16, 0))
         # Al lado del boton de actualizar, que es donde uno se pregunta "cual
         # tengo?". Sin esto habia que abrir una terminal y correr --version.
         from eve import __version__
@@ -105,9 +139,11 @@ class Panel(tk.Tk):
         )
         self.after(300, self._refrescar_estado)
 
-        nb = ttk.Notebook(self)
-        nb.pack(side="top", fill="both", expand=True, padx=10, pady=(10, 6))
         self.vars: dict[str, tk.Variable] = {}
+        self._barra_superior(self)
+
+        nb = self._nb = ttk.Notebook(self)
+        nb.pack(side="top", fill="both", expand=True, padx=10, pady=(6, 6))
         # La rueda del mouse NO cambia el valor de una lista desplegable.
         #
         # Es el comportamiento de fabrica de ttk y es una trampa: las pestañas
@@ -124,13 +160,23 @@ class Panel(tk.Tk):
         self._nombres_pantalla = {}
         self.key_vars: dict[str, tk.Variable] = {}
         # Siete pestañas agrupadas por lo que uno viene a hacer, no por modulo.
-        nb.add(self._tab_general(nb), text="  General  ")
-        nb.add(self._tab_cuentas(nb), text="  Cuentas  ")
-        nb.add(self._tab_voz(nb), text="  Voz  ")
-        nb.add(self._tab_contactos(nb), text="  Contactos  ")
-        nb.add(self._tab_addons(nb), text="  Addons  ")
-        nb.add(self._tab_apariencia(nb), text="  Apariencia  ")
-        nb.add(self._tab_actividad(nb), text="  Actividad  ")
+        # En un bucle y no en siete lineas para que el titulo quede asociado a la
+        # pestaña: es lo que el buscador necesita para poder saltar hasta ella.
+        for titulo, armar in (
+            ("General", self._tab_general),
+            ("Cuentas", self._tab_cuentas),
+            ("Voz", self._tab_voz),
+            ("Contactos", self._tab_contactos),
+            ("Addons", self._tab_addons),
+            ("Apariencia", self._tab_apariencia),
+            ("Actividad", self._tab_actividad),
+        ):
+            self._ctx_pestana, self._ctx_sub = titulo, ""
+            self._ctx_seccion, self._ctx_abrir = "", None
+            marco = armar(nb)
+            nb.add(marco, text=f"  {tr(titulo)}  ")
+            self._tabs[titulo] = marco
+        self._contar_secciones()
         # De nuevo, ahora que los widgets existen: el repintado de lo que no es
         # ttk necesita recorrer el arbol, y en _estilo() todavia estaba vacio.
         self.repintar()
@@ -161,6 +207,13 @@ class Panel(tk.Tk):
         s.configure("Error.TLabel", foreground=ROJO)
         s.configure("Ok.TLabel", foreground=VERDE)
         s.configure("Seccion.TLabelframe.Label", font=(base[0], base[1], "bold"))
+        # La cabecera de una seccion plegable es un boton, pero no tiene que
+        # parecer uno: el relieve de boton al lado de otros botones de verdad
+        # hace que no se sepa cual ejecuta algo. Plano, alineado a la izquierda
+        # y en negrita, que es como se lee un titulo.
+        s.configure("Seccion.TButton", anchor="w", padding=(8, 6), relief="flat",
+                    font=(base[0], base[1], "bold"))
+        s.map("Seccion.TButton", relief=[("pressed", "flat"), ("active", "flat")])
         s.configure("TNotebook.Tab", padding=(14, 7))
         s.configure("TButton", padding=(10, 4))
         s.configure("Principal.TButton", padding=(18, 5),
@@ -189,6 +242,8 @@ class Panel(tk.Tk):
         # Reconfigurar el estilo base se lleva puestos los tipos de letra.
         s.configure("Titulo.TLabel", font=(base[0], base[1] + 4, "bold"))
         s.configure("Seccion.TLabelframe.Label", font=(base[0], base[1], "bold"))
+        s.configure("Seccion.TButton", anchor="w", padding=(8, 6), relief="flat",
+                    font=(base[0], base[1], "bold"))
         self.configure(background=paleta["fondo"])
         # Y lo que no pasa por ttk.Style se recorre a mano.
         tema_mod.repintar_tk(self, paleta)
@@ -283,6 +338,9 @@ class Panel(tk.Tk):
         lienzo.configure(yscrollcommand=barra.set)
         lienzo.pack(side="left", fill="both", expand=True, padx=(PAD, 0), pady=PAD)
         barra.pack(side="right", fill="y", pady=PAD)
+        # El buscador necesita el par (canvas, marco interno) para poder correr
+        # el scroll hasta el control: con el canvas solo no hay contra que medir.
+        self._ctx_lienzo = (lienzo, dentro)
         return marco, dentro
 
     def _ui(self, accion) -> None:
@@ -314,11 +372,11 @@ class Panel(tk.Tk):
                 # El mensaje se copia a una variable: Python borra `exc` al salir
                 # del except, y estos lambdas corren despues, en el hilo de tk.
                 fallo = str(exc)
-                self._ui(lambda: messagebox.showerror("Actualizar", fallo))
+                self._ui(lambda: messagebox.showerror(tr("Actualizar"), fallo))
                 return
             if not nueva:
                 self._ui(lambda: messagebox.showinfo(
-                    "Actualizar", f"Ya tenes la ultima version ({updater.version_actual()})."))
+                    tr("Actualizar"), f"Ya tienes la ultima version ({updater.version_actual()})."))
                 return
             self._ui(lambda: self._ofrecer_update(nueva))
 
@@ -329,29 +387,29 @@ class Panel(tk.Tk):
 
         if not plataforma.congelado():
             messagebox.showinfo(
-                "Actualizar",
+                tr("Actualizar"),
                 f"Hay una version nueva: {nueva['version']}.\n\n"
                 "Estas corriendo desde el codigo, asi que se actualiza con git pull.",
             )
             return
         if not nueva["asset"]:
             messagebox.showinfo(
-                "Actualizar",
+                tr("Actualizar"),
                 f"Hay {nueva['version']}, pero todavia no hay paquete para tu sistema.\n"
                 "Te abro la pagina de descargas.",
             )
             plataforma.abrir(nueva["url"])
             return
         if not messagebox.askyesno(
-            "Actualizar",
-            f"Version nueva: {nueva['version']}   (tenes la {updater.version_actual()})\n\n"
+            tr("Actualizar"),
+            f"Version nueva: {nueva['version']}   (tienes la {updater.version_actual()})\n\n"
             "Se descarga, se verifica su sha256 y se instala encima.\n"
             "Tu configuracion, agenda, memoria y voces no se tocan.\n\n"
             "Descargar e instalar ahora?",
         ):
             return
 
-        self.estado.config(text="descargando actualizacion...")
+        self.estado.config(text=tr("descargando actualizacion..."))
 
         def bajar():
             try:
@@ -364,9 +422,9 @@ class Panel(tk.Tk):
                 )
             except (ValueError, OSError) as exc:
                 fallo = str(exc)
-                self._ui(lambda: messagebox.showerror("Actualizar", fallo))
+                self._ui(lambda: messagebox.showerror(tr("Actualizar"), fallo))
                 return
-            self._ui(lambda: (messagebox.showinfo("Actualizar", updater.instalar(ruta)),
+            self._ui(lambda: (messagebox.showinfo(tr("Actualizar"), updater.instalar(ruta)),
                               self.destroy()))
 
         threading.Thread(target=bajar, daemon=True).start()
@@ -430,7 +488,7 @@ class Panel(tk.Tk):
         self._visto = ahora
         if self._hay_cambios_sin_guardar():
             self.estado.config(
-                text="La configuracion cambio por fuera. Guarda o cerra para recargarla.",
+                text=tr("La configuracion cambio por fuera. Guarda o cierra para recargarla."),
                 style="Ayuda.TLabel")
             return
         self.recargar_de_disco()
@@ -463,10 +521,262 @@ class Panel(tk.Tk):
             self.perfil_var.set(self.cfg.get("perfil_activo", ""))
         self.repintar()
 
-    def _seccion(self, padre, titulo: str):
-        caja = ttk.LabelFrame(padre, text=titulo, style="Seccion.TLabelframe")
-        caja.pack(fill="x", padx=(0, PAD), pady=(0, PAD))
-        return caja
+    def _seccion(self, padre, titulo: str, nivel: str = BASICO):
+        """Una seccion plegable. Devuelve el cuerpo, donde va el contenido.
+
+        Se pliegan TODAS, no solo las avanzadas: un mecanismo es mas facil de
+        aprender que dos, y ver que la de al lado se pliega es lo que ensena que
+        esta tambien puede. En modo `esencial` las avanzadas arrancan cerradas.
+
+        La cabecera es un boton de verdad y no una etiqueta con un `<Button-1>`
+        encima: asi entra en el recorrido del tabulador, se abre con Enter o
+        con la barra espaciadora, y el lector de pantalla la anuncia como algo
+        que se puede accionar.
+        """
+        abierta = nivel == BASICO or str(self.cfg.get("ui_modo_panel", "esencial")) != "esencial"
+        caja = ttk.Frame(padre)
+        caja.pack(fill="x", padx=(0, PAD), pady=(0, 8))
+        cuerpo = ttk.Frame(caja)
+        estado = {"abierta": abierta, "titulo": titulo, "cuenta": 0, "nivel": nivel}
+
+        cab = ttk.Button(caja, style="Seccion.TButton")
+        cab.pack(fill="x")
+
+        def rotulo():
+            flecha = "\u25be" if estado["abierta"] else "\u25b8"
+            extra = ""
+            if not estado["abierta"] and estado["cuenta"]:
+                extra = f"   ({estado['cuenta']})"
+            return f"{flecha}  {estado['titulo']}{extra}"
+
+        def pintar():
+            cab.config(text=rotulo())
+            if estado["abierta"]:
+                cuerpo.pack(fill="x", padx=(PAD, 0))
+            else:
+                cuerpo.pack_forget()
+
+        def alternar():
+            estado["abierta"] = not estado["abierta"]
+            pintar()
+
+        cab.config(command=alternar)
+        estado["abrir"] = lambda: (alternar() if not estado["abierta"] else None)
+        self._secciones.append((estado, cuerpo, pintar))
+        self._ctx_seccion = titulo
+        self._ctx_abrir = estado["abrir"]
+        pintar()
+        return cuerpo
+
+    def _contar_secciones(self) -> None:
+        """Cuantos controles quedaron adentro de cada seccion.
+
+        Se hace al final y no al vuelo porque el cuerpo se llena DESPUES de
+        crear la cabecera. Sin este numero, una seccion cerrada no dice si vale
+        la pena abrirla.
+        """
+        def hojas(w):
+            hijos = w.winfo_children()
+            if not hijos:
+                return 0
+            propios = sum(isinstance(h, (ttk.Entry, ttk.Combobox, ttk.Checkbutton,
+                                         ttk.Spinbox, tk.Text, ttk.Button))
+                          for h in hijos)
+            return propios + sum(hojas(h) for h in hijos)
+
+        for estado, cuerpo, pintar in self._secciones:
+            estado["cuenta"] = hojas(cuerpo)
+            pintar()
+
+    def _aplicar_modo_panel(self) -> None:
+        """Abre o cierra segun el modo, respetando el nivel de cada seccion.
+
+        No es "abrir todo / cerrar todo": en `esencial` las basicas siguen
+        abiertas. Cerrar tambien lo basico dejaria el panel en blanco, que no es
+        menos saturado sino menos util.
+        """
+        completo = str(self.modo_panel.get()) == "completo"
+        for estado, _cuerpo, pintar in self._secciones:
+            estado["abierta"] = completo or estado["nivel"] == BASICO
+            pintar()
+        self.cfg["ui_modo_panel"] = "completo" if completo else "esencial"
+
+    # --- barra superior -----------------------------------------------------
+
+    def _barra_superior(self, padre) -> None:
+        """Modo, buscador e idioma: las tres cosas que valen para todo el panel.
+
+        Van arriba de las pestañas y no adentro de una, porque una opcion que
+        cambia como se ve el resto no puede vivir escondida en el resto. El
+        idioma estaba en ningun lado y el modo no existia.
+        """
+        barra = ttk.Frame(padre)
+        barra.pack(side="top", fill="x", padx=10, pady=(10, 0))
+
+        izq = ttk.Frame(barra)
+        izq.pack(side="left")
+        ttk.Label(izq, text=tr("Ver"), style="Ayuda.TLabel").pack(side="left", padx=(0, 6))
+        self.modo_panel = tk.StringVar(
+            value=str(self.cfg.get("ui_modo_panel", "esencial")))
+        # Las dos entran a `vars` para que Guardar las escriba como cualquier
+        # otra clave. Si no, serian dos ajustes que existen en la config y que
+        # el panel no puede tocar --justo lo que el test de cobertura busca.
+        self.vars["ui_modo_panel"] = self.modo_panel
+        for valor, etiqueta in (("esencial", tr("Lo esencial")), ("completo", tr("Todo"))):
+            ttk.Radiobutton(izq, text=etiqueta, value=valor, variable=self.modo_panel,
+                            command=self._aplicar_modo_panel,
+                            style="Toolbutton").pack(side="left")
+
+        der = ttk.Frame(barra)
+        der.pack(side="right")
+        ttk.Label(der, text=tr("Idioma del panel"), style="Ayuda.TLabel").pack(
+            side="left", padx=(0, 6))
+        self.idioma_var = tk.StringVar(value=textos.IDIOMAS.get(textos.actual(), "Espanol"))
+        self.vars["ui_idioma"] = tk.StringVar(value=textos.actual())
+        combo = ttk.Combobox(der, textvariable=self.idioma_var, width=10, state="readonly",
+                             values=list(textos.IDIOMAS.values()))
+        combo.pack(side="left")
+        combo.bind("<<ComboboxSelected>>", self._cambiar_idioma)
+
+        centro = ttk.Frame(barra)
+        centro.pack(side="left", fill="x", expand=True, padx=16)
+        self.buscar_var = tk.StringVar()
+        self.buscar_entry = ttk.Entry(centro, textvariable=self.buscar_var)
+        self.buscar_entry.pack(fill="x")
+        self._pista_buscador()
+        self.buscar_entry.bind("<KeyRelease>", self._buscar)
+        self.buscar_entry.bind("<Return>", self._buscar_ir)
+        self.buscar_entry.bind("<Down>", self._buscar_bajar)
+        self.buscar_entry.bind("<Escape>", lambda _e: self._buscar_cerrar())
+        self.buscar_entry.bind("<FocusIn>", self._pista_limpiar)
+        # Ctrl+F es donde la mano va sola, en cualquier programa.
+        self.bind("<Control-f>", lambda _e: (self.buscar_entry.focus_set(), "break")[1])
+
+        self.resultados = tk.Listbox(self, height=8, activestyle="none",
+                                     exportselection=False)
+        self.resultados.bind("<Double-Button-1>", self._buscar_ir)
+        self.resultados.bind("<Return>", self._buscar_ir)
+        self.resultados.bind("<Escape>", lambda _e: self._buscar_cerrar())
+
+    PISTA = "Buscar un ajuste...   (Ctrl+F)"
+
+    def _pista_buscador(self) -> None:
+        self.buscar_var.set(tr(self.PISTA))
+        self.buscar_entry.config(foreground=GRIS)
+
+    def _pista_limpiar(self, _e=None) -> None:
+        if self.buscar_var.get() == tr(self.PISTA):
+            self.buscar_var.set("")
+            self.buscar_entry.config(foreground="")
+
+    def _buscar_cerrar(self) -> None:
+        try:
+            self.resultados.place_forget()
+        except tk.TclError:
+            pass
+
+    def _buscar(self, evento=None) -> None:
+        """Filtra el indice y muestra los aciertos debajo del campo."""
+        if evento is not None and getattr(evento, "keysym", "") in ("Down", "Up", "Return", "Escape"):
+            return
+        texto = self.buscar_var.get().strip().lower()
+        if texto == tr(self.PISTA).lower() or len(texto) < 2:
+            self._buscar_cerrar()
+            return
+        palabras = texto.split()
+        self._aciertos = []
+        for e in self._indice:
+            heno = f"{e['etiqueta']} {e['clave']} {e['seccion']} {e['pestana']} {e['sub']}".lower()
+            if all(p in heno for p in palabras):
+                self._aciertos.append(e)
+        self.resultados.delete(0, "end")
+        if not self._aciertos:
+            self.resultados.insert("end", "   " + tr("nada con esas palabras"))
+        for e in self._aciertos[:40]:
+            donde = " > ".join(x for x in (e["pestana"], e["sub"], e["seccion"]) if x)
+            self.resultados.insert("end", f"  {e['etiqueta']}      [{donde}]")
+        x = self.buscar_entry.winfo_rootx() - self.winfo_rootx()
+        y = self.buscar_entry.winfo_rooty() - self.winfo_rooty() + self.buscar_entry.winfo_height()
+        self.resultados.place(x=x, y=y, width=self.buscar_entry.winfo_width())
+        self.resultados.lift()
+
+    def _buscar_bajar(self, _e=None):
+        if self.resultados.winfo_ismapped():
+            self.resultados.focus_set()
+            self.resultados.selection_clear(0, "end")
+            self.resultados.selection_set(0)
+        return "break"
+
+    def _buscar_ir(self, _e=None):
+        sel = self.resultados.curselection()
+        i = sel[0] if sel else 0
+        if i < len(getattr(self, "_aciertos", [])):
+            self._ir_a(self._aciertos[i])
+        self._buscar_cerrar()
+        return "break"
+
+    def _ir_a(self, entrada: dict) -> None:
+        """Lleva hasta un ajuste: pestaña, sub-pestaña, seccion y scroll.
+
+        Los cuatro pasos hacen falta. Con tres, el buscador te deja mirando la
+        pestaña correcta con la opcion abajo del pliegue o fuera de la pantalla,
+        que para el que busca es lo mismo que no haberla encontrado.
+        """
+        try:
+            if entrada["pestana"] in self._tabs:
+                self._nb.select(self._tabs[entrada["pestana"]])
+            if entrada["sub"] and entrada["sub"] in self._subtabs:
+                self._subnb.select(self._subtabs[entrada["sub"]])
+            if entrada["abrir"]:
+                entrada["abrir"]()
+        except tk.TclError:
+            return
+
+        def desplazar():
+            par = entrada.get("lienzo")
+            w = entrada["widget"]
+            if not par:
+                pass
+            else:
+                lienzo, dentro = par
+                try:
+                    self.update_idletasks()
+                    alto = max(1, dentro.winfo_height())
+                    y = w.winfo_rooty() - dentro.winfo_rooty()
+                    lienzo.yview_moveto(max(0.0, (y - 60) / alto))
+                except tk.TclError:
+                    pass
+            try:
+                w.focus_set()
+            except tk.TclError:
+                pass
+
+        self.after(60, desplazar)
+
+    def _cambiar_idioma(self, _e=None) -> None:
+        """Guarda y vuelve a abrir el panel en el idioma elegido.
+
+        Reconstruir los widgets en vivo seria mas elegante y mucho mas fragil:
+        los textos estan repartidos en cincuenta lugares y basta olvidarse de
+        uno para dejar la pantalla mitad en un idioma y mitad en otro. El panel
+        ya corre como proceso aparte y ya sabe volver a abrirse; se usa eso.
+
+        Se guarda primero: nadie pierde lo que estaba editando por cambiar el
+        idioma. Si el guardado se frena por un valor invalido, no se reabre nada
+        y el desplegable vuelve a donde estaba.
+        """
+        codigo = next((c for c, n in textos.IDIOMAS.items()
+                       if n == self.idioma_var.get()), "es")
+        if codigo == textos.actual():
+            return
+        self.vars["ui_idioma"].set(codigo)
+        if not self.save(avisar=False):
+            self.idioma_var.set(textos.IDIOMAS.get(textos.actual(), "Espanol"))
+            return
+        from . import tray
+
+        tray.open_panel()
+        self.destroy()
 
     def _ayuda(self, padre, texto: str) -> None:
         ttk.Label(padre, text=texto, style="Ayuda.TLabel", justify="left").pack(
@@ -474,7 +784,7 @@ class Panel(tk.Tk):
         )
 
 
-    # --- las cinco pestañas ------------------------------------------------
+    # --- las siete pestañas ------------------------------------------------
     # Componen los bloques que ya existian; cada bloque sigue creando su frame,
     # asi que se lo cuelga del contenedor con scroll y listo.
 
@@ -486,36 +796,36 @@ class Panel(tk.Tk):
 
     def _tab_general(self, nb):
         return self._componer(
-            nb, "General",
-            "Quien es Eve, quien piensa por ella y hasta donde puede meterse.",
+            nb, tr("General"),
+            tr("Quien es Eve, quien piensa por ella y hasta donde puede meterse."),
             [self._bloque_perfiles, self._bloque_general],
         )
 
     def _tab_cuentas(self, nb):
         return self._componer(
-            nb, "Cuentas",
-            "Con que se conecta. Todo opcional salvo el motor que elegiste.",
+            nb, tr("Cuentas"),
+            tr("Con que se conecta. Todo opcional salvo el motor que elegiste."),
             [self._bloque_claves, self._bloque_correo],
         )
 
     def _tab_voz(self, nb):
         return self._componer(
-            nb, "Voz",
-            "Como te escucha y como te responde.",
+            nb, tr("Voz"),
+            tr("Como te escucha y como te responde."),
             [self._bloque_voz, self._bloque_voces],
         )
 
     def _tab_contactos(self, nb):
         return self._componer(
-            nb, "Contactos",
-            "La agenda que Eve usa cuando nombras a alguien.",
+            nb, tr("Contactos"),
+            tr("La agenda que Eve usa cuando nombras a alguien."),
             [self._bloque_contactos],
         )
 
     def _tab_addons(self, nb):
         return self._componer(
-            nb, "Addons",
-            "Lo que Eve puede manejar ademas de tu PC. Cada uno trae sus comandos.",
+            nb, tr("Addons"),
+            tr("Lo que Eve puede manejar ademas de tu PC. Cada uno trae sus comandos."),
             [self._bloque_addons],
         )
 
@@ -526,9 +836,9 @@ class Panel(tk.Tk):
         cfg = store.load_config()
         cargados = addons.todos(recargar=True)
 
-        caja = self._seccion(t, "Instalados")
+        caja = self._seccion(t, tr("Instalados"))
         if not cargados:
-            self._ayuda(caja, "No hay ninguno cargado.")
+            self._ayuda(caja, tr("No hay ninguno cargado."))
         self.addon_vars = {}
         prendidos = {x.strip() for x in str(cfg.get("addons_activos", "")).split(",") if x.strip()}
         for nombre, modulo in sorted(cargados.items()):
@@ -551,11 +861,11 @@ class Panel(tk.Tk):
 
         self._ayuda(
             caja,
-            "Destildar uno lo saca del prompt: deja de gastar tokens y Eve deja de\n"
-            "ofrecerlo. Si no hay ninguno tildado, se usan todos los disponibles.",
+            tr("Destildar uno lo saca del prompt: deja de gastar tokens y Eve deja de\n"
+            "ofrecerlo. Si no hay ninguno tildado, se usan todos los disponibles."),
         )
 
-        caja = self._seccion(t, "Agregar los tuyos")
+        caja = self._seccion(t, tr("Agregar los tuyos"))
         self._ayuda(
             caja,
             f"Poné archivos .py en:\n  {addons.CARPETA_USUARIO}\n\n"
@@ -565,40 +875,40 @@ class Panel(tk.Tk):
         )
         sin_revisar = addons.pendientes()
         if sin_revisar:
-            alerta = self._seccion(t, "Sin revisar")
+            alerta = self._seccion(t, tr("Sin revisar"))
             self._ayuda(
                 alerta,
-                "Estos archivos no se estan cargando. Un addon es codigo que corre\n"
+                tr("Estos archivos no se estan cargando. Un addon es codigo que corre\n"
                 "con tus permisos y no pasa por el freno, asi que hay que mirarlo\n"
-                "antes. Si Eve escribio alguno, aca es donde lo revisas.")
+                "antes. Si Eve escribio alguno, aca es donde lo revisas."))
             for nombre, ruta, marca in sin_revisar:
                 fila = ttk.Frame(alerta)
                 fila.pack(fill="x", padx=12, pady=3)
                 ttk.Label(fila, text=f"{nombre}.py", width=22).pack(side="left")
-                ttk.Button(fila, text="Ver el codigo",
+                ttk.Button(fila, text=tr("Ver el codigo"),
                            command=lambda r=ruta: self._addon_ver(r)).pack(side="left")
-                ttk.Button(fila, text="Aprobar",
+                ttk.Button(fila, text=tr("Aprobar"),
                            command=lambda n=nombre, m=marca: self._addon_aprobar(n, m)
                            ).pack(side="left", padx=6)
 
         aprobados = addons.aprobados_ahora()
         if aprobados:
-            ok = self._seccion(t, "Aprobados")
+            ok = self._seccion(t, tr("Aprobados"))
             self._ayuda(
                 ok,
-                "Estos se cargan. Revocar no borra el archivo: lo devuelve a la\n"
+                tr("Estos se cargan. Revocar no borra el archivo: lo devuelve a la\n"
                 "lista de sin revisar, para que puedas volver a mirarlo antes de\n"
                 "decidir de nuevo. Editar un addon aprobado lo saca solo, porque\n"
-                "la aprobacion es de la huella del contenido y no del nombre.")
+                "la aprobacion es de la huella del contenido y no del nombre."))
             for nombre in aprobados:
                 fila = ttk.Frame(ok)
                 fila.pack(fill="x", padx=12, pady=3)
                 ttk.Label(fila, text=f"{nombre}.py", width=22).pack(side="left")
-                ttk.Button(fila, text="Revocar",
+                ttk.Button(fila, text=tr("Revocar"),
                            command=lambda n=nombre: self._addon_revocar(n)
                            ).pack(side="left")
 
-        ttk.Button(caja, text="Abrir la carpeta de addons",
+        ttk.Button(caja, text=tr("Abrir la carpeta de addons"),
                    command=self._addons_carpeta).pack(anchor="w", padx=12, pady=(0, 10))
         return t
 
@@ -619,9 +929,9 @@ class Panel(tk.Tk):
         marco = ttk.Frame(nb)
         cab = ttk.Frame(marco)
         cab.pack(fill="x", padx=PAD, pady=(PAD, 2))
-        ttk.Label(cab, text="Apariencia", style="Titulo.TLabel").pack(anchor="w")
-        ttk.Label(cab, text="Los colores de todo, y el cartel que Eve muestra "
-                            "encima de lo que estes haciendo.",
+        ttk.Label(cab, text=tr("Apariencia"), style="Titulo.TLabel").pack(anchor="w")
+        ttk.Label(cab, text=tr("Los colores de todo, y el cartel que Eve muestra "
+                            "encima de lo que estes haciendo."),
                   style="Ayuda.TLabel").pack(anchor="w")
 
         # La vista previa vive arriba y no adentro de una sub-pestaña: es la
@@ -634,7 +944,7 @@ class Panel(tk.Tk):
         self.previa = tk.Canvas(caja, width=460, height=128, highlightthickness=0)
         self.previa.pack()
 
-        sub = ttk.Notebook(marco)
+        sub = self._subnb = ttk.Notebook(marco)
         sub.pack(fill="both", expand=True, padx=PAD, pady=(8, PAD))
         for titulo, bloques in (
             ("Tema", [self._bloque_tema]),
@@ -643,7 +953,12 @@ class Panel(tk.Tk):
             ("Modulos", [self._bloque_modulos]),
             ("Subtitulos", [self._bloque_subtitulos]),
         ):
-            sub.add(self._hoja_simple(sub, bloques), text=f"  {titulo}  ")
+            self._ctx_sub = titulo
+            self._ctx_seccion, self._ctx_abrir = "", None
+            hoja = self._hoja_simple(sub, bloques)
+            sub.add(hoja, text=f"  {tr(titulo)}  ")
+            self._subtabs[titulo] = hoja
+        self._ctx_sub = ""
         return marco
 
     def _hoja_simple(self, padre, bloques):
@@ -664,14 +979,15 @@ class Panel(tk.Tk):
         self._rueda(lienzo, dentro)
         lienzo.pack(side="left", fill="both", expand=True, pady=8)
         barra.pack(side="right", fill="y", pady=8)
+        self._ctx_lienzo = (lienzo, dentro)
         for bloque in bloques:
             bloque(dentro).pack(fill="both", expand=True)
         return marco
 
     def _tab_actividad(self, nb):
         return self._componer(
-            nb, "Actividad",
-            "Que se dijo y que se ejecuto en tu PC.",
+            nb, tr("Actividad"),
+            tr("Que se dijo y que se ejecuto en tu PC."),
             [self._bloque_historial, self._bloque_acciones],
         )
 
@@ -689,6 +1005,7 @@ class Panel(tk.Tk):
             else ttk.Entry(frame, textvariable=var, width=width)
         )
         widget.pack(side="left", fill="x", expand=True)
+        self._anotar(label, key, widget)
         return var
 
     def _campo_clave(self, parent, provider, label):
@@ -711,16 +1028,38 @@ class Panel(tk.Tk):
     def _check(self, parent, label, key):
         var = tk.BooleanVar(value=bool(self.cfg.get(key, True)))
         self.vars[key] = var
-        ttk.Checkbutton(parent, text=label, variable=var).pack(anchor="w", padx=12, pady=4)
+        w = ttk.Checkbutton(parent, text=label, variable=var)
+        w.pack(anchor="w", padx=12, pady=4)
+        self._anotar(label, key, w)
+
+    # --- buscador ----------------------------------------------------------
+
+    def _anotar(self, etiqueta: str, clave: str, widget) -> None:
+        """Guarda donde vive cada control, para poder llevar hasta el.
+
+        Es la unica forma honesta de tener buscador en un panel de 120 opciones
+        repartidas en siete pestañas y cinco sub-pestañas: sin indice, buscar
+        seria recorrer widgets a mano y adivinar en cual estas.
+        """
+        self._indice.append({
+            "etiqueta": etiqueta,
+            "clave": clave,
+            "widget": widget,
+            "pestana": self._ctx_pestana,
+            "sub": self._ctx_sub,
+            "seccion": self._ctx_seccion,
+            "abrir": self._ctx_abrir,
+            "lienzo": self._ctx_lienzo,
+        })
 
     # --- tabs --------------------------------------------------------------
 
     def _bloque_perfiles(self, nb):
         t = ttk.Frame(nb)
-        caja = self._seccion(t, "Perfiles")
+        caja = self._seccion(t, tr("Perfiles"))
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=(8, 4))
-        ttk.Label(fila, text="Perfil activo", width=24).pack(side="left")
+        ttk.Label(fila, text=tr("Perfil activo"), width=24).pack(side="left")
         self.perfil_var = tk.StringVar(value=self.cfg.get("perfil_activo", ""))
         self.perfil_combo = ttk.Combobox(fila, textvariable=self.perfil_var,
                                          values=sorted(store.listar_perfiles()),
@@ -729,37 +1068,37 @@ class Panel(tk.Tk):
 
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=(0, 8))
-        ttk.Button(fila, text="Cargar", command=self._perfil_cargar).pack(side="left")
-        ttk.Button(fila, text="Guardar como...",
+        ttk.Button(fila, text=tr("Cargar"), command=self._perfil_cargar).pack(side="left")
+        ttk.Button(fila, text=tr("Guardar como..."),
                    command=self._perfil_guardar).pack(side="left", padx=6)
-        ttk.Button(fila, text="Borrar", command=self._perfil_borrar).pack(side="left")
-        ttk.Button(fila, text="Exportar...",
+        ttk.Button(fila, text=tr("Borrar"), command=self._perfil_borrar).pack(side="left")
+        ttk.Button(fila, text=tr("Exportar..."),
                    command=self._perfil_exportar).pack(side="left", padx=(12, 0))
-        ttk.Button(fila, text="Importar...",
+        ttk.Button(fila, text=tr("Importar..."),
                    command=self._perfil_importar).pack(side="left", padx=6)
         self._ayuda(
             caja,
-            "Un perfil guarda como se ve y como suena Eve: colores, forma, fuente,\n"
+            tr("Un perfil guarda como se ve y como suena Eve: colores, forma, fuente,\n"
             "voz, velocidad, tono y el nombre del asistente.\n"
             "NO toca el motor, el modelo, la tecla, los permisos ni tus datos: un\n"
-            "perfil que te pasan no puede cambiarte como trabaja el asistente.",
+            "perfil que te pasan no puede cambiarte como trabaja el asistente."),
         )
         return t
 
     def _perfil_cargar(self):
         nombre = self.perfil_var.get()
         if not nombre:
-            messagebox.showinfo("Perfiles", "Elegi un perfil de la lista.")
+            messagebox.showinfo(tr("Perfiles"), tr("Elige un perfil de la lista."))
             return
         if not messagebox.askyesno(
-            "Cargar perfil",
+            tr("Cargar perfil"),
             f"Se va a aplicar el perfil {nombre!r} y se pierden los cambios sin guardar.\n\n"
             "Seguir?",
         ):
             return
         store.aplicar_perfil(nombre)
         messagebox.showinfo(
-            "Perfiles",
+            tr("Perfiles"),
             f"Perfil {nombre!r} aplicado.\n\nCerra y volve a abrir el panel para verlo.",
         )
         self.destroy()
@@ -774,7 +1113,7 @@ class Panel(tk.Tk):
             return
         nombre = nombre.strip()
         if nombre in store.listar_perfiles() and not messagebox.askyesno(
-            "Ya existe", f"Ya hay un perfil {nombre!r}. Lo pisamos?"
+            tr("Ya existe"), f"Ya hay un perfil {nombre!r}. Lo pisamos?"
         ):
             return
         # Se guarda lo que hay en pantalla, no lo ultimo guardado en disco.
@@ -785,17 +1124,17 @@ class Panel(tk.Tk):
         store.save_config(cfg)
         self.perfil_var.set(nombre)
         self.perfil_combo["values"] = sorted(store.listar_perfiles())
-        messagebox.showinfo("Perfiles", f"Guardado como {nombre!r}.")
+        messagebox.showinfo(tr("Perfiles"), f"Guardado como {nombre!r}.")
 
     def _perfil_exportar(self):
         from tkinter import filedialog
 
         nombre = self.perfil_var.get()
         if not nombre:
-            messagebox.showinfo("Perfiles", "Elegi un perfil de la lista primero.")
+            messagebox.showinfo(tr("Perfiles"), tr("Elige un perfil de la lista primero."))
             return
         destino = filedialog.asksaveasfilename(
-            title="Exportar perfil", parent=self, initialfile=f"{nombre}.eveperfil",
+            title=tr("Exportar perfil"), parent=self, initialfile=f"{nombre}.eveperfil",
             defaultextension=".eveperfil",
             filetypes=[("Perfil de Eve", "*.eveperfil"), ("Todos", "*.*")],
         )
@@ -804,10 +1143,10 @@ class Panel(tk.Tk):
         try:
             mensaje = store.exportar_perfil(nombre, destino)
         except (ValueError, OSError) as exc:
-            messagebox.showerror("Exportar", str(exc))
+            messagebox.showerror(tr("Exportar"), str(exc))
             return
         messagebox.showinfo(
-            "Exportar",
+            tr("Exportar"),
             f"{mensaje}\n\nNo incluye tus claves de API ni tus datos personales:\n"
             "las claves viven en el gestor de credenciales de Windows, no en el perfil.",
         )
@@ -820,7 +1159,7 @@ class Panel(tk.Tk):
         # invisibles en la practica: nadie sale a buscarlos dentro de _internal.
         ejemplos = os.path.join(plataforma.recursos(), "perfiles")
         ruta = filedialog.askopenfilename(
-            title="Importar perfil", parent=self,
+            title=tr("Importar perfil"), parent=self,
             initialdir=ejemplos if os.path.isdir(ejemplos) else None,
             filetypes=[("Perfil de Eve", "*.eveperfil"), ("Todos", "*.*")],
         )
@@ -829,7 +1168,7 @@ class Panel(tk.Tk):
         try:
             nombre, config = store.leer_perfil_archivo(ruta)
         except ValueError as exc:
-            messagebox.showerror("Importar", str(exc))
+            messagebox.showerror(tr("Importar"), str(exc))
             return
         nombre = simpledialog.askstring("Importar perfil", "Guardarlo con el nombre:",
                                         initialvalue=nombre, parent=self) or ""
@@ -837,14 +1176,14 @@ class Panel(tk.Tk):
             return
         nombre = nombre.strip()
         if nombre in store.listar_perfiles() and not messagebox.askyesno(
-            "Ya existe", f"Ya hay un perfil {nombre!r}. Lo pisamos?"
+            tr("Ya existe"), f"Ya hay un perfil {nombre!r}. Lo pisamos?"
         ):
             return
         store.guardar_perfil(nombre, {**store.DEFAULTS, **config})
         self.perfil_var.set(nombre)
         self.perfil_combo["values"] = sorted(store.listar_perfiles())
         messagebox.showinfo(
-            "Importar",
+            tr("Importar"),
             f"Perfil {nombre!r} importado con {len(config)} opciones.\n\n"
             "Toca 'Cargar' para aplicarlo.",
         )
@@ -853,61 +1192,115 @@ class Panel(tk.Tk):
         nombre = self.perfil_var.get()
         if not nombre:
             return
-        if messagebox.askyesno("Borrar perfil", f"Borrar el perfil {nombre!r}?"):
+        if messagebox.askyesno(tr("Borrar perfil"), f"Borrar el perfil {nombre!r}?"):
             store.borrar_perfil(nombre)
             self.perfil_var.set("")
             self.perfil_combo["values"] = sorted(store.listar_perfiles())
 
     def _bloque_general(self, nb):
-        t = ttk.Frame(nb)
-        self._row(t, "Nombre de la IA", "assistant_name")
-        self._row(t, "Idioma (es / en / ...)", "language")
-        self._row(t, "Motor", "engine", ["api", "claude-code", "ollama"])
-        ttk.Label(
-            t,
-            text="  api = Messages API, necesita tu ANTHROPIC_API_KEY.\n"
-            "  claude-code = CLI de Claude Code, usa tu suscripcion sin key (mas lento).\n"
-            "  ollama = modelo local, sin key ni nube. Peor encadenando varias tools.",
-            foreground="#666",
-            justify="left",
-        ).pack(anchor="w", padx=12)
-        self._row(t, "Modelo (motor api)", "model", MODELS)
-        self._row(t, "Modelo (motor claude-code)", "cc_model", CC_MODELS)
-        self._row(t, "Permisos (motor claude-code)", "cc_permission_mode", CC_MODES)
+        """Lo de General, agrupado por lo que uno viene a hacer.
+
+        Antes eran quince filas seguidas sin un titulo en el medio, en la primera
+        pestaña que ve cualquiera: el nombre del asistente y la cuantizacion del
+        motor compatible tenian exactamente el mismo peso visual. Ahora hay seis
+        secciones y las tres que casi nadie toca arrancan plegadas.
+
+        Lo que NO se pliega de fabrica, aunque sea largo: rutas permitidas y
+        permisos. Son los frenos; esconderlos por prolijidad es lo mismo que
+        apagarlos.
+        """
         from .compat_engine import GRATIS, PROVEEDORES
 
-        caja = ttk.LabelFrame(t, text="Motor 'compat' (protocolo de OpenAI)")
-        caja.pack(fill="x", padx=12, pady=(10, 4))
-        self._row(caja, "Proveedor", "compat_proveedor", list(PROVEEDORES))
-        self._row(caja, "Modelo (vacio = el sugerido)", "compat_modelo")
-        self._row(caja, "URL propia (vacio = la del proveedor)", "compat_url", width=40)
-        ttk.Label(
-            caja,
-            text="Con capa gratuita: " + ", ".join(GRATIS) + ".\n"
-            "La clave de cada uno va en la pestania Cuentas. 'propio' sirve para\n"
-            "cualquier servidor que hable /chat/completions.",
-            style="Ayuda.TLabel", justify="left",
-        ).pack(anchor="w", padx=12, pady=(0, 8))
+        t = ttk.Frame(nb)
 
-        self._row(t, "Ollama: host", "ollama_host")
-        self._row(t, "Ollama: modelo", "ollama_model")
-        self._row(t, "Effort", "effort", EFFORTS)
-        self._row(t, "Max tokens", "max_tokens")
-        self._row(t, "Tecla del keypad", "hotkey")
-        self._row(t, "Turnos de contexto", "context_turns")
-        self._row(t, "Minutos de contexto", "context_minutes")
-        self._row(t, "Quien manda sobre un ajuste", "autoridad",
-                  ["usuario", "eve", "preguntar"])
+        quien = self._seccion(t, tr("Quien es Eve"))
+        self._row(quien, tr("Nombre de la IA"), "assistant_name")
+        self._row(quien, tr("Idioma en que te habla"), "language")
+        self._row(quien, tr("Tecla del keypad"), "hotkey")
+        fila = ttk.Frame(quien)
+        fila.pack(fill="x", padx=12, pady=(2, 8))
+        ttk.Button(fila, text=tr("Probar la tecla"), command=self.probar_tecla).pack(side="left")
+        self.tecla_label = ttk.Label(fila, text="", style="Ayuda.TLabel")
+        self.tecla_label.pack(side="left", padx=8)
         self._ayuda(
-            t,
-            "usuario: lo que cambies a mano queda trabado y Eve no lo pisa.\n"
+            quien,
+            tr("La tecla la escucha el asistente, no este panel: si el asistente no\n"
+            "esta corriendo, el boton te lo dice en vez de dejarte probando una\n"
+            "tecla que nadie escucha."))
+
+        motor = self._seccion(t, tr("Quien piensa por ella"))
+        self._row(motor, tr("Motor"), "engine", ["api", "claude-code", "ollama", "compat"])
+        self._ayuda(
+            motor,
+            tr("  api = Messages API, necesita tu ANTHROPIC_API_KEY.\n"
+            "  claude-code = CLI de Claude Code, usa tu suscripcion sin key (mas lento).\n"
+            "  ollama = modelo local, sin key ni nube. Peor encadenando varias tools.\n"
+            "  compat = cualquier servidor que hable el protocolo de OpenAI."))
+        self._row(motor, tr("Modelo (motor api)"), "model", MODELS)
+        self._row(motor, tr("Modelo (motor claude-code)"), "cc_model", CC_MODELS)
+        self._row(motor, tr("Permisos (motor claude-code)"), "cc_permission_mode", CC_MODES)
+        fila = ttk.Frame(motor)
+        fila.pack(fill="x", padx=12, pady=(2, 4))
+        ttk.Button(fila, text=tr("Probar el motor"), command=self.probar_motor).pack(side="left")
+        self.motor_label = ttk.Label(fila, text="", style="Ayuda.TLabel", justify="left")
+        self.motor_label.pack(side="left", padx=8)
+        self._ayuda(
+            motor,
+            tr("Le manda una pregunta trivial y muestra la respuesta y cuanto tardo.\n"
+            "Es la unica forma de saber que el motor esta bien configurado sin\n"
+            "tener que hablarle y quedarse esperando a ver si contesta."))
+
+        otros = self._seccion(t, tr("Otros motores"), AVANZADO)
+        self._row(otros, tr("compat: proveedor"), "compat_proveedor", list(PROVEEDORES))
+        self._row(otros, tr("compat: modelo"), "compat_modelo")
+        self._row(otros, tr("compat: URL propia"), "compat_url", width=40)
+        self._ayuda(
+            otros,
+            tr("Los dos vacios = el modelo sugerido y la URL del proveedor.")
+            + "\n" + tr("Con capa gratuita: ") + ", ".join(GRATIS) + ".\n"
+            + tr("La clave de cada uno va en la pestaña Cuentas. 'propio' sirve para\n"
+                 "cualquier servidor que hable /chat/completions."))
+        self._row(otros, tr("Ollama: host"), "ollama_host")
+        self._row(otros, tr("Ollama: modelo"), "ollama_model")
+
+        fino = self._seccion(t, tr("Ajuste fino del modelo"), AVANZADO)
+        self._row(fino, tr("Effort"), "effort", EFFORTS)
+        self._row(fino, tr("Max tokens"), "max_tokens")
+        self._row(fino, tr("Turnos de contexto"), "context_turns")
+        self._row(fino, tr("Minutos de contexto"), "context_minutes")
+
+        frenos = self._seccion(t, tr("Hasta donde puede meterse"))
+        ttk.Label(frenos, text=tr("Rutas de trabajo permitidas (una por linea)")).pack(
+            anchor="w", padx=12, pady=(8, 2)
+        )
+        self.workdirs = tk.Text(frenos, height=5)
+        self.workdirs.insert("1.0", "\n".join(self.cfg.get("workdirs", [])))
+        self.workdirs.pack(fill="x", padx=12)
+        ttk.Label(frenos, text=tr("Permisos")).pack(anchor="w", padx=12, pady=(12, 2))
+        self.perm_var = tk.StringVar(
+            value=PERM_ASK if self.cfg.get("confirm_destructive", True) else PERM_ALL
+        )
+        ttk.Combobox(
+            frenos, textvariable=self.perm_var, values=[PERM_ASK, PERM_ALL],
+            state="readonly", width=60
+        ).pack(anchor="w", padx=12)
+        self._ayuda(
+            frenos,
+            tr("'Permitir todo' desactiva la confirmacion y tambien los permisos internos\n"
+            "de Claude Code. Todo queda igual registrado en la pestaña Acciones."))
+
+        manda = self._seccion(t, tr("Quien manda sobre un ajuste"), AVANZADO)
+        self._row(manda, tr("Autoridad"), "autoridad", ["usuario", "eve", "preguntar"])
+        self._ayuda(
+            manda,
+            tr("usuario: lo que cambies a mano queda trabado y Eve no lo pisa.\n"
             "eve: puede cambiar lo que quiera.  preguntar: pide permiso cada vez.\n"
-            "Para soltar lo trabado, decile 'destraba <clave>' o borra la lista abajo.")
-        self._row(t, "Hasta donde arma sola", "ayuda_alcance",
+            "Para soltar lo trabado, dile 'destraba <clave>' o borra la lista abajo."))
+        self._row(manda, tr("Hasta donde arma sola"), "ayuda_alcance",
                   ["nada", "datos", "codigo"])
         self._ayuda(
-            t,
-            "Cuando le pedis algo hablando, hasta donde puede llegar:\n"
+            manda,
+            tr("Cuando le pides algo hablando, hasta donde puede llegar:\n"
             "  nada    no toca nada; es la voz y nada mas\n"
             "  datos   modulos, ajustes y perfiles -- todo lo que ya es una\n"
             "          clave de config y pasa por el mismo freno que el panel\n"
@@ -919,52 +1312,29 @@ class Panel(tk.Tk):
             "\nEs OTRO eje que 'Quien manda'. Aquel decide quien gana cuando los\n"
             "dos quieren el mismo valor; este, que clase de cosa puede crear.\n"
             "Con 'nada' el prompt tampoco lleva el vocabulario de modulos, que\n"
-            "son ~190 tokens por llamada.")
-        self._row(t, "Claves que fijaste vos", "claves_del_usuario", width=44)
-
-        ttk.Label(t, text="Rutas de trabajo permitidas (una por linea)").pack(
-            anchor="w", padx=12, pady=(12, 2)
-        )
-        self.workdirs = tk.Text(t, height=5)
-        self.workdirs.insert("1.0", "\n".join(self.cfg.get("workdirs", [])))
-        self.workdirs.pack(fill="x", padx=12)
-
-        ttk.Label(t, text="Permisos").pack(anchor="w", padx=12, pady=(12, 2))
-        self.perm_var = tk.StringVar(
-            value=PERM_ASK if self.cfg.get("confirm_destructive", True) else PERM_ALL
-        )
-        ttk.Combobox(
-            t, textvariable=self.perm_var, values=[PERM_ASK, PERM_ALL], state="readonly", width=60
-        ).pack(anchor="w", padx=12)
-        ttk.Label(
-            t,
-            text="'Permitir todo' desactiva la confirmacion y tambien los permisos internos\n"
-            "de Claude Code. Todo queda igual registrado en la pestaña Acciones.",
-            foreground="#666",
-            justify="left",
-        ).pack(anchor="w", padx=12, pady=(2, 0))
+            "son ~190 tokens por llamada."))
+        self._row(manda, tr("Claves que fijaste tu"), "claves_del_usuario", width=44)
         return t
 
     def _bloque_claves(self, nb):
         t = ttk.Frame(nb)
 
         # --- sesion de Claude Code (motor 'claude-code', sin API key) ---
-        box = ttk.LabelFrame(t, text="Sesion de Claude Code (motor 'claude-code')")
-        box.pack(fill="x", padx=12, pady=(12, 4))
-        self.auth_label = ttk.Label(box, text="consultando...", justify="left")
+        box = self._seccion(t, tr("Sesion de Claude Code (motor 'claude-code')"))
+        self.auth_label = ttk.Label(box, text=tr("consultando..."), justify="left")
         self.auth_label.pack(anchor="w", padx=10, pady=(8, 4))
         row = ttk.Frame(box)
         row.pack(anchor="w", padx=10, pady=(0, 10))
-        ttk.Button(row, text="Iniciar sesion", command=self.auth_login).pack(side="left")
-        ttk.Button(row, text="Cerrar sesion", command=self.auth_logout).pack(side="left", padx=6)
-        ttk.Button(row, text="Actualizar", command=self.refresh_auth).pack(side="left")
+        ttk.Button(row, text=tr("Iniciar sesion"), command=self.auth_login).pack(side="left")
+        ttk.Button(row, text=tr("Cerrar sesion"), command=self.auth_logout).pack(side="left", padx=6)
+        ttk.Button(row, text=tr("Actualizar"), command=self.refresh_auth).pack(side="left")
         self.after(100, self.refresh_auth)
 
         ttk.Label(
             t,
-            text="Se guardan en el gestor de credenciales de Windows, nunca en texto plano.\n"
+            text=tr("Se guardan en el gestor de credenciales de Windows, nunca en texto plano.\n"
             "Anthropic solo hace falta con el motor 'api'; con 'claude-code' se usa tu suscripcion.\n"
-            "Las otras habilitan proveedores opcionales de voz.",
+            "Las otras habilitan proveedores opcionales de voz."),
             justify="left",
         ).pack(anchor="w", padx=12, pady=10)
 
@@ -980,47 +1350,48 @@ class Panel(tk.Tk):
         ]:
             self._campo_clave(t, provider, label)
 
-        box = ttk.LabelFrame(t, text="Conexiones con apps (todas opcionales)")
-        box.pack(fill="x", padx=12, pady=(14, 4))
+        box = self._seccion(t, tr("Conexiones con apps (todas opcionales)"))
         ttk.Label(
             box,
-            text="Sin esto Eve igual abre WhatsApp, Discord, Telegram y el mail con el\n"
-            "mensaje escrito, para que lo mandes vos. Estas claves solo agregan leer\n"
-            "y enviar sin pasar por la app.",
+            text=tr("Sin esto Eve igual abre WhatsApp, Discord, Telegram y el mail con el\n"
+            "mensaje escrito, para que lo mandes tu. Estas claves solo agregan leer\n"
+            "y enviar sin pasar por la app."),
             foreground="#666",
             justify="left",
         ).pack(anchor="w", padx=12, pady=(8, 6))
-        self._campo_clave(box, "discord_webhook", "Discord: URL del webhook")
-        self._row(box, "Discord: nombre a mostrar", "discord_username", width=40)
-        self._row(box, "Discord: URL del avatar", "discord_avatar", width=40)
+        self._campo_clave(box, "discord_webhook", tr("Discord: URL del webhook"))
+        ttk.Button(box, text=tr("Probar el webhook"), command=self.probar_webhook).pack(
+            anchor="w", padx=12, pady=(2, 4))
+        self._row(box, tr("Discord: nombre a mostrar"), "discord_username", width=40)
+        self._row(box, tr("Discord: URL del avatar"), "discord_avatar", width=40)
         self._ayuda(
             box,
-            "Con que nombre y foto aparecen los mensajes que manda por webhook.\n"
+            tr("Con que nombre y foto aparecen los mensajes que manda por webhook.\n"
             "Vacio = lo que tenga configurado el webhook en Discord. Andaba\n"
             "desde siempre; lo que faltaba era donde escribirlo sin editar el\n"
-            "config a mano.")
+            "config a mano."))
         if not self.cfg.get("steam_id"):
             from . import integrations
 
             self.cfg["steam_id"] = integrations.steam_id_local()  # detectado del disco
-        self._row(box, "Tu SteamID64 (autodetectado)", "steam_id", width=40)
-        self._campo_clave(box, "steam", "Steam: Web API key")
+        self._row(box, tr("Tu SteamID64 (autodetectado)"), "steam_id", width=40)
+        self._campo_clave(box, "steam", tr("Steam: Web API key"))
         self._check(
             box,
-            "WhatsApp: enviar solo (simula el Enter; exige numero, no nombre)",
+            tr("WhatsApp: enviar solo (simula el Enter; exige numero, no nombre)"),
             "whatsapp_autosend",
         )
         self._check(
             box,
-            "Discord: escribir como vos (maneja tu cliente; verifica el canal por titulo)",
+            tr("Discord: escribir como tu (maneja tu cliente; verifica el canal por titulo)"),
             "discord_autosend",
         )
         ttk.Label(
             box,
-            text="Gmail: si 'Contrasenas de aplicaciones' no te aparece, tu cuenta no tiene 2FA\n"
+            text=tr("Gmail: si 'Contrasenas de aplicaciones' no te aparece, tu cuenta no tiene 2FA\n"
             "o la administra tu organizacion. Alternativa sin claves: agrega el Gmail a\n"
             "Outlook (Archivo > Agregar cuenta) y Eve lo lee y escribe por ahi.\n"
-            "Webhook: Editar canal > Integraciones > Webhooks. Steam key: steamcommunity.com/dev/apikey",
+            "Webhook: Editar canal > Integraciones > Webhooks. Steam key: steamcommunity.com/dev/apikey"),
             foreground="#666",
             justify="left",
         ).pack(anchor="w", padx=12, pady=(6, 10))
@@ -1041,13 +1412,13 @@ class Panel(tk.Tk):
         t = ttk.Frame(nb)
         ttk.Label(
             t,
-            text="Eve usa esta lista cuando nombras a alguien. En 'alias' pone como le decis\n"
+            text=tr("Eve usa esta lista cuando nombras a alguien. En 'alias' pon como le dices\n"
             "de verdad, separado por comas (lucho, el lucas) — la voz rara vez dice el\n"
             "nombre completo.\n\n"
             "discord_user  = su @ (para mencionarlo dentro del mensaje)\n"
             "discord_dm    = su chat privado. Activa Ajustes > Avanzado > Modo desarrollador,\n"
             "                boton derecho sobre la conversacion > Copiar ID\n"
-            "discord_canal = un canal de servidor. Boton derecho > Copiar enlace",
+            "discord_canal = un canal de servidor. Boton derecho > Copiar enlace"),
             foreground="#666",
             justify="left",
         ).pack(anchor="w", padx=12, pady=(10, 6))
@@ -1075,19 +1446,19 @@ class Panel(tk.Tk):
 
         botones = ttk.Frame(t)
         botones.pack(anchor="w", padx=12, pady=8)
-        ttk.Button(botones, text="Agregar / actualizar", command=self._contacto_guardar).pack(side="left")
-        ttk.Button(botones, text="Borrar", command=self._contacto_borrar).pack(side="left", padx=6)
-        ttk.Button(botones, text="Limpiar campos", command=self._contacto_limpiar).pack(side="left")
+        ttk.Button(botones, text=tr("Agregar / actualizar"), command=self._contacto_guardar).pack(side="left")
+        ttk.Button(botones, text=tr("Borrar"), command=self._contacto_borrar).pack(side="left", padx=6)
+        ttk.Button(botones, text=tr("Limpiar campos"), command=self._contacto_limpiar).pack(side="left")
 
         compartir = ttk.Frame(t)
         compartir.pack(anchor="w", padx=12, pady=(0, 8))
-        ttk.Label(compartir, text="Compartir:").pack(side="left", padx=(0, 8))
-        ttk.Button(compartir, text="Exportar", command=self._contacto_exportar).pack(side="left")
-        ttk.Button(compartir, text="Importar", command=self._contacto_importar).pack(side="left", padx=6)
+        ttk.Label(compartir, text=tr("Compartir:")).pack(side="left", padx=(0, 8))
+        ttk.Button(compartir, text=tr("Exportar"), command=self._contacto_exportar).pack(side="left")
+        ttk.Button(compartir, text=tr("Importar"), command=self._contacto_importar).pack(side="left", padx=6)
         ttk.Label(
             t,
-            text="Exportar genera un archivo .evecontact que podes mandarle a un amigo por\n"
-            "WhatsApp o Discord; el lo abre con Importar y le queda el contacto cargado.",
+            text=tr("Exportar genera un archivo .evecontact que puedes mandarle a un amigo por\n"
+            "WhatsApp o Discord; el lo abre con Importar y le queda el contacto cargado."),
             style="Ayuda.TLabel",
             justify="left",
         ).pack(anchor="w", padx=12, pady=(0, 8))
@@ -1116,7 +1487,7 @@ class Panel(tk.Tk):
     def _contacto_guardar(self):
         datos = {k: v.get().strip() for k, v in self.contacto_vars.items()}
         if not datos["nombre"]:
-            messagebox.showerror("Falta el nombre", "El nombre no puede estar vacio.")
+            messagebox.showerror(tr("Falta el nombre"), tr("El nombre no puede estar vacio."))
             return
         # Se relee del disco antes de tocar nada: si Eve agrego un contacto por
         # voz mientras el panel estaba abierto, escribir la lista que el panel
@@ -1138,23 +1509,23 @@ class Panel(tk.Tk):
 
         nombre = self.contacto_vars["nombre"].get().strip()
         if not nombre:
-            messagebox.showinfo("Exportar", "Elegi un contacto de la lista primero.")
+            messagebox.showinfo(tr("Exportar"), tr("Elige un contacto de la lista primero."))
             return
         seguro = "".join(c if c.isalnum() or c in " -_" else "_" for c in nombre).strip()
         destino = filedialog.asksaveasfilename(
-            title="Guardar contacto para compartir",
+            title=tr("Guardar contacto para compartir"),
             initialfile=f"{seguro}.evecontact",
             defaultextension=".evecontact",
             filetypes=[("Contacto de Eve", "*.evecontact"), ("JSON", "*.json")],
         )
         if destino:
-            messagebox.showinfo("Exportar", store.exportar_contactos([nombre], destino))
+            messagebox.showinfo(tr("Exportar"), store.exportar_contactos([nombre], destino))
 
     def _contacto_importar(self):
         from tkinter import filedialog
 
         ruta = filedialog.askopenfilename(
-            title="Abrir contacto compartido",
+            title=tr("Abrir contacto compartido"),
             filetypes=[("Contacto de Eve", "*.evecontact"), ("JSON", "*.json"), ("Todos", "*.*")],
         )
         if not ruta:
@@ -1162,14 +1533,14 @@ class Panel(tk.Tk):
         try:
             nuevos = store.leer_contactos_archivo(ruta)
         except ValueError as exc:
-            messagebox.showerror("Importar", str(exc))
+            messagebox.showerror(tr("Importar"), str(exc))
             return
 
         agregados, cambiados, conflictos = store.importar_contactos(nuevos)
         if conflictos:
             # Pisar la agenda de alguien en silencio no es aceptable: se pregunta.
             if messagebox.askyesno(
-                "Ya existen",
+                tr("Ya existen"),
                 "Estos contactos ya estan en tu agenda:\n\n  "
                 + "\n  ".join(conflictos)
                 + "\n\nReemplazarlos con los del archivo?",
@@ -1180,7 +1551,7 @@ class Panel(tk.Tk):
         self.contactos = store.load_contacts()
         self._contactos_refrescar()
         messagebox.showinfo(
-            "Importar",
+            tr("Importar"),
             f"{agregados} agregado(s), {cambiados} actualizado(s)."
             + (f"\n{len(conflictos) - cambiados} sin tocar." if conflictos and not cambiados else ""),
         )
@@ -1188,9 +1559,9 @@ class Panel(tk.Tk):
     def _contacto_borrar(self):
         nombre = self.contacto_vars["nombre"].get().strip()
         if not nombre:
-            messagebox.showinfo("Borrar", "Elegi un contacto de la lista primero.")
+            messagebox.showinfo(tr("Borrar"), tr("Elige un contacto de la lista primero."))
             return
-        if not messagebox.askyesno("Borrar", f"Borrar a {nombre} de la agenda?"):
+        if not messagebox.askyesno(tr("Borrar"), f"Borrar a {nombre} de la agenda?"):
             return
         # Del disco, por lo mismo que al guardar: borrar uno no puede llevarse
         # puestos los que aparecieron mientras el panel estaba abierto.
@@ -1207,19 +1578,19 @@ class Panel(tk.Tk):
         t = ttk.Frame(nb)
         ttk.Label(
             t,
-            text="Voces entrenadas por la comunidad (Piper). Gratis, offline, y las unicas\n"
-            "que suenan igual en Windows, macOS y Linux. Se verifica el md5 al descargar.",
+            text=tr("Voces entrenadas por la comunidad (Piper). Gratis, offline, y las unicas\n"
+            "que suenan igual en Windows, macOS y Linux. Se verifica el md5 al descargar."),
             foreground="#666",
             justify="left",
         ).pack(anchor="w", padx=12, pady=(10, 6))
 
         barra = ttk.Frame(t)
         barra.pack(fill="x", padx=12)
-        ttk.Label(barra, text="Idioma").pack(side="left")
+        ttk.Label(barra, text=tr("Idioma")).pack(side="left")
         self.voz_idioma = tk.StringVar(value="Spanish")
         self.voz_combo = ttk.Combobox(barra, textvariable=self.voz_idioma, width=22, state="readonly")
         self.voz_combo.pack(side="left", padx=6)
-        ttk.Button(barra, text="Buscar", command=self.voces_buscar).pack(side="left")
+        ttk.Button(barra, text=tr("Buscar"), command=self.voces_buscar).pack(side="left")
         self.voz_estado = ttk.Label(barra, text="", foreground="#666")
         self.voz_estado.pack(side="left", padx=10)
 
@@ -1232,10 +1603,10 @@ class Panel(tk.Tk):
 
         botones = ttk.Frame(t)
         botones.pack(anchor="w", padx=12, pady=(0, 10))
-        ttk.Button(botones, text="Descargar", command=self.voz_descargar).pack(side="left")
-        ttk.Button(botones, text="Usar esta", command=self.voz_usar).pack(side="left", padx=6)
-        ttk.Button(botones, text="Probar", command=self.voz_probar).pack(side="left")
-        ttk.Button(botones, text="Borrar", command=self.voz_borrar).pack(side="left", padx=6)
+        ttk.Button(botones, text=tr("Descargar"), command=self.voz_descargar).pack(side="left")
+        ttk.Button(botones, text=tr("Usar esta"), command=self.voz_usar).pack(side="left", padx=6)
+        ttk.Button(botones, text=tr("Probar"), command=self.voz_probar).pack(side="left")
+        ttk.Button(botones, text=tr("Borrar"), command=self.voz_borrar).pack(side="left", padx=6)
         self.after(300, self.voces_buscar)
         return t
 
@@ -1253,17 +1624,17 @@ class Panel(tk.Tk):
         elegido = self.vars["dialecto"].get()
         clave = store.voz_del_dialecto(elegido)
         if not clave:
-            messagebox.showinfo("Voz", "Elegi una variante primero.", parent=self)
+            messagebox.showinfo(tr("Voz"), tr("Elige una variante primero."), parent=self)
             return
         if clave not in voices.instaladas():
             try:
-                messagebox.showinfo("Voz", voices.descargar(clave), parent=self)
+                messagebox.showinfo(tr("Voz"), voices.descargar(clave), parent=self)
             except Exception as exc:  # noqa: BLE001
-                messagebox.showerror("Voz", f"No pude bajarla: {exc}", parent=self)
+                messagebox.showerror(tr("Voz"), f"No pude bajarla: {exc}", parent=self)
                 return
         self.vars["piper_voice"].set(clave)
         self.vars["tts_provider"].set("piper")
-        messagebox.showinfo("Voz", f"Voz puesta en {clave}. Guarda para aplicarlo.",
+        messagebox.showinfo(tr("Voz"), f"Voz puesta en {clave}. Guarda para aplicarlo.",
                             parent=self)
 
     def _pantallas(self) -> list:
@@ -1288,7 +1659,7 @@ class Panel(tk.Tk):
         return self.voz_tree.item(sel[0], "values")[0] if sel else ""
 
     def voces_buscar(self):
-        self.voz_estado.config(text="consultando catalogo...")
+        self.voz_estado.config(text=tr("consultando catalogo..."))
 
         def work():
             from . import voices
@@ -1323,7 +1694,7 @@ class Panel(tk.Tk):
     def voz_descargar(self):
         key = self._voz_sel()
         if not key:
-            messagebox.showinfo("Voces", "Elegi una voz de la lista.")
+            messagebox.showinfo(tr("Voces"), tr("Elige una voz de la lista."))
             return
 
         def work():
@@ -1341,7 +1712,7 @@ class Panel(tk.Tk):
                 )
             except Exception as exc:  # noqa: BLE001
                 msg = f"Fallo la descarga: {exc}"
-            self._ui(lambda: (messagebox.showinfo("Voces", msg), self.voces_buscar()))
+            self._ui(lambda: (messagebox.showinfo(tr("Voces"), msg), self.voces_buscar()))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1350,18 +1721,18 @@ class Panel(tk.Tk):
 
         key = self._voz_sel()
         if key not in voices.instaladas():
-            messagebox.showinfo("Voces", "Descargala primero.")
+            messagebox.showinfo(tr("Voces"), tr("Descargala primero."))
             return
         self.vars["piper_voice"].set(key)
         self.vars["tts_provider"].set("piper")
-        messagebox.showinfo("Voces", f"{key} seleccionada.\nToca Guardar para aplicarla.")
+        messagebox.showinfo(tr("Voces"), f"{key} seleccionada.\nToca Guardar para aplicarla.")
 
     def voz_probar(self):
         from . import voices
 
         key = self._voz_sel() or self.cfg.get("piper_voice", "")
         if key not in voices.instaladas():
-            messagebox.showinfo("Voces", "Descargala primero.")
+            messagebox.showinfo(tr("Voces"), tr("Descargala primero."))
             return
 
         def work():
@@ -1371,7 +1742,7 @@ class Panel(tk.Tk):
                 )
             except Exception as exc:  # noqa: BLE001
                 fallo = str(exc)
-                self._ui(lambda: messagebox.showerror("Voces", fallo))
+                self._ui(lambda: messagebox.showerror(tr("Voces"), fallo))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1379,62 +1750,98 @@ class Panel(tk.Tk):
         from . import voices
 
         key = self._voz_sel()
-        if key and messagebox.askyesno("Voces", f"Borrar {key}?"):
-            messagebox.showinfo("Voces", voices.borrar(key))
+        if key and messagebox.askyesno(tr("Voces"), f"Borrar {key}?"):
+            messagebox.showinfo(tr("Voces"), voices.borrar(key))
             self.voces_buscar()
 
     def _bloque_correo(self, nb):
         """Tab propio: junto con Claves no entraba en la ventana."""
         t = ttk.Frame(nb)
 
-        out = ttk.LabelFrame(t, text="Outlook")
-        out.pack(fill="x", padx=12, pady=(12, 6))
+        out = self._seccion(t, tr("Outlook"))
         ttk.Label(
             out,
-            text="No necesita ninguna clave: Eve usa la sesion que ya tiene Outlook en esta PC.",
+            text=tr("No necesita ninguna clave: Eve usa la sesion que ya tiene Outlook en esta PC."),
             foreground="#666",
         ).pack(anchor="w", padx=10, pady=(8, 4))
-        self.outlook_label = ttk.Label(out, text="consultando...", justify="left")
+        self.outlook_label = ttk.Label(out, text=tr("consultando..."), justify="left")
         self.outlook_label.pack(anchor="w", padx=10)
         fila = ttk.Frame(out)
         fila.pack(anchor="w", padx=10, pady=(6, 10))
-        ttk.Button(fila, text="Agregar / gestionar cuentas", command=self.outlook_login).pack(
+        ttk.Button(fila, text=tr("Agregar / gestionar cuentas"), command=self.outlook_login).pack(
             side="left"
         )
-        ttk.Button(fila, text="Actualizar", command=self.refresh_outlook).pack(side="left", padx=6)
+        ttk.Button(fila, text=tr("Actualizar"), command=self.refresh_outlook).pack(side="left", padx=6)
 
-        gm = ttk.LabelFrame(t, text="Gmail")
-        gm.pack(fill="x", padx=12, pady=6)
+        gm = self._seccion(t, tr("Gmail"))
         ttk.Label(
             gm,
-            text="Lo mas simple es agregarlo a Outlook con el boton de arriba: Google hace el\n"
+            text=tr("Lo mas simple es agregarlo a Outlook con el boton de arriba: Google hace el\n"
             "login y no queda ninguna clave tuya guardada aca.\n\n"
             "La otra via es una contrasena de aplicacion (16 letras minusculas). Si Google\n"
             "dice que no esta disponible, es que tu cuenta no tiene verificacion en dos\n"
-            "pasos, o la administra tu organizacion.",
+            "pasos, o la administra tu organizacion."),
             foreground="#666",
             justify="left",
         ).pack(anchor="w", padx=10, pady=(8, 4))
-        self._row(gm, "Tu direccion de Gmail", "gmail_address", width=38)
-        self._campo_clave(gm, "gmail", "Contrasena de aplicacion")
+        self._row(gm, tr("Tu direccion de Gmail"), "gmail_address", width=38)
+        self._campo_clave(gm, "gmail", tr("Contrasena de aplicacion"))
         self.gmail_label = ttk.Label(gm, text="", justify="left")
         self.gmail_label.pack(anchor="w", padx=12, pady=(6, 0))
         fila2 = ttk.Frame(gm)
         fila2.pack(anchor="w", padx=12, pady=(6, 10))
-        ttk.Button(fila2, text="Obtener app password", command=self.gmail_login).pack(side="left")
-        ttk.Button(fila2, text="Probar conexion", command=self.gmail_probar).pack(side="left", padx=6)
+        ttk.Button(fila2, text=tr("Obtener app password"), command=self.gmail_login).pack(side="left")
+        ttk.Button(fila2, text=tr("Probar conexion"), command=self.gmail_probar).pack(side="left", padx=6)
 
         self.after(200, self.refresh_outlook)
         return t
 
     def _bloque_voz(self, nb):
+        """Voz, en secciones, y cada prueba al lado de lo que prueba."""
         t = ttk.Frame(nb)
-        self._row(t, "STT (reconocimiento)", "stt_provider",
+
+        # --- reconocimiento ---------------------------------------------
+        oye = self._seccion(t, tr("Como te escucha"))
+        self._row(oye, tr("STT (reconocimiento)"), "stt_provider",
                   ["faster-whisper", "parakeet", "openai"])
-        self._row(t, "Parakeet: cuantizacion", "parakeet_cuantizacion", ["int8", ""])
+        self._row(oye, tr("Modelo Whisper local"), "stt_model",
+                  ["tiny", "base", "small", "medium", "large-v3"])
+        self._row(oye, tr("Sensibilidad"), "stt_sensibilidad",
+                  ["auto", "normal", "ruido", "bajo", "manual"])
+        fila = ttk.Frame(oye)
+        fila.pack(fill="x", padx=12, pady=(4, 2))
+        ttk.Button(fila, text=tr("Probar que te escucha"),
+                   command=self.probar_stt).pack(side="left")
+        ttk.Button(fila, text=tr("Probar GPU"), command=self.gpu_probar).pack(side="left", padx=6)
+        self.gpu_label = ttk.Label(oye, text="", style="Ayuda.TLabel", justify="left")
+        self.gpu_label.pack(anchor="w", padx=12, pady=(4, 8))
         self._ayuda(
-            t,
-            "parakeet es el modelo de NVIDIA. Entro porque gano medido sobre las\n"
+            oye,
+            tr("Probar recorre el camino entero y no una pieza suelta: graba de tu\n"
+               "microfono de verdad y transcribe con el modelo que tengas elegido.\n"
+               "\nSensibilidad: 'normal' para un cuarto tranquilo, 'ruido' si hay\n"
+               "musica o un juego atras, 'bajo' de madrugada. 'auto' la elige por\n"
+               "hora; las reglas y los numeros medidos estan en el ajuste fino."))
+
+        fino = self._seccion(t, tr("Ajuste fino del reconocimiento"), AVANZADO)
+        self._ayuda(
+            fino,
+            tr("Todo lo de aca esta medido sobre las mismas 24 grabaciones propias.\n"
+               "\nSensibilidad:\n"
+               "  normal  cuarto tranquilo         WER 10.9%  (con ruido 12.5%)\n"
+               "  ruido   musica o el juego atras  WER  8.7%  (con ruido  0.0%)\n"
+               "  bajo    de madrugada, voz suave  WER 12.0%  (con ruido 18.8%)\n"
+               "  manual  usa el umbral y el aire de mas abajo\n"
+               "\nQue modelo conviene:\n"
+               "  small     WER 10.9%   0.9s por orden en gpu,  3.3s en cpu\n"
+               "  medium    WER  4.9%   1.8s en gpu, 10.2s en cpu  <- pide gpu\n"
+               "  large-v3  WER  4.9%   2.7s en gpu, y PEOR en nombres propios\n"
+               "            (34.8% contra 17.4% de medium): mas grande no es\n"
+               "            mejor aca."))
+        self._row(fino, tr("Parakeet: cuantizacion"), "parakeet_cuantizacion", ["int8", ""])
+        self._ayuda(
+            fino,
+            tr("parakeet es el modelo de NVIDIA. Entro porque gano medido sobre las\n"
             "mismas 24 grabaciones, con la misma cuenta:\n"
             "  whisper small en gpu   WER 10.9%   RTF 0.27    464 MB\n"
             "  whisper small en cpu   WER 10.9%   RTF 1.38    464 MB\n"
@@ -1446,43 +1853,48 @@ class Panel(tk.Tk):
             "\nDonde pierde: nombres propios, 30.4% contra 21.7%, que es justo el\n"
             "grupo que decide si abre el programa correcto -- no acepta el sesgo\n"
             "de vocabulario que si acepta whisper. Por eso no es el default.\n"
-            "Sin cuantizar mejora los nombres propios pero pesa 2.4 GB.")
-        self._row(t, "Modelo Whisper local", "stt_model",
-                  ["tiny", "base", "small", "medium", "large-v3"])
-        self._row(t, "Dispositivo", "stt_device", ["cpu", "cuda"])
-        self._row(t, "Tipo de computo", "stt_computo",
+            "Sin cuantizar mejora los nombres propios pero pesa 2.4 GB."))
+        self._row(fino, tr("Dispositivo"), "stt_device", ["cpu", "cuda"])
+        self._row(fino, tr("Tipo de computo"), "stt_computo",
                   ["auto", "int8", "int8_float32", "int8_float16", "float16", "float32"])
-        self._check(t, "Recortar silencios antes de transcribir (VAD)", "stt_vad")
-        self._row(t, "Sensibilidad", "stt_sensibilidad",
-                  ["auto", "normal", "ruido", "bajo", "manual"])
-        self._row(t, "Reglas por horario", "stt_horario", width=40)
         self._ayuda(
-            t,
-            "Como escuchar. Los numeros salen de medir 24 grabaciones propias:\n"
-            "  normal  cuarto tranquilo         WER 10.9%  (con ruido 12.5%)\n"
-            "  ruido   musica o el juego atras  WER  8.7%  (con ruido  0.0%)\n"
-            "  bajo    de madrugada, voz suave  WER 12.0%  (con ruido 18.8%)\n"
-            "  manual  usa el umbral y el aire de mas abajo\n"
-            "Las reglas de horario van separadas por coma y solo pisan a 'auto':\n"
+            fino,
+            tr("cuda necesita las librerias de NVIDIA instaladas; si faltan, cae a cpu\n"
+            "solo y avisa. Medido en una GTX 1660 SUPER: 3.42s por orden en cpu\n"
+            "contra 0.71s en gpu. 'auto' elige int8 en cpu e int8_float16 en gpu."))
+        self._check(fino, tr("Recortar silencios antes de transcribir (VAD)"), "stt_vad")
+        self._row(fino, tr("Reglas por horario"), "stt_horario", width=40)
+        self._ayuda(
+            fino,
+            tr("Van separadas por coma y solo pisan al modo 'auto':\n"
             "  00:00-06:00=bajo, 20:00-23:59=ruido\n"
-            "Si elegis un modo a mano, el reloj no te lo cambia.")
-        self._row(t, "Busqueda por haz (beam)", "stt_beam", width=10)
+            "Si eliges un modo a mano, el reloj no te lo cambia."))
+        self._row(fino, tr("Busqueda por haz (beam)"), "stt_beam", width=10)
         self._ayuda(
-            t,
-            "Cuantas ramas explora el reconocedor. Medido sobre una orden\n"
+            fino,
+            tr("Cuantas ramas explora el reconocedor. Medido sobre una orden\n"
             "tipica: beam 5 tarda 4.4s y beam 1 tarda 3.5s, con el MISMO texto.\n"
-            "Sirve para dictado largo, no para ordenes de ocho palabras.")
-        self._row(t, "Umbral del detector", "stt_vad_umbral", width=10)
-        self._row(t, "Aire del detector (ms)", "stt_vad_aire_ms", width=10)
-        self._check(t, "Activar diciendo una palabra (deja el microfono abierto)",
+            "Sirve para dictado largo, no para ordenes de ocho palabras."))
+        self._row(fino, tr("Umbral del detector"), "stt_vad_umbral", width=10)
+        self._row(fino, tr("Aire del detector (ms)"), "stt_vad_aire_ms", width=10)
+
+        # --- palabra clave ----------------------------------------------
+        puerta = self._seccion(t, tr("Despertarla diciendo su nombre"), AVANZADO)
+        self._check(puerta, tr("Activar diciendo una palabra (deja el microfono abierto)"),
                     "wake_activo")
-        self._row(t, "Palabra para despertarla", "wake_palabra", width=20)
-        self._row(t, "Modelo de la puerta", "wake_modelo", ["tiny", "base", "small"])
+        self._row(puerta, tr("Palabra para despertarla"), "wake_palabra", width=20)
+        self._row(puerta, tr("Modelo de la puerta"), "wake_modelo", ["tiny", "base", "small"])
+        fila = ttk.Frame(puerta)
+        fila.pack(fill="x", padx=12, pady=(4, 2))
+        ttk.Button(fila, text=tr("Probar la palabra"),
+                   command=self.probar_wake).pack(side="left")
+        self.wake_label = ttk.Label(fila, text="", style="Ayuda.TLabel", justify="left")
+        self.wake_label.pack(side="left", padx=8)
         self._ayuda(
-            t,
-            "Apagado de fabrica: prenderlo deja el microfono abierto todo el\n"
-            "tiempo. Decile el nombre y la orden de un tirón, en la misma frase:\n"
-            "  \"Eve, abri Spotify\"\n"
+            puerta,
+            tr("Apagado de fabrica: prenderlo deja el microfono abierto todo el\n"
+            "tiempo. Dile el nombre y la orden de un tiron, en la misma frase:\n"
+            "  \"Eve, abre Spotify\"\n"
             "El nombre tiene que ir al principio. Aceptarlo en cualquier lado\n"
             "convertiria en orden cualquier charla que te lo mencione.\n"
             "\nNo corre ningun modelo de lenguaje en reposo: primero un detector\n"
@@ -1496,105 +1908,79 @@ class Panel(tk.Tk):
             "  Eve          small  desperto 3/4    falsos 0/6\n"
             "  Eve          tiny   desperto 2/4    falsos 0/6\n"
             "Tres letras no alcanzan para ser una puerta. Por eso se aceptan\n"
-            "variantes separadas por |, y de fabrica vienen las dos. Para ver\n"
-            "como te escribe a vos:  Eve --probar-voz \"Eve, abri Spotify\"")
-        ttk.Label(
-            t,
-            text="cuda necesita las librerias de NVIDIA instaladas; si faltan, cae a cpu\n"
-            "solo y avisa. Medido en una GTX 1660 SUPER: 3.42s por orden en cpu\n"
-            "contra 0.71s en gpu. 'auto' elige int8 en cpu e int8_float16 en gpu.\n"
-            "\nQue modelo conviene, medido sobre el banco de voz:\n"
-            "  small     WER 10.9%   0.9s por orden en gpu,  3.3s en cpu\n"
-            "  medium    WER  4.9%   1.8s en gpu, 10.2s en cpu  <- pedi gpu\n"
-            "  large-v3  WER  4.9%   2.7s en gpu, y PEOR en nombres propios\n"
-            "            (34.8% contra 17.4% de medium): mas grande no es\n"
-            "            mejor aca.",
-            style="Ayuda.TLabel", justify="left",
-        ).pack(anchor="w", padx=12, pady=(0, 6))
-        pruebas = ttk.Frame(t)
-        pruebas.pack(fill="x", padx=12, pady=(4, 2))
-        ttk.Button(pruebas, text="Probar GPU", command=self.gpu_probar).pack(side="left")
-        ttk.Button(pruebas, text="Probar que te escucha",
-                   command=self.probar_stt).pack(side="left", padx=6)
-        ttk.Button(pruebas, text="Probar que te habla",
-                   command=self.probar_tts).pack(side="left")
-        ttk.Button(pruebas, text="Mostrar el cartel",
-                   command=self.probar_overlay).pack(side="left", padx=6)
-        self._ayuda(
-            t,
-            "Los tres prueban el camino completo, no una pieza suelta: escuchar\n"
-            "graba de tu microfono de verdad y transcribe con el modelo que\n"
-            "tengas elegido; hablar sintetiza con la voz elegida; y el cartel lo\n"
-            "hace aparecer unos segundos aunque este en modo 'auto'. Si algo no\n"
-            "anda, aca se ve cual de los tres es sin tener que adivinar.")
-        self.gpu_label = ttk.Label(t, text="", style="Ayuda.TLabel", justify="left")
-        self.gpu_label.pack(anchor="w", padx=12, pady=(4, 8))
-        self._row(t, "TTS (voz)", "tts_provider", ["sapi", "piper", "elevenlabs"])
-        self._row(t, "Voz de Piper", "piper_voice")
-        self._row(t, "Velocidad (1.0 = normal, mas = mas lento)", "piper_velocidad")
-        self._row(t, "Volumen (1.0 = como sale del sintetizador)", "volumen")
-        self._row(t, "Hablante (solo voces multi-voz)", "piper_hablante")
-        self._row(t, "Voz de Windows", "tts_voice", voice.list_sapi_voices() or None)
-        self._row(t, "ElevenLabs voice_id", "elevenlabs_voice_id")
-        self._check(t, "Leer las respuestas en voz alta", "speak_replies")
+            "variantes separadas por |, y de fabrica vienen las dos."))
 
-        hab = ttk.LabelFrame(t, text="Que espanol habla")
-        hab.pack(fill="x", padx=12, pady=(12, 4))
-        self._row(hab, "Variante", "dialecto",
-                  ["", "rioplatense", "neutro", "mexicano", "castellano"])
-        ttk.Button(hab, text="Usar la voz que le corresponde",
-                   command=self.voz_del_dialecto).pack(anchor="w", padx=12, pady=(0, 4))
+        # --- sintesis ----------------------------------------------------
+        habla = self._seccion(t, tr("Como te habla"))
+        self._row(habla, tr("TTS (voz)"), "tts_provider", ["sapi", "piper", "elevenlabs"])
+        self._row(habla, tr("Voz de Piper"), "piper_voice")
+        self._row(habla, tr("Velocidad"), "piper_velocidad")
+        self._row(habla, tr("Volumen"), "volumen")
+        self._ayuda(habla, tr("Velocidad 1.0 = normal, mas alto = mas lento. "
+                              "Volumen 1.0 = como sale del sintetizador."))
+        self._check(habla, tr("Leer las respuestas en voz alta"), "speak_replies")
+        fila = ttk.Frame(habla)
+        fila.pack(fill="x", padx=12, pady=(4, 8))
+        ttk.Button(fila, text=tr("Probar que te habla"),
+                   command=self.probar_tts).pack(side="left")
+
+        vfino = self._seccion(t, tr("Ajuste fino de la voz"), AVANZADO)
+        self._ayuda(
+            vfino,
+            tr("Que voz se entiende mejor. Medido sobre diez frases, sintetizando\n"
+               "y volviendo a transcribir --si el mejor reconocedor que hay no la\n"
+               "entiende, tu con el juego de fondo tampoco:\n"
+               "  es_ES-sharvard-medium   6.4%     es_ES-carlfm-x_low  10.0%\n"
+               "  es_MX-claude-high       6.8%     es_MX-ald-medium    10.4%\n"
+               "  es_ES-davefx-medium     8.4%     es_MX-ald-x_low     11.2%\n"
+               "                                   es_AR-daniela-high  20.5%\n"
+               "Es la media de tres corridas, y hacen falta las tres: Piper no es\n"
+               "determinista y una misma voz se mueve hasta 8 puntos. Con una sola\n"
+               "medicion casi todo este orden seria ruido.\n"
+               "Lo que sobrevive: es_AR-daniela-high es la peor por mucho y la mas\n"
+               "lenta por cinco veces. Por eso ninguna variante la sugiere: la voz\n"
+               "es el canal, no el acento del que habla. Si aun asi la quieres,\n"
+               "eligela a mano en Voz de Piper."))
+        self._row(vfino, tr("Hablante"), "piper_hablante")
+        self._ayuda(vfino, tr("Hablante solo sirve en las voces que traen varias."))
+        self._row(vfino, tr("Voz de Windows"), "tts_voice", voice.list_sapi_voices() or None)
+        self._row(vfino, tr("ElevenLabs voice_id"), "elevenlabs_voice_id")
+
+        hab = self._seccion(t, tr("Que espanol habla"))
+        self._row(hab, tr("Variante"), "dialecto",
+                  ["", "neutro", "colombiano", "mexicano", "rioplatense", "castellano"])
+        ttk.Button(hab, text=tr("Usar la voz que le corresponde"),
+                   command=self.voz_del_dialecto).pack(anchor="w", padx=12, pady=(2, 4))
         self._ayuda(
             hab,
-            "Cambia como ESCRIBE: vos contra tu, vale contra dale. Vacio = no se\n"
-            "le dice nada. Cuesta unos 40 tokens por llamada.\n"
-            "\nLa voz va aparte porque no es lo mismo. Medido sobre diez frases,\n"
-            "sintetizando y volviendo a transcribir --si el mejor reconocedor que\n"
-            "hay no la entiende, vos con el juego de fondo tampoco:\n"
-            "  es_ES-sharvard-medium   6.4%     es_ES-carlfm-x_low  10.0%\n"
-            "  es_MX-claude-high       6.8%     es_MX-ald-medium    10.4%\n"
-            "  es_ES-davefx-medium     8.4%     es_MX-ald-x_low     11.2%\n"
-            "                                   es_AR-daniela-high  20.5%\n"
-            "Es la media de tres corridas, y hacen falta las tres: Piper no es\n"
-            "determinista y una misma voz se mueve hasta 8 puntos. Con una sola\n"
-            "medicion casi todo este orden seria ruido.\n"
-            "Lo que sobrevive: es_AR-daniela-high es la peor por mucho y la mas\n"
-            "lenta por cinco veces. Por eso hasta la variante rioplatense\n"
-            "sugiere una voz mexicana: la voz es el canal, no el acento del que\n"
-            "habla. Si igual la queres, elegila a mano en Voz de Piper.")
+            tr("Cambia como ESCRIBE: tu contra vos, vale contra dale. La voz va\n"
+               "aparte, y el boton de arriba le pone la que le corresponde.\n"
+               "No hay voz colombiana en el catalogo de Piper, asi que esa variante\n"
+               "comparte la mexicana y cambia solo el vocabulario."))
 
-        pers = ttk.LabelFrame(t, text="Personalidad")
-        pers.pack(fill="x", padx=12, pady=(12, 4))
-        self._row(pers, "Tono", "persona_tono", width=44)
-        ttk.Label(
+        pers = self._seccion(t, tr("Personalidad"))
+        self._row(pers, tr("Tono"), "persona_tono", width=44)
+        self._ayuda(
             pers,
-            text="Como habla, no que hace. Va al final del prompt y siempre pierde\n"
-                 "contra el manual: no puede hacerla hablar de mas ni narrar en vez\n"
-                 "de actuar. Vacio = sin personaje. Lo setea cada perfil.",
-            style="Ayuda.TLabel", justify="left",
-        ).pack(anchor="w", padx=12, pady=(0, 8))
+            tr("Como habla, no que hace. Va al final del prompt y siempre pierde\n"
+            "contra el manual: no puede hacerla hablar de mas ni narrar en vez\n"
+            "de actuar. Vacio = sin personaje. Lo setea cada perfil."))
 
-        box = ttk.LabelFrame(t, text="Programas que Eve conoce")
-        box.pack(fill="x", padx=12, pady=(12, 4))
+        box = self._seccion(t, tr("Programas que Eve conoce"), AVANZADO)
         self.apps_label = ttk.Label(box, text="", justify="left")
-        self.apps_label.pack(anchor="w", padx=10, pady=(8, 4))
-        self._row(box, "Vocabulario extra", "stt_vocabulary", width=40)
-        ttk.Label(
-            box,
-            text="Nombres que el reconocimiento suele errar, separados por comas.",
-            foreground="#666",
-        ).pack(anchor="w", padx=12)
-        self._row(box, "Que catalogo viaja", "catalogo_modo", ["usados", "completo"])
+        self.apps_label.pack(anchor="w", padx=12, pady=(6, 2))
+        self._row(box, tr("Vocabulario extra"), "stt_vocabulary", width=40)
+        self._ayuda(box, tr("Nombres que el reconocimiento suele errar, separados por comas."))
+        self._row(box, tr("Que catalogo viaja"), "catalogo_modo", ["usados", "completo"])
         self._ayuda(
             box,
-            "El catalogo de programas viaja en CADA llamada al modelo, y entero\n"
+            tr("El catalogo de programas viaja en CADA llamada al modelo, y entero\n"
             "es un tercio del prompt. 'usados' manda solo los que aparecen en tu\n"
             "log de acciones, ordenados por frecuencia, y el resto se busca con\n"
             "`E programa NOMBRE`. Medido: 1551 tokens menos por llamada, un 36%.\n"
-            "'completo' los manda todos, por si preferis pagar y no buscar.")
-        ttk.Button(box, text="Reescanear programas", command=self.rescan_apps).pack(
-            anchor="w", padx=12, pady=(6, 10)
-        )
+            "'completo' los manda todos, por si prefieres pagar y no buscar."))
+        ttk.Button(box, text=tr("Reescanear programas"), command=self.rescan_apps).pack(
+            anchor="w", padx=12, pady=(2, 8))
         self.refresh_apps(scan=False)
         return t
 
@@ -1609,7 +1995,7 @@ class Panel(tk.Tk):
 
     def rescan_apps(self):
         self.refresh_apps(scan=True)
-        messagebox.showinfo("Programas", "Indice actualizado.")
+        messagebox.showinfo(tr("Programas"), tr("Indice actualizado."))
 
     # --- apariencia --------------------------------------------------------
 
@@ -1693,7 +2079,7 @@ class Panel(tk.Tk):
             if elegido:
                 var.set(elegido)
 
-        boton = ttk.Button(fila, text="Elegir...", command=elegir, width=10)
+        boton = ttk.Button(fila, text=tr("Elegir..."), command=elegir, width=10)
         boton.pack(side="left")
         var.trace_add("write", repintar)
         var.trace_add("write", self._previa_redibujar)
@@ -1704,26 +2090,30 @@ class Panel(tk.Tk):
         from . import tema
 
         t = ttk.Frame(nb)
-        caja = self._seccion(t, "Colores del panel")
-        self._row(caja, "Tema", "ui_tema", tema.NOMBRES)
-        self._check(caja, "Pintar tambien este panel con el tema", "ui_pintar_panel")
+        caja = self._seccion(t, tr("Colores del panel"))
+        self._row(caja, tr("Tema"), "ui_tema", tema.NOMBRES)
+        self._check(caja, tr("Pintar tambien este panel con el tema"), "ui_pintar_panel")
         self._ayuda(
             caja,
-            "Pintar el panel obliga a dibujar los controles por nuestra cuenta: Windows\n"
-            "no deja cambiarle el color a los suyos. El cambio se ve al instante.",
+            tr("Pintar el panel obliga a dibujar los controles por nuestra cuenta: Windows\n"
+            "no deja cambiarle el color a los suyos. El cambio se ve al instante."),
         )
-        for rol, etiqueta in ROLES_ETIQUETA:
-            self._fila_color(caja, "ui", rol, etiqueta)
-        self._ayuda(caja, "Los colores de arriba solo se usan con el tema 'personalizado'.")
-
-        self._check(caja, "No animar los GIF (dejar el primer cuadro)", "ui_sin_animacion")
+        self._check(caja, tr("No animar los GIF (dejar el primer cuadro)"), "ui_sin_animacion")
         self.vars["ui_sin_animacion"].trace_add("write", self._previa_redibujar)
 
-        caja = self._seccion(t, "Tipografia")
-        self._row(caja, "Fuente del panel", "ui_fuente", tema.fuentes_disponibles())
-        self._row(caja, "Tamaño (0 = el de la fuente)", "ui_fuente_tam")
-        self._row(caja, "Fuente del cartel", "hud_fuente", tema.fuentes_disponibles())
-        self._row(caja, "Fuente de los subtitulos", "sub_fuente", tema.fuentes_disponibles())
+        # Los ocho hexadecimales, en su propia seccion y plegada. Elegir un tema
+        # lo hace cualquiera; escribir #0d0204 a mano lo hace quien fue a
+        # buscarlo. Juntos daban un desplegable util y ocho campos de codigos.
+        caja = self._seccion(t, tr("Colores a mano"), AVANZADO)
+        self._ayuda(caja, tr("Solo se usan con el tema 'personalizado'."))
+        for rol, etiqueta in ROLES_ETIQUETA:
+            self._fila_color(caja, "ui", rol, etiqueta)
+
+        caja = self._seccion(t, tr("Tipografia"), AVANZADO)
+        self._row(caja, tr("Fuente del panel"), "ui_fuente", tema.fuentes_disponibles())
+        self._row(caja, tr("Tamaño (0 = el de la fuente)"), "ui_fuente_tam")
+        self._row(caja, tr("Fuente del cartel"), "hud_fuente", tema.fuentes_disponibles())
+        self._row(caja, tr("Fuente de los subtitulos"), "sub_fuente", tema.fuentes_disponibles())
         for clave in ("ui_fuente", "ui_fuente_tam", "hud_fuente", "sub_fuente"):
             self.vars[clave].trace_add("write", self._previa_redibujar)
 
@@ -1737,20 +2127,20 @@ class Panel(tk.Tk):
         # propia seccion son cuatro lineas y no molestan a nadie que no las
         # busque. Las claves siempre siguieron andando si se editaban a mano; lo
         # que faltaba era poder llegar.
-        caja = self._seccion(t, "Colores del cartel flotante")
-        self._row(caja, "Tema del cartel", "hud_tema", ["", *tema.NOMBRES])
+        caja = self._seccion(t, tr("Colores del cartel flotante"), AVANZADO)
+        self._row(caja, tr("Tema del cartel"), "hud_tema", ["", *tema.NOMBRES])
         for rol, etiqueta in ROLES_ETIQUETA:
             self._fila_color(caja, "hud", rol, etiqueta)
         self._ayuda(
             caja,
-            "Vacio = el cartel usa el mismo tema que el panel, que es lo que\n"
+            tr("Vacio = el cartel usa el mismo tema que el panel, que es lo que\n"
             "quiere casi todo el mundo. Los colores de abajo solo se usan con\n"
-            "el tema 'personalizado'.")
+            "el tema 'personalizado'."))
 
-        caja = self._seccion(t, "Cabecera del panel")
+        caja = self._seccion(t, tr("Cabecera del panel"), AVANZADO)
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=5)
-        ttk.Label(fila, text="Imagen (PNG o GIF)", width=24).pack(side="left")
+        ttk.Label(fila, text=tr("Imagen (PNG o GIF)"), width=24).pack(side="left")
         var = tk.StringVar(value=str(self.cfg.get("ui_banner", "")))
         self.vars["ui_banner"] = var
         ttk.Entry(fila, textvariable=var).pack(side="left", fill="x", expand=True)
@@ -1759,7 +2149,7 @@ class Panel(tk.Tk):
             from tkinter import filedialog
 
             ruta = filedialog.askopenfilename(
-                title="Imagen de cabecera", parent=self,
+                title=tr("Imagen de cabecera"), parent=self,
                 filetypes=[("Imagenes y sprite sheets",
                             "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
                        ("Todos", "*.*")],
@@ -1769,14 +2159,14 @@ class Panel(tk.Tk):
 
         ttk.Button(fila, text="...", width=4,
                    command=elegir_banner).pack(side="left", padx=(6, 0))
-        ttk.Button(fila, text="Quitar", width=8,
+        ttk.Button(fila, text=tr("Quitar"), width=8,
                    command=lambda: var.set("")).pack(side="left", padx=(4, 0))
-        self._row(caja, "Opacidad (%)", "ui_banner_opacidad")
+        self._row(caja, tr("Opacidad (%)"), "ui_banner_opacidad")
         self._ayuda(
             caja,
-            "Se ve arriba de cada pestaña y se aplica al reabrir el panel. No hay fondo\n"
+            tr("Se ve arriba de cada pestaña y se aplica al reabrir el panel. No hay fondo\n"
             "para todo el panel: los controles de Windows pintan su propio fondo opaco\n"
-            "y lo taparian.",
+            "y lo taparian."),
         )
 
         for clave in ("ui_tema",):
@@ -1798,13 +2188,13 @@ class Panel(tk.Tk):
             with open(ruta, encoding="utf-8", errors="replace") as f:
                 codigo = f.read()
         except OSError as exc:
-            messagebox.showerror("No pude leerlo", str(exc))
+            messagebox.showerror(tr("No pude leerlo"), str(exc))
             return
         integrations.mostrar(os.path.basename(ruta), codigo)
 
     def _addon_aprobar(self, nombre: str, marca: str) -> None:
         if not messagebox.askyesno(
-            "Aprobar addon",
+            tr("Aprobar addon"),
             f"Vas a dejar que {nombre}.py corra con tus permisos.\n\n"
             "Lo miraste?",
         ):
@@ -1819,7 +2209,7 @@ class Panel(tk.Tk):
         from . import addons
 
         addons.todos(recargar=True)
-        messagebox.showinfo("Listo", "Cerra y abri el panel para verlo cargado.")
+        messagebox.showinfo(tr("Listo"), tr("Cierra y abre el panel para verlo cargado."))
 
     def _bloque_ventana(self, nb):
         """La ventana de actividad: cuando se abre y que muestra.
@@ -1830,10 +2220,10 @@ class Panel(tk.Tk):
         configurarse, para el usuario no existe.
         """
         t = ttk.Frame(nb)
-        caja = self._seccion(t, "La ventana de actividad")
+        caja = self._seccion(t, tr("La ventana de actividad"))
         self._ayuda(
             caja,
-            "Es la tercera ventana de Eve, aparte del panel y del cartel. Ahi se\n"
+            tr("Es la tercera ventana de Eve, aparte del panel y del cartel. Ahi se\n"
             "ve que esta haciendo: los modulos que le pongas, el grafo de lo que\n"
             "ejecuto, el medidor de contexto y el lector de paginas.\n"
             "\nTiene dos modos arriba, y no son dos pantallas sino quien puede\n"
@@ -1841,22 +2231,22 @@ class Panel(tk.Tk):
             "mouse: clic elige, Ctrl suma, Shift agrega un rango, arrastrar mueve\n"
             "y Ctrl+Z deshace. Con varios elegidos se editan las propiedades que\n"
             "TIENEN EN COMUN, y si el valor difiere el campo arranca vacio para\n"
-            "que aplicar no los iguale sin querer.")
-        self._row(caja, "Cuando se abre", "consola_modo", ["nunca", "con_eve"])
+            "que aplicar no los iguale sin querer."))
+        self._row(caja, tr("Cuando se abre"), "consola_modo", ["nunca", "con_eve"])
         self._ayuda(
             caja,
-            "'nunca' = solo cuando la abris vos. 'con_eve' = se abre junto con\n"
+            tr("'nunca' = solo cuando la abres tu. 'con_eve' = se abre junto con\n"
             "Eve y queda ahi. Corre como proceso aparte, asi que si se cuelga no\n"
-            "se lleva puesto al asistente.")
+            "se lleva puesto al asistente."))
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=(4, 10))
-        ttk.Button(fila, text="Abrir la ventana de actividad",
+        ttk.Button(fila, text=tr("Abrir la ventana de actividad"),
                    command=self._abrir_consola).pack(side="left")
-        ttk.Button(fila, text="Armar el tablero de arranque",
+        ttk.Button(fila, text=tr("Armar el tablero de arranque"),
                    command=self._mods_semilla_tablero).pack(side="left", padx=6)
         self._ayuda(
             fila,
-            "  si la abris y esta vacia, es porque no hay modulos en el tablero")
+            tr("  si la abres y esta vacia, es porque no hay modulos en el tablero"))
         return t
 
     def _bloque_modulos(self, nb):
@@ -1874,12 +2264,12 @@ class Panel(tk.Tk):
         self.mod_sel = ""
         self.mod_vars = {}
 
-        lista = self._seccion(t, "Modulos")
+        lista = self._seccion(t, tr("Modulos"))
         self._ayuda(
             lista,
-            "Cada modulo es una pieza del cartel: un icono, una onda, particulas,\n"
+            tr("Cada modulo es una pieza del cartel: un icono, una onda, particulas,\n"
             "el reloj o el medidor de contexto. Se puede elegir donde va, de que\n"
-            "tamano, con cuanta transparencia y cuando se muestra.",
+            "tamano, con cuanta transparencia y cuando se muestra."),
         )
         self.mod_tree = ttk.Treeview(
             lista, columns=("tipo", "donde", "pos", "cuando"), show="headings", height=7
@@ -1896,21 +2286,21 @@ class Panel(tk.Tk):
         self.mod_tipo = tk.StringVar(value=mods.OPCIONES["tipo"][0])
         ttk.Combobox(fila, textvariable=self.mod_tipo, values=mods.OPCIONES["tipo"],
                      state="readonly", width=12).pack(side="left")
-        ttk.Button(fila, text="Agregar", command=self._mods_agregar).pack(side="left", padx=6)
-        ttk.Button(fila, text="Duplicar", command=self._mods_duplicar).pack(side="left")
-        ttk.Button(fila, text="Borrar", command=self._mods_borrar).pack(side="left", padx=6)
-        ttk.Button(fila, text="Traer los del cartel actual",
+        ttk.Button(fila, text=tr("Agregar"), command=self._mods_agregar).pack(side="left", padx=6)
+        ttk.Button(fila, text=tr("Duplicar"), command=self._mods_duplicar).pack(side="left")
+        ttk.Button(fila, text=tr("Borrar"), command=self._mods_borrar).pack(side="left", padx=6)
+        ttk.Button(fila, text=tr("Traer los del cartel actual"),
                    command=self._mods_semilla).pack(side="left", padx=(18, 0))
 
         fila2 = ttk.Frame(lista)
         fila2.pack(anchor="w", padx=12, pady=(0, 10))
-        ttk.Button(fila2, text="Armar el tablero de arranque",
+        ttk.Button(fila2, text=tr("Armar el tablero de arranque"),
                    command=self._mods_semilla_tablero).pack(side="left")
-        ttk.Button(fila2, text="Abrir la ventana de actividad",
+        ttk.Button(fila2, text=tr("Abrir la ventana de actividad"),
                    command=self._abrir_consola).pack(side="left", padx=6)
-        self._ayuda(fila2, "  ahi se acomodan los modulos del tablero con el mouse")
+        self._ayuda(fila2, tr("  ahi se acomodan los modulos del tablero con el mouse"))
 
-        self.mod_caja = self._seccion(t, "Ajustes del modulo")
+        self.mod_caja = self._seccion(t, tr("Ajustes del modulo"))
         self.mod_props = ttk.Frame(self.mod_caja)
         self.mod_props.pack(fill="x")
         self._mods_refrescar()
@@ -1927,13 +2317,13 @@ class Panel(tk.Tk):
             cfg = mods.guardar(cfg, dict(m, id=ident))
         store.save_config(cfg)
         self._mods_refrescar()
-        self.estado.config(text="tablero armado: abri la ventana de actividad")
+        self.estado.config(text=tr("tablero armado: abre la ventana de actividad"))
 
     def _abrir_consola(self) -> None:
         from . import consola
 
         consola.abrir()
-        self.estado.config(text="ventana de actividad abierta")
+        self.estado.config(text=tr("ventana de actividad abierta"))
 
     def _mods_refrescar(self, elegir: str = "") -> None:
         from . import modulos as mods
@@ -1970,7 +2360,7 @@ class Panel(tk.Tk):
             hijo.destroy()
         self.mod_vars = {}
         if not ident:
-            self._ayuda(self.mod_props, "Elegi un modulo de la lista para ajustarlo.")
+            self._ayuda(self.mod_props, tr("Elige un modulo de la lista para ajustarlo."))
             return
 
         modulo = mods.leer(store.load_config(), ident)
@@ -1996,19 +2386,19 @@ class Panel(tk.Tk):
 
         pie = ttk.Frame(self.mod_props)
         pie.pack(fill="x", padx=12, pady=(8, 10))
-        ttk.Button(pie, text="Aplicar", command=self._mods_aplicar).pack(side="left")
+        ttk.Button(pie, text=tr("Aplicar"), command=self._mods_aplicar).pack(side="left")
         if modulo["tipo"] == "particulas":
-            ttk.Button(pie, text="Importar .plist",
+            ttk.Button(pie, text=tr("Importar .plist"),
                        command=self._mods_plist).pack(side="left", padx=8)
             self._ayuda(
                 self.mod_props,
-                "Los editores de particulas --Particle Designer, Particle2dx--\n"
+                tr("Los editores de particulas --Particle Designer, Particle2dx--\n"
                 "exportan el .plist de cocos2d, que es XML de numeros: vida,\n"
                 "gravedad, color, velocidad. Se importa la CONFIGURACION y la\n"
                 "corre el simulador que ya esta, asi que no entra ninguna\n"
                 "libreria nueva. Llena los campos de arriba; despues Aplicar.\n"
                 "No viaja lo que el simulador no sabe hacer: modo radial,\n"
-                "texturas por particula y mezclas aditivas.")
+                "texturas por particula y mezclas aditivas."))
 
     def _mods_plist(self) -> None:
         """Trae los parametros de un .plist al formulario, sin guardarlos.
@@ -2022,22 +2412,22 @@ class Panel(tk.Tk):
         from . import modulos as mods
 
         ruta = filedialog.askopenfilename(
-            title="Particulas de Particle Designer", parent=self,
+            title=tr("Particulas de Particle Designer"), parent=self,
             filetypes=[("Particulas", "*.plist"), ("Todos", "*.*")])
         if not ruta:
             return
         props = mods.desde_plist(ruta)
         if not props:
             messagebox.showerror(
-                "Particulas",
-                "No pude leer ese archivo. Tiene que ser un .plist de cocos2d "
-                "(el que exportan Particle Designer y Particle2dx).", parent=self)
+                tr("Particulas"),
+                tr("No pude leer ese archivo. Tiene que ser un .plist de cocos2d "
+                "(el que exportan Particle Designer y Particle2dx)."), parent=self)
             return
         traidas = [p for p in props if p in self.mod_vars]
         for prop in traidas:
             self.mod_vars[prop].set(str(props[prop]))
         messagebox.showinfo(
-            "Particulas",
+            tr("Particulas"),
             "Traje: " + ", ".join(sorted(traidas)) + ".\n\nRevisalos y toca Aplicar.",
             parent=self)
 
@@ -2058,13 +2448,13 @@ class Panel(tk.Tk):
                 try:
                     modulo[prop] = int(float(str(valor).replace(",", ".")))
                 except ValueError:
-                    messagebox.showerror("Valor invalido", f"'{prop}' tiene que ser un numero.")
+                    messagebox.showerror(tr("Valor invalido"), f"'{prop}' tiene que ser un numero.")
                     return
             elif isinstance(defecto, float):
                 try:
                     modulo[prop] = float(str(valor).replace(",", "."))
                 except ValueError:
-                    messagebox.showerror("Valor invalido", f"'{prop}' tiene que ser un numero.")
+                    messagebox.showerror(tr("Valor invalido"), f"'{prop}' tiene que ser un numero.")
                     return
             else:
                 modulo[prop] = valor
@@ -2121,53 +2511,61 @@ class Panel(tk.Tk):
             cfg = mods.guardar(cfg, dict(m, id=ident))
         store.save_config(cfg)
         self._mods_refrescar()
-        self.estado.config(text="listo: el cartel de siempre, ahora como modulos")
+        self.estado.config(text=tr("listo: el cartel de siempre, ahora como modulos"))
 
     def _bloque_hud(self, nb):
         from . import tema
 
         t = ttk.Frame(nb)
-        caja = self._seccion(t, "Cartel en pantalla")
-        self._row(caja, "Cuando se ve", "overlay_modo", ["auto", "siempre", "nunca"])
+        caja = self._seccion(t, tr("Cartel en pantalla"))
+        fila = ttk.Frame(caja)
+        fila.pack(fill="x", padx=12, pady=(8, 2))
+        ttk.Button(fila, text=tr("Mostrar el cartel"),
+                   command=self.probar_overlay).pack(side="left")
+        self._ayuda(
+            caja,
+            tr("Lo hace aparecer unos segundos aunque este en modo 'auto'. Es lo que\n"
+            "separa 'el cartel esta mal configurado' de 'el cartel no arranca'."))
+        self._row(caja, tr("Cuando se ve"), "overlay_modo", ["auto", "siempre", "nunca"])
         # El tema del cartel vive aca, junto a lo demas del cartel, y no
         # mezclado con los colores del panel.
-        self._row(caja, "Tema (vacio = el del panel)", "hud_tema", ["", *tema.NOMBRES])
+        self._row(caja, tr("Tema (vacio = el del panel)"), "hud_tema", ["", *tema.NOMBRES])
         self.vars["hud_tema"].trace_add("write", self._previa_redibujar)
         self._ayuda(
             caja,
-            "auto = aparece al hablarle y se va sola. Nunca se lleva el foco de lo que\n"
-            "estes haciendo, y los clics la atraviesan.",
+            tr("auto = aparece al hablarle y se va sola. Nunca se lleva el foco de lo que\n"
+            "estes haciendo, y los clics la atraviesan."),
         )
-        self._row(caja, "Titulo (vacio = nombre IA)", "hud_titulo")
-        self._row(caja, "Segunda linea", "hud_subtitulo")
-        self._row(caja, "Icono", "hud_icono", ["hexagono", "ninguno"])
-        self._row(caja, "Contorno", "hud_contorno",
+        self._row(caja, tr("Titulo (vacio = nombre IA)"), "hud_titulo")
+        self._row(caja, tr("Segunda linea"), "hud_subtitulo")
+        self._row(caja, tr("Icono"), "hud_icono", ["hexagono", "ninguno"])
+        self._row(caja, tr("Contorno"), "hud_contorno",
                   ["ninguno", "linea", "esquinas", "doble", "hexagonal", "biselado"])
-        self._row(caja, "Onda", "hud_onda",
+        self._row(caja, tr("Onda"), "hud_onda",
                   ["barras", "espejo", "linea", "puntos", "ninguna"])
-        self._row(caja, "Escala (%)", "hud_escala")
-        self._row(caja, "Opacidad (%)", "hud_opacidad")
+        self._row(caja, tr("Escala (%)"), "hud_escala")
+        self._row(caja, tr("Opacidad (%)"), "hud_opacidad")
         self._ayuda(
             caja,
-            "Menos de 10 se trata como 10: por debajo de eso el cartel no se ve\n"
+            tr("Menos de 10 se trata como 10: por debajo de eso el cartel no se ve\n"
             "y no habria forma de encontrarlo para subirlo de nuevo. La opacidad\n"
             "de cada modulo se MULTIPLICA con esta, asi que 20% de ventana por\n"
-            "20% de modulo da 4% de verdad.")
+            "20% de modulo da 4% de verdad."))
 
-        self._row(caja, "Pantalla", "overlay_pantalla", self._pantallas())
-        self._row(caja, "Area", "overlay_area", ["trabajo", "completa"])
+        self._row(caja, tr("Pantalla"), "overlay_pantalla", self._pantallas())
+        self._row(caja, tr("Area"), "overlay_area", ["trabajo", "completa"])
         self._ayuda(
             caja,
-            "0 = donde lo dejes, sin restriccion, y podes arrastrarlo de un\n"
+            tr("0 = donde lo dejes, sin restriccion, y puedes arrastrarlo de un\n"
             "monitor al otro. 1 en adelante lo fija a ese monitor y lo mantiene\n"
             "adentro aunque lo arrastres. Si desenchufas el que elegiste, vuelve\n"
             "al escritorio entero en vez de quedar en un lugar que no existe.\n"
-            "'trabajo' descuenta la barra de tareas; solo cambia algo en Windows.")
+            "'trabajo' descuenta la barra de tareas; solo cambia algo en Windows."))
 
-        self._row(caja, "Toma clics", "overlay_clics", ["nunca", "hover", "fijo"])
+        self._row(caja, tr("Toma clics"), "overlay_clics", ["nunca", "hover", "fijo"])
         self._ayuda(
             caja,
-            "El cartel normalmente deja pasar los clics al programa de atras.\n"
+            tr("El cartel normalmente deja pasar los clics al programa de atras.\n"
             "  nunca   nunca los toma\n"
             "  hover   solo mientras el puntero esta sobre un modulo marcado\n"
             "          como 'interactivo'; si no marcaste ninguno, es igual\n"
@@ -2176,48 +2574,48 @@ class Panel(tk.Tk):
             "Se pregunta donde esta el puntero treinta veces por segundo en vez\n"
             "de escuchar eventos, porque una ventana que deja pasar los clics\n"
             "tampoco recibe los de movimiento: esperarlos seria esperar para\n"
-            "siempre. Ese mismo poll es el que hace andar 'cuando = hover'.")
+            "siempre. Ese mismo poll es el que hace andar 'cuando = hover'."))
 
-        self._row(caja, "Forma", "hud_forma", ["caja", "recortado"])
+        self._row(caja, tr("Forma"), "hud_forma", ["caja", "recortado"])
         self._ayuda(
             caja,
-            "recortado = el cartel deja de ser un rectangulo y por las esquinas cortadas\n"
-            "de los contornos hexagonal y biselado se ve lo que hay atras.",
+            tr("recortado = el cartel deja de ser un rectangulo y por las esquinas cortadas\n"
+            "de los contornos hexagonal y biselado se ve lo que hay atras."),
         )
 
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=(6, 10))
-        ttk.Button(fila, text="Elegir imagen del icono...",
+        ttk.Button(fila, text=tr("Elegir imagen del icono..."),
                    command=self._icono_elegir).pack(side="left")
-        ttk.Button(fila, text="Mover en pantalla",
+        ttk.Button(fila, text=tr("Mover en pantalla"),
                    command=self._overlay_mover).pack(side="left", padx=6)
-        ttk.Button(fila, text="Volver a la esquina",
+        ttk.Button(fila, text=tr("Volver a la esquina"),
                    command=self._overlay_esquina).pack(side="left")
 
-        caja = self._seccion(t, "Marco del icono")
+        caja = self._seccion(t, tr("Marco del icono"))
         self._ayuda(
             caja,
-            "El marco es parametrico: elegis cuantos lados, cuanto gira y cuanto se\n"
+            tr("El marco es parametrico: eliges cuantos lados, cuanto gira y cuanto se\n"
             "redondean las puntas. Las formas de abajo son atajos que llenan esos\n"
-            "numeros; despues los podes tocar a mano.",
+            "numeros; despues los puedes tocar a mano."),
         )
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=(4, 8))
-        ttk.Label(fila, text="Formas", width=24).pack(side="left")
+        ttk.Label(fila, text=tr("Formas"), width=24).pack(side="left")
         self.forma_var = tk.StringVar()
         combo = ttk.Combobox(fila, textvariable=self.forma_var,
                              values=sorted(overlay_formas()), state="readonly")
         combo.pack(side="left", fill="x", expand=True)
         combo.bind("<<ComboboxSelected>>", self._forma_elegida)
-        self._row(caja, "Lados (menos de 3 = circulo)", "hud_marco_lados")
-        self._row(caja, "Giro (grados)", "hud_marco_rot")
-        self._row(caja, "Redondeo de las puntas", "hud_marco_redondeo")
-        self._row(caja, "Grosor del trazo", "hud_marco_grosor")
+        self._row(caja, tr("Lados (menos de 3 = circulo)"), "hud_marco_lados")
+        self._row(caja, tr("Giro (grados)"), "hud_marco_rot")
+        self._row(caja, tr("Redondeo de las puntas"), "hud_marco_redondeo")
+        self._row(caja, tr("Grosor del trazo"), "hud_marco_grosor")
         for clave in ("hud_marco_lados", "hud_marco_rot", "hud_marco_redondeo",
                       "hud_marco_grosor"):
             self.vars[clave].trace_add("write", self._previa_redibujar)
 
-        self._bloque_fondo(t, "hud", "Fondo del cartel")
+        self._bloque_fondo(t, "hud", tr("Fondo del cartel"))
         for clave in ("hud_titulo", "hud_subtitulo", "hud_icono", "hud_contorno",
                       "hud_onda", "hud_forma"):
             self.vars[clave].trace_add("write", self._previa_redibujar)
@@ -2243,7 +2641,7 @@ class Panel(tk.Tk):
         caja = self._seccion(padre, titulo)
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=5)
-        ttk.Label(fila, text="Imagen (PNG o GIF)", width=24).pack(side="left")
+        ttk.Label(fila, text=tr("Imagen (PNG o GIF)"), width=24).pack(side="left")
         var = tk.StringVar(value=str(self.cfg.get(f"{prefijo}_fondo", "")))
         self.vars[f"{prefijo}_fondo"] = var
         ttk.Entry(fila, textvariable=var).pack(side="left", fill="x", expand=True)
@@ -2259,22 +2657,22 @@ class Panel(tk.Tk):
                 var.set(ruta)
 
         ttk.Button(fila, text="...", width=4, command=elegir).pack(side="left", padx=(6, 0))
-        ttk.Button(fila, text="Quitar", width=8,
+        ttk.Button(fila, text=tr("Quitar"), width=8,
                    command=lambda: var.set("")).pack(side="left", padx=(4, 0))
 
-        self._row(caja, "Ajuste", f"{prefijo}_fondo_ajuste",
+        self._row(caja, tr("Ajuste"), f"{prefijo}_fondo_ajuste",
                   ["recortar", "estirar", "mosaico"])
-        self._row(caja, "Opacidad de la imagen (%)", f"{prefijo}_fondo_opacidad")
-        self._row(caja, "Tinte con el acento (%)", f"{prefijo}_fondo_tinte")
+        self._row(caja, tr("Opacidad de la imagen (%)"), f"{prefijo}_fondo_opacidad")
+        self._row(caja, tr("Tinte con el acento (%)"), f"{prefijo}_fondo_tinte")
         self._ayuda(
             caja,
-            "El GIF se anima solo. La opacidad se mezcla en la imagen y no en la ventana,\n"
-            "asi que bajarla atenua el fondo pero el texto sigue entero.",
+            tr("El GIF se anima solo. La opacidad se mezcla en la imagen y no en la ventana,\n"
+            "asi que bajarla atenua el fondo pero el texto sigue entero."),
         )
-        self._row(caja, "Degradado (si no hay imagen)", f"{prefijo}_grad",
+        self._row(caja, tr("Degradado (si no hay imagen)"), f"{prefijo}_grad",
                   ["ninguno", "vertical", "horizontal", "diagonal", "radial"])
-        self._fila_color_libre(caja, f"{prefijo}_grad_a", "Degradado: color 1")
-        self._fila_color_libre(caja, f"{prefijo}_grad_b", "Degradado: color 2")
+        self._fila_color_libre(caja, f"{prefijo}_grad_a", tr("Degradado: color 1"))
+        self._fila_color_libre(caja, f"{prefijo}_grad_b", tr("Degradado: color 2"))
         for sufijo in ("fondo", "fondo_ajuste", "fondo_opacidad", "fondo_tinte",
                        "grad", "grad_a", "grad_b"):
             self.vars[f"{prefijo}_{sufijo}"].trace_add("write", self._previa_redibujar)
@@ -2304,7 +2702,7 @@ class Panel(tk.Tk):
             if elegido:
                 var.set(elegido)
 
-        ttk.Button(fila, text="Elegir...", command=elegir, width=10).pack(side="left")
+        ttk.Button(fila, text=tr("Elegir..."), command=elegir, width=10).pack(side="left")
         var.trace_add("write", repintar)
         repintar()
 
@@ -2312,7 +2710,7 @@ class Panel(tk.Tk):
         from tkinter import filedialog
 
         ruta = filedialog.askopenfilename(
-            title="Imagen para el icono", parent=self,
+            title=tr("Imagen para el icono"), parent=self,
             filetypes=[("Imagenes y sprite sheets",
                             "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
                        ("Todos", "*.*")],
@@ -2329,9 +2727,9 @@ class Panel(tk.Tk):
         self.cfg["overlay_mover"] = True
         overlay.asegurar(cfg)
         messagebox.showinfo(
-            "Mover el cartel",
-            "El cartel esta suelto: arrastralo a donde quieras y soltalo.\n\n"
-            "Al soltarlo se guarda la posicion y vuelve a dejar pasar los clics.",
+            tr("Mover el cartel"),
+            tr("El cartel esta suelto: arrastralo a donde quieras y sueltalo.\n\n"
+            "Al soltarlo se guarda la posicion y vuelve a dejar pasar los clics."),
         )
 
     def _overlay_esquina(self):
@@ -2340,34 +2738,38 @@ class Panel(tk.Tk):
         cfg.update({"hud_x": 40, "hud_y": 40})
         store.save_config(cfg)
         self.cfg.update({"hud_x": 40, "hud_y": 40})
-        messagebox.showinfo("Posicion", "El cartel vuelve a la esquina de arriba a la izquierda.")
+        messagebox.showinfo(tr("Posicion"), tr("El cartel vuelve a la esquina de arriba a la izquierda."))
 
     def _bloque_subtitulos(self, nb):
         t = ttk.Frame(nb)
-        caja = self._seccion(t, "Subtitulos")
-        self._row(t, "Segundos en pantalla", "sub_segundos")
+        caja = self._seccion(t, tr("Subtitulos"))
+        fila = ttk.Frame(caja)
+        fila.pack(fill="x", padx=12, pady=(8, 2))
+        ttk.Button(fila, text=tr("Mostrar un subtitulo de prueba"),
+                   command=self.probar_subtitulo).pack(side="left")
+        self._row(t, tr("Segundos en pantalla"), "sub_segundos")
         self._ayuda(
             t,
-            "Cuanto se queda cada subtitulo despues de que Eve termina de\n"
-            "hablar. Hasta ahora solo se podia cambiar editando el config.")
-        self._row(caja, "Que se muestra", "sub_muestra", ["ambos", "eve", "usuario"])
+            tr("Cuanto se queda cada subtitulo despues de que Eve termina de\n"
+            "hablar. Hasta ahora solo se podia cambiar editando el config."))
+        self._row(caja, tr("Que se muestra"), "sub_muestra", ["ambos", "eve", "usuario"])
         self._ayuda(
             caja,
-            "ambos = lo que dijiste vos (para ver si te entendio) y lo que responde Eve,\n"
-            "revelandose mientras lo dice.",
+            tr("ambos = lo que dijiste tu (para ver si te entendio) y lo que responde Eve,\n"
+            "revelandose mientras lo dice."),
         )
-        self._row(caja, "Tamano de letra", "sub_tam")
-        self._row(caja, "Lineas maximas", "sub_lineas")
-        self._row(caja, "Opacidad (%)", "sub_opacidad")
-        self._row(caja, "Separacion del cartel (px)", "sub_separacion")
-        self._bloque_fondo(t, "sub", "Fondo de los subtitulos")
+        self._row(caja, tr("Tamano de letra"), "sub_tam")
+        self._row(caja, tr("Lineas maximas"), "sub_lineas")
+        self._row(caja, tr("Opacidad (%)"), "sub_opacidad")
+        self._row(caja, tr("Separacion del cartel (px)"), "sub_separacion")
+        self._bloque_fondo(t, "sub", tr("Fondo de los subtitulos"))
         return t
 
     def _bloque_historial(self, nb):
         t = ttk.Frame(nb)
         bar = ttk.Frame(t)
         bar.pack(fill="x", padx=8, pady=(8, 0))
-        ttk.Button(bar, text="Limpiar historial", command=self.clear_history).pack(side="left")
+        ttk.Button(bar, text=tr("Limpiar historial"), command=self.clear_history).pack(side="left")
         self.hist_count = ttk.Label(bar, text="", foreground="#666")
         self.hist_count.pack(side="left", padx=10)
         self.hist_box = tk.Text(t, wrap="word")
@@ -2387,16 +2789,16 @@ class Panel(tk.Tk):
 
     def clear_history(self):
         if not messagebox.askyesno(
-            "Limpiar historial",
-            "Borra la conversacion guardada y deja la ventana de contexto en cero.\n\n"
+            tr("Limpiar historial"),
+            tr("Borra la conversacion guardada y deja la ventana de contexto en cero.\n\n"
             "El registro de acciones (pestaña Acciones) NO se toca.\n\n"
             "Si el listener esta corriendo, usa tambien la bandeja > 'Limpiar historial y\n"
-            "contexto' para vaciar lo que ya tiene en memoria.\n\nBorrar?",
+            "contexto' para vaciar lo que ya tiene en memoria.\n\nBorrar?"),
         ):
             return
         n = store.clear_history()
         self.refresh_history()
-        messagebox.showinfo("Limpiar historial", f"{n} mensajes borrados.")
+        messagebox.showinfo(tr("Limpiar historial"), f"{n} mensajes borrados.")
 
     def _bloque_acciones(self, nb):
         t = ttk.Frame(nb)
@@ -2418,7 +2820,7 @@ class Panel(tk.Tk):
 
     def refresh_outlook(self):
         """En un hilo: abrir Outlook por COM puede tardar segundos si esta cerrado."""
-        self.outlook_label.config(text="consultando...")
+        self.outlook_label.config(text=tr("consultando..."))
 
         def work():
             from . import integrations
@@ -2436,22 +2838,22 @@ class Panel(tk.Tk):
     def outlook_login(self):
         from . import integrations
 
-        messagebox.showinfo("Outlook", integrations.outlook_agregar_cuenta())
+        messagebox.showinfo(tr("Outlook"), integrations.outlook_agregar_cuenta())
 
     def gmail_login(self):
         import webbrowser
 
         webbrowser.open("https://myaccount.google.com/apppasswords")
         messagebox.showinfo(
-            "Gmail",
-            "Te abri la pagina de contrasenas de aplicacion.\n\n"
-            "Si dice que no esta disponible para tu cuenta, es porque no tenes\n"
+            tr("Gmail"),
+            tr("Te abri la pagina de contrasenas de aplicacion.\n\n"
+            "Si dice que no esta disponible para tu cuenta, es porque no tienes\n"
             "verificacion en dos pasos activada, o la administra tu organizacion.\n\n"
-            "En ese caso usa el boton de Outlook: agregas el Gmail ahi y listo.",
+            "En ese caso usa el boton de Outlook: agregas el Gmail ahi y listo."),
         )
 
     def gmail_probar(self):
-        self.gmail_label.config(text="probando...")
+        self.gmail_label.config(text=tr("probando..."))
 
         def work():
             from . import integrations
@@ -2470,7 +2872,7 @@ class Panel(tk.Tk):
         """
         import threading
 
-        self.estado.config(text="Hablá ahora... (3 segundos)")
+        self.estado.config(text=tr("Habla ahora... (3 segundos)"))
         self.update_idletasks()
 
         def trabajo():
@@ -2508,7 +2910,7 @@ class Panel(tk.Tk):
         """Dice una frase con la voz configurada."""
         import threading
 
-        self.estado.config(text="Hablando...")
+        self.estado.config(text=tr("Hablando..."))
 
         def correr():
             try:
@@ -2540,8 +2942,189 @@ class Panel(tk.Tk):
             "usuario": "probando el cartel", "eve": "Si ves esto, el cartel anda.",
         })
         self.estado.config(
-            text="Cartel mostrado unos segundos. Si no aparecio, fijate 'Cuando se ve' "
-                 "y 'Pantalla' mas abajo.")
+            text=tr("Cartel mostrado unos segundos. Si no aparecio, revisa 'Cuando se ve' "
+                 "y 'Pantalla' mas abajo."))
+
+    def probar_tecla(self) -> None:
+        """Espera a que aprietes una tecla y dice cual llego.
+
+        Y dice tambien lo que NO prueba, que es la mitad importante: la tecla la
+        escucha el asistente con un hook global desde otro proceso. Que este
+        panel la reciba no garantiza que el asistente la reciba con un juego en
+        primer plano, y hacer creer eso seria peor que no tener el boton.
+        """
+        vivo = store.latido()
+        esperada = str(self.cfg.get("hotkey", ""))
+        self.tecla_label.config(text=f"apreta '{esperada}' ahora...")
+
+        def llego(evento):
+            self.unbind("<Key>", ident)
+            recibida = evento.keysym
+            coincide = recibida.lower().replace("kp_", "") == esperada.lower().replace("num ", "")
+            estado_asistente = ("el asistente esta corriendo" if vivo
+                                else "OJO: el asistente NO esta corriendo, asi que "
+                                     "aunque la tecla ande nadie la va a escuchar")
+            if coincide:
+                txt = f"llego '{recibida}', que es la configurada. {estado_asistente}."
+            else:
+                txt = (f"llego '{recibida}' y la configurada es '{esperada}'. "
+                       f"Si es la que querias, ponla arriba. {estado_asistente}.")
+            self.tecla_label.config(text=txt)
+            return "break"
+
+        ident = self.bind("<Key>", llego)
+        self.focus_force()
+
+    def probar_motor(self) -> None:
+        """Le hace una pregunta trivial al motor configurado y muestra que dijo.
+
+        Arma el MISMO motor que usa el asistente --`listener.armar_motor`-- y no
+        una version simplificada: un boton que prueba otro camino puede decir que
+        todo anda mientras el camino real esta roto.
+        """
+        self.motor_label.config(text=tr("preguntando..."))
+
+        def trabajo():
+            import time as _t
+
+            try:
+                from . import listener as lis
+
+                cfg = store.load_config()
+                arranque = _t.perf_counter()
+                motor = lis.armar_motor(cfg)
+                # Sin herramientas ni contexto: lo que se prueba es que la
+                # conexion, la clave y el modelo existan, no que sepa razonar.
+                respuesta = motor.ask("Responde solo con la palabra: listo")
+                tardo = _t.perf_counter() - arranque
+                corto = " ".join(str(respuesta).split())[:70]
+                return (f"{cfg.get('engine')} contesto en {tardo:.1f}s: {corto!r}")
+            except Exception as exc:  # noqa: BLE001 - el panel no puede morir
+                return f"{type(exc).__name__}: {str(exc)[:150]}"
+
+        def correr():
+            r = trabajo()
+            self._ui(lambda: self.motor_label.config(text=r))
+
+        threading.Thread(target=correr, daemon=True).start()
+
+    def probar_wake(self) -> None:
+        """Abre el microfono unos segundos y dice si la puerta se habria abierto.
+
+        Es la unica forma de probar la palabra clave sin dejar el microfono
+        abierto todo el dia: se graba a mano, se le pasa el mismo recorte al
+        mismo modelo de la puerta, y se dice que separo.
+        """
+        segundos = 4.0
+        self.wake_label.config(text=f"di su nombre y una orden... ({int(segundos)}s)")
+        self.update_idletasks()
+
+        def trabajo():
+            try:
+                import time as _t
+
+                from . import despertar, voice
+
+                cfg = store.load_config()
+                rec = voice.Recorder()
+                rec.start()
+                _t.sleep(segundos)
+                audio = rec.stop()
+                if audio.size < 1000:
+                    return "no entro audio; el microfono puede estar tomado"
+                orden = despertar.escuchado(audio, cfg)
+                if orden is None:
+                    texto = voice.transcribe(audio, cfg)
+                    return (f"la puerta NO se abrio. Se escucho {texto!r}; la palabra "
+                            f"tiene que ir al principio y ser una de "
+                            f"{cfg.get('wake_palabra')!r}")
+                if not orden:
+                    return "se abrio, pero no quedo ninguna orden detras del nombre"
+                return f"se abrio y quedo la orden: {orden!r}"
+            except Exception as exc:  # noqa: BLE001
+                return f"{type(exc).__name__}: {str(exc)[:150]}"
+
+        def correr():
+            r = trabajo()
+            self._ui(lambda: self.wake_label.config(text=r))
+
+        threading.Thread(target=correr, daemon=True).start()
+
+    def probar_subtitulo(self) -> None:
+        """Muestra un subtitulo de prueba.
+
+        Es un camino distinto al del cartel --otra ventana, otro tamaño, otra
+        cantidad de lineas-- asi que el boton del cartel no lo cubre: se puede
+        ver el cartel perfecto y no leer nunca un subtitulo.
+        """
+        from . import overlay
+
+        cfg = store.load_config()
+        overlay.asegurar(cfg)
+        store.emitir_overlay({
+            "estado": "hablando", "detalle": "PRUEBA DE SUBTITULOS", "nivel": 0.4,
+            "titulo": str(cfg.get("assistant_name", "Eve")).upper(),
+            "usuario": "esto es lo que dijiste tu",
+            "eve": "Y esto es lo que responde Eve. Si lees estas dos lineas, "
+                   "los subtitulos andan.",
+        })
+        self.estado.config(
+            text=tr("Subtitulo de prueba mostrado. Si no aparecio, revisa 'Que se muestra' "
+                 "y los segundos en pantalla."))
+
+    def probar_webhook(self) -> None:
+        """Manda un mensaje de prueba al webhook de Discord.
+
+        Una URL de webhook mal copiada no da ninguna señal: Eve dice que mando y
+        el mensaje no llega a ningun lado. Esto es lo unico que lo separa.
+        """
+        # El webhook vive en el gestor de credenciales, no en el config: el
+        # campo del panel muestra asteriscos mientras no lo reescribas. Se usa lo
+        # que haya tipeado ahora si tipeo algo, y lo guardado si no.
+        tipeado = str(self.key_vars.get("discord_webhook").get()
+                      if "discord_webhook" in self.key_vars else "").strip()
+        url = tipeado if tipeado and set(tipeado) != {"*"} else ""
+        if not url:
+            try:
+                url = store.get_key("discord_webhook")
+            except Exception:  # noqa: BLE001 - keyring puede no estar
+                url = ""
+        if not url:
+            self.estado.config(text=tr("No hay webhook cargado."))
+            return
+        if not messagebox.askyesno(
+            tr("Probar el webhook"),
+            tr("Se manda un mensaje de prueba al canal de Discord de ese webhook.\n\n"
+            "Lo van a ver todos los que esten en el canal.\n\nMandarlo?"),
+        ):
+            return
+        self.estado.config(text=tr("mandando..."))
+
+        def trabajo():
+            try:
+                import json as _j
+                import urllib.request
+
+                cuerpo = {"content": "Mensaje de prueba de Eve. Si lo lees, el webhook anda."}
+                nombre = str(self.cfg.get("discord_username", "") or "")
+                if nombre:
+                    cuerpo["username"] = nombre
+                avatar = str(self.cfg.get("discord_avatar", "") or "")
+                if avatar:
+                    cuerpo["avatar_url"] = avatar
+                pedido = urllib.request.Request(
+                    url, data=_j.dumps(cuerpo).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(pedido, timeout=15) as r:
+                    return f"Mandado (HTTP {r.status}). Fijate en el canal."
+            except Exception as exc:  # noqa: BLE001
+                return f"No pude mandarlo: {type(exc).__name__}: {str(exc)[:120]}"
+
+        def correr():
+            r = trabajo()
+            self._ui(lambda: self.estado.config(text=r))
+
+        threading.Thread(target=correr, daemon=True).start()
 
     def gpu_probar(self):
         """Carga el modelo en la GPU y transcribe algo, en un hilo.
@@ -2550,7 +3133,7 @@ class Panel(tk.Tk):
         DLL, Eve caia a CPU sola y en silencio, y la unica pista era que seguia
         tardando lo mismo. Esto contesta antes de hablarle.
         """
-        self.gpu_label.config(text="probando, puede tardar unos segundos...")
+        self.gpu_label.config(text=tr("probando, puede tardar unos segundos..."))
 
         def work():
             texto = voice.probar_gpu(store.load_config())
@@ -2562,7 +3145,7 @@ class Panel(tk.Tk):
 
     def refresh_auth(self):
         """Lee `claude auth status` en un hilo: el CLI tarda ~1s y congelaria la GUI."""
-        self.auth_label.config(text="consultando...")
+        self.auth_label.config(text=tr("consultando..."))
 
         def work():
             text = _auth_status()
@@ -2572,25 +3155,25 @@ class Panel(tk.Tk):
 
     def auth_login(self):
         if not shutil.which("claude"):
-            messagebox.showerror("Falta el CLI", "No encontre 'claude' en el PATH.")
+            messagebox.showerror(tr("Falta el CLI"), tr("No encontre 'claude' en el PATH."))
             return
         # Consola nueva: el login es interactivo (abre el navegador y espera).
         subprocess.Popen(["claude", "auth", "login"], creationflags=CREATE_NEW_CONSOLE)
         messagebox.showinfo(
-            "Iniciar sesion",
-            "Se abrio una consola con el login de Claude Code.\n"
-            "Cuando termines, tocá 'Actualizar' para ver el estado.",
+            tr("Iniciar sesion"),
+            tr("Se abrio una consola con el login de Claude Code.\n"
+            "Cuando termines, toca 'Actualizar' para ver el estado."),
         )
 
     def auth_logout(self):
         if not messagebox.askyesno(
-            "Cerrar sesion",
-            "Esto cierra tu sesion de Claude Code en toda la PC, no solo en Eve.\n\n"
-            "El motor 'claude-code' va a dejar de funcionar hasta que vuelvas a entrar.\n\nSeguro?",
+            tr("Cerrar sesion"),
+            tr("Esto cierra tu sesion de Claude Code en toda la PC, no solo en Eve.\n\n"
+            "El motor 'claude-code' va a dejar de funcionar hasta que vuelvas a entrar.\n\nSeguro?"),
         ):
             return
         r = plataforma.correr(["claude", "auth", "logout"], capture_output=True, text=True, timeout=60)
-        messagebox.showinfo("Cerrar sesion", (r.stdout or r.stderr or "Sesion cerrada.").strip()[:500])
+        messagebox.showinfo(tr("Cerrar sesion"), (r.stdout or r.stderr or "Sesion cerrada.").strip()[:500])
         self.refresh_auth()
 
     # --- guardar -----------------------------------------------------------
@@ -2628,7 +3211,7 @@ class Panel(tk.Tk):
                 try:
                     cfg[key] = int(value)
                 except ValueError:
-                    messagebox.showerror("Valor invalido", f"'{key}' debe ser un numero entero.")
+                    messagebox.showerror(tr("Valor invalido"), f"'{key}' debe ser un numero entero.")
                     return
             elif isinstance(default, float):
                 # Sin esta rama la velocidad se guardaba como texto: funcionaba
@@ -2637,7 +3220,7 @@ class Panel(tk.Tk):
                 try:
                     cfg[key] = float(str(value).replace(",", "."))
                 except ValueError:
-                    messagebox.showerror("Valor invalido", f"'{key}' debe ser un numero.")
+                    messagebox.showerror(tr("Valor invalido"), f"'{key}' debe ser un numero.")
                     return
             else:
                 cfg[key] = value
@@ -2646,20 +3229,20 @@ class Panel(tk.Tk):
         ]
         if not cfg["workdirs"]:
             messagebox.showerror(
-                "Rutas vacias", "Necesitas al menos una ruta de trabajo permitida."
+                tr("Rutas vacias"), tr("Necesitas al menos una ruta de trabajo permitida.")
             )
             return
 
         allow_all = self.perm_var.get() == PERM_ALL
         if allow_all and self.cfg.get("confirm_destructive", True):  # recien lo activa
             if not messagebox.askyesno(
-                "Permitir todo",
-                "Eve va a ejecutar cualquier comando que decida, sin preguntarte:\n"
+                tr("Permitir todo"),
+                tr("Eve va a ejecutar cualquier comando que decida, sin preguntarte:\n"
                 "borrar carpetas, apagar la PC, modificar el registro.\n\n"
                 "El reconocimiento de voz se equivoca, y en este modo un error de\n"
                 "transcripcion se ejecuta directo.\n\n"
                 "Queda registrado en la pestaña Acciones, pero nada lo va a frenar.\n\n"
-                "Activar igual?",
+                "Activar igual?"),
                 icon="warning",
                 default="no",
             ):
@@ -2698,7 +3281,7 @@ class Panel(tk.Tk):
                 continue
             if provider == "gmail" and not _parece_app_password(value):
                 if not messagebox.askyesno(
-                    "Eso no parece una app password",
+                    tr("Eso no parece una app password"),
                     "Las contrasenas de aplicacion de Google son 16 letras minusculas\n"
                     "(se muestran en 4 grupos de 4).\n\n"
                     f"Lo que pusiste tiene {len(value.replace(' ', ''))} caracteres.\n\n"
@@ -2714,11 +3297,14 @@ class Panel(tk.Tk):
         self.cfg = cfg
         if avisar:
             messagebox.showinfo(
-                "Guardado",
-                "Configuracion guardada.\n\nSi el listener esta corriendo, aplica los\n"
+                tr("Guardado"),
+                tr("Configuracion guardada.\n\nSi el listener esta corriendo, aplica los\n"
                 "cambios solo en unos segundos. Los de aspecto no le cortan la\n"
-                "conversacion; los de motor o tecla si lo rearman.",
+                "conversacion; los de motor o tecla si lo rearman."),
             )
+        # Los `return` de arriba salen sin escribir nada. Quien necesita saber si
+        # de verdad se guardo --cambiar el idioma reabre el panel-- mira esto.
+        return True
 
 
 if __name__ == "__main__":

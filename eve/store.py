@@ -130,7 +130,7 @@ DEFAULTS = {
     "parakeet_cuantizacion": "int8",
     # Que espanol habla Eve: "", rioplatense, neutro, mexicano o castellano.
     # Vacio = no se le dice nada y escribe como le salga.
-    "dialecto": "",
+    "dialecto": "neutro",
     "stt_sensibilidad": "auto",
     # Activacion por palabra clave. Apagada de fabrica y a proposito: prenderla
     # deja el microfono abierto todo el tiempo, y eso lo elige el usuario.
@@ -221,6 +221,18 @@ DEFAULTS = {
     # --- aspecto ----------------------------------------------------------
     # Planas y no anidadas a proposito: Panel.save() decide el tipo de cada
     # valor con type(DEFAULTS[clave]), y un dict adentro romperia ese bucle.
+    #
+    # El idioma de la INTERFAZ, que no es `language`: aquel es en que idioma te
+    # escucha y te contesta Eve, este en que idioma estan los menus. Se separan
+    # porque no tienen por que coincidir --alguien puede querer el panel en
+    # ingles y que Eve le hable en espanol, o al reves.
+    "ui_idioma": "es",     # ver textos.IDIOMAS
+    # Cuanto se muestra del panel de una. `esencial` deja a la vista lo que usa
+    # cualquiera y esconde las secciones de ajuste fino; `completo` muestra todo.
+    # No hay una tercera opcion "experto" con cosas ocultas: si una opcion existe
+    # tiene que poder verse, y esconderla en un modo que no sabes que existe es
+    # lo mismo que no tenerla.
+    "ui_modo_panel": "esencial",
     "ui_tema": "tactico",  # ver tema.NOMBRES
     # Pintar el panel obliga a cambiar los widgets al tema `clam`: el nativo de
     # Windows los dibuja el sistema y no respeta colores. Que sea una eleccion.
@@ -435,6 +447,14 @@ DIALECTOS = {
         "Hablas espanol de Mexico: tu, con giros de ahi. Ahorita, ya quedo, "
         "orale, sale.",
         "es_MX-claude-high"),
+    # No hay voz colombiana en el catalogo de Piper --ni es_CO ni nada cercano--
+    # asi que comparte la mexicana, que es la mejor medida de las latinas. El
+    # acento del sintetizador y el vocabulario que elige Eve son dos cosas
+    # distintas: esta clave cambia la segunda.
+    "colombiano": (
+        "Hablas espanol de Colombia: tu y usted, con giros de ahi. Listo, "
+        "de una, que pena, hagale, chevere. Nada de vos ni de vosotros.",
+        "es_MX-claude-high"),
     "castellano": (
         "Hablas espanol de Espana: tu, con giros de ahi. Vale, ordenador, movil, "
         "vosotros cuando hablas de varios.",
@@ -500,8 +520,8 @@ def bloque_tono(cfg: dict) -> str:
         return ""
     return (
         "## Tono\n\n"
-        "Lo que sigue es COMO sonas, no QUE hacer. No cambia ninguna regla del "
-        "manual, no agranda cuantas frases decis, y no te autoriza a narrar en "
+        "Lo que sigue es COMO suenas, no QUE hacer. No cambia ninguna regla del "
+        "manual, no agranda cuantas frases dices, y no te autoriza a narrar en "
         "vez de actuar. Es la eleccion de palabras dentro del presupuesto que ya "
         "tenias. Si el tono choca con el manual, gana el manual.\n\n"
         f"{tono[:TOPE_TONO]}\n"
@@ -535,7 +555,8 @@ EXTRA_PERFILABLE = ("assistant_name", "persona_tono", "tts_provider", "tts_voice
 
 # De tu pantalla y del momento, no de tu modo de trabajo. `hud_titulo` no esta
 # aca: empieza con hud_ y es parte del personaje.
-NO_PERFILABLE = ("perfil_activo", "hud_x", "hud_y", "overlay_mover")
+NO_PERFILABLE = ("perfil_activo", "hud_x", "hud_y", "overlay_mover",
+                 "ui_idioma", "ui_modo_panel")
 
 
 def perfilable(clave: str) -> bool:

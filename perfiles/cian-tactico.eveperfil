@@ -5,7 +5,7 @@
   "config": {
     "hud_titulo": "CIAN TACTICO",
     "hud_subtitulo": "CANAL SEGURO",
-    "persona_tono": "Precisa y calida. Hablas como quien comparte una operacion con el usuario, no como quien le sirve. Sin adornos ni floreo. Confirmas y seguis.",
+    "persona_tono": "Precisa y calida. Hablas como quien comparte una operacion con el usuario, no como quien le sirve. Sin adornos ni floreo. Confirmas y sigues.",
     "piper_velocidad": 1.0,
     "piper_hablante": 0,
     "speak_replies": true,

@@ -593,10 +593,19 @@ Tres cosas que salieron de ahi:
 
 ### Que espanol habla
 
-En **Voz > Que espanol habla**. Cambia como Eve **escribe**: `rioplatense` (vos, abri,
-pone, dale), `neutro` (tu, sin regionalismos), `mexicano` (ahorita, ya quedo) o
-`castellano` (vale, ordenador). Vacio no le dice nada. Cuesta unos **40 tokens por
-llamada**, que es todo lo que puede costar algo que viaja en cada una.
+En **Voz > Que espanol habla**. Cambia como Eve **escribe**: `neutro` (tu, sin
+regionalismos, y el de fabrica), `colombiano` (listo, de una, hagale), `mexicano`
+(ahorita, ya quedo), `rioplatense` (vos, abri, pone, dale) o `castellano` (vale,
+ordenador). Vacio no le dice nada. Cuesta unos **40 tokens por llamada**, que es todo lo
+que puede costar algo que viaja en cada una.
+
+**De fabrica es `neutro` y no vacio.** Sin ninguna instruccion cada motor elige su propio
+registro: la misma pregunta suena distinta segun quien conteste, y varios modelos tiran a
+castellano por su cuenta. Cuarenta tokens compran que eso deje de pasar.
+
+No hay voz colombiana en el catalogo de Piper --ni `es_CO` ni nada cercano-- asi que esa
+variante comparte la mexicana. El acento del sintetizador y el vocabulario que elige Eve
+son dos cosas distintas: esta clave cambia la segunda.
 
 **La voz va aparte, y eso no es un descuido.** Se midieron las siete voces de Piper en
 espanol sobre las mismas diez frases, sintetizando y volviendo a transcribir con el mejor
@@ -987,10 +996,86 @@ despues se le hace `paste`, porque reasignarla cada cuadro cuesta el doble.
 
 ---
 
+## El panel: dos modos de ver lo mismo
+
+El panel tiene 124 ajustes. Mostrarlos todos de una satura a cualquiera; esconder los
+raros deja al que los busca sin forma de encontrarlos. La salida es que **nada se esconde
+y casi nada se muestra de una**.
+
+Arriba de todo hay tres cosas que valen para el panel entero:
+
+| | Que hace |
+|---|---|
+| **Ver: Lo esencial / Todo** | En `Lo esencial` las secciones de ajuste fino arrancan plegadas; en `Todo`, abiertas. |
+| **Buscar** (`Ctrl+F`) | Busca por rotulo Y por nombre de clave, y al elegir un resultado te lleva: pestaña, sub-pestaña, abre la seccion y corre el scroll hasta el control. |
+| **Idioma del panel** | Espanol o ingles. |
+
+**Plegada no es escondida.** El titulo de una seccion cerrada se sigue viendo y dice
+cuantas opciones tiene adentro --`Ajuste fino del reconocimiento  (8)`-- y un clic la abre.
+La cabecera es un boton de verdad y no una etiqueta con un clic encima: entra en el
+recorrido del tabulador y se abre con Enter.
+
+**Lo que no se pliega nunca**, aunque sea largo: rutas permitidas, permisos, addons sin
+revisar y addons aprobados. Son los frenos, y esconderlos por prolijidad es lo mismo que
+apagarlos. Hay un test que lo comprueba, no una convencion.
+
+El buscador necesita los cuatro pasos --pestaña, sub-pestaña, seccion, scroll-- porque con
+tres te deja mirando la pestaña correcta con la opcion abajo del pliegue o fuera de la
+pantalla, que para el que busca es igual que no haberla encontrado.
+
+### El idioma de la interfaz
+
+`ui_idioma`, en la barra de arriba. **No es `language`**: aquel es en que idioma te
+escucha y te contesta Eve, este en que idioma estan los menus. No tienen por que coincidir.
+
+La traduccion vive en `eve/textos.py` y **la clave es el texto en espanol**. Eso hace tres
+cosas: el codigo se sigue leyendo (`tr("Guardar")` dice lo que dice, `tr("btn.save.1")`
+obliga a abrir otro archivo), un texto sin traducir sale en espanol en vez de romperse, y
+agregar un idioma es agregar un diccionario. Lo que se paga: cambiarle una coma a un rotulo
+lo deja sin traduccion. Por eso hay un test que compara lo que el codigo muestra contra lo
+que el diccionario cubre, en las dos direcciones --falta una traduccion, o sobra una de un
+texto que ya no existe.
+
+No se uso `gettext`: pide extraer con xgettext, compilar `.mo` y llevar los binarios
+adentro del paquete en los cinco objetivos. Para dos idiomas y trescientos cincuenta
+textos, un dict es todo lo que hace falta.
+
+Cambiar el idioma **guarda y vuelve a abrir el panel**. Reconstruir los widgets en vivo
+seria mas elegante y mucho mas fragil: basta olvidarse de uno para dejar la pantalla mitad
+en un idioma y mitad en otro. El panel ya corre como proceso aparte y ya sabe reabrirse.
+
+### Probar cada cosa donde se configura
+
+Nueve botones de prueba, cada uno al lado de lo que prueba y no todos juntos en el medio de
+una pestaña. Un boton de probar lejos de lo que prueba es un boton mas.
+
+| Boton | Donde | Que separa |
+|---|---|---|
+| Probar la tecla | General > Quien es Eve | Que la tecla llegue, de que el asistente este corriendo. Dice las dos cosas, y dice que **no** prueba: la tecla la escucha otro proceso con un hook global. |
+| Probar el motor | General > Quien piensa por ella | Que la clave, el modelo y la conexion existan. Arma el **mismo** motor que el asistente (`listener.armar_motor`); uno propio podria decir que todo anda mientras el camino real esta roto. |
+| Probar que te escucha | Voz > Como te escucha | Microfono, sensibilidad, modelo y vocabulario, el camino entero. |
+| Probar GPU | Voz > Como te escucha | Que `cuda` sea cuda y no una caida silenciosa a cpu. |
+| Probar la palabra | Voz > Despertarla... | La puerta, sin tener que dejar el microfono abierto todo el dia. |
+| Probar que te habla | Voz > Como te habla | Sintesis con la voz elegida. |
+| Mostrar el cartel | Apariencia > Cartel | "Esta mal configurado" de "no arranca". |
+| Mostrar un subtitulo | Apariencia > Subtitulos | Otro camino que el cartel: se puede ver el cartel perfecto y no leer nunca un subtitulo. |
+| Probar el webhook | Cuentas | Una URL mal copiada no da ninguna señal: Eve dice que mando y no llega. Pregunta antes, porque lo ven todos los del canal. |
+
+---
+
 ## La ventana de actividad
 
-`Eve.exe --consola`, o desde la bandeja. Dos modos arriba, que no son dos pantallas: son
-quien puede escribir.
+`Eve.exe --consola`, el boton **Ventana de actividad** del pie del panel --visible desde
+las siete pestañas-- o el item de la bandeja. Tres puertas y no una: la de la bandeja
+depende del menu contextual de Windows 11, y cuando eso falla el usuario se queda sin
+ninguna forma de abrirla.
+
+**Si el tablero esta vacio, la ventana lo dice.** Antes abria un rectangulo negro, que es
+indistinguible de un programa que no arranco --y fue textualmente el reporte: no saber si
+la ventana existia. Ahora escribe por que esta vacia y trae el boton que lo arregla al
+lado, sin volver al panel a buscarlo.
+
+Dos modos arriba, que no son dos pantallas: son quien puede escribir.
 
 **Work** lee el estado y lo dibuja. **Edit** vuelve editable el mismo dibujo: clic elige,
 Ctrl suma y saca, Shift agrega un rango, arrastrar mueve, `Ctrl+Z` deshace.
@@ -1313,7 +1398,7 @@ turno a menos de la mitad.
 ## Arquitectura
 
 ```
-tecla --> grabar --> faster-whisper --> [motor] --> Piper / SAPI (voz)
+tecla --> grabar --> faster-whisper / parakeet --> [motor] --> Piper (voz)
                                            |
                                    freno de confirmacion
                                            |
@@ -1349,9 +1434,10 @@ percibida es todo. Tampoco se envuelve el `/voice` de Claude Code: es un REPL, n
 | `build.py` | Arma los binarios y el instalador del sistema |
 | `banco_voz.py` | Mide el WER del reconocimiento sobre grabaciones reales, y compara modelos |
 | `packaging/` | Instaladores: Inno Setup, dmg, deb y rpm |
-| `eve/voice.py` | STT (faster-whisper / OpenAI) y TTS (Piper / SAPI / ElevenLabs) |
+| `eve/voice.py` | STT (faster-whisper / parakeet / OpenAI) y TTS (Piper, SAPI, ElevenLabs) |
 | `eve/store.py` | config.json, keyring, SQLite, ventana de contexto |
-| `eve/gui.py` | Panel tkinter |
+| `eve/gui.py` | Panel tkinter: siete pestañas, secciones plegables y buscador |
+| `eve/textos.py` | Los textos de la interfaz, en espanol y en ingles |
 | `eve/tray.py` | Icono de bandeja |
 | `eve/icon.py` | Genera el icono |
 | `eve/compat_engine.py` | Motor `compat`: todo lo que hable el protocolo de OpenAI |

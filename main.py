@@ -281,9 +281,32 @@ def main() -> int:
     # El panel corre aparte; al guardar cambia config.json y el listener se rearma
     # solo. El icono actualiza su tooltip para que se note que paso.
     lis.watch_config(on_reload=lambda l: setattr(icono, "title", tray._title(l)))
+    def _bandeja_lista(icono):
+        """Corre una vez, cuando pystray ya armo el menu nativo.
+
+        Es el unico punto del programa donde se sabe que el menu se construyo
+        sin reventar. En Windows el menu se arma DENTRO del procedimiento de
+        ventana: si algo ahi tira, ctypes se come la excepcion, el traceback va
+        a un stdout que en el binario no imprime nada, y lo que ve el usuario es
+        un icono que al hacerle clic derecho no muestra nada.
+
+        Si esta linea esta en el log y el clic derecho igual no abre nada, el
+        problema esta afuera de este codigo; si NO esta, esta aca. Sin ella las
+        dos posibilidades se ven exactamente igual.
+        """
+        try:
+            cuantos = len(list(icono.menu))
+        except Exception as exc:  # noqa: BLE001
+            cuantos = f"error: {exc}"
+        try:
+            store.log_action("eve", "bandeja", f"menu armado, {cuantos} items")
+        except Exception:  # noqa: BLE001
+            pass
+        icono.visible = True
+
     motivo = "sin llegar a arrancar la bandeja"
     try:
-        icono.run()  # bloquea hasta 'Salir'
+        icono.run(setup=_bandeja_lista)  # bloquea hasta 'Salir'
         motivo = "salida normal"
     except BaseException as exc:  # noqa: BLE001 - se re-lanza abajo
         motivo = f"{type(exc).__name__}: {exc}"
