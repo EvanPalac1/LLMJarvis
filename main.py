@@ -68,6 +68,11 @@ PROPIOS_DIFERIDOS = [
     "eve.gui", "eve.consola", "eve.overlay", "eve.integrations", "eve.hook_gate",
     "eve.voices", "eve.modulos", "eve.lienzo", "eve.prompt",
     "eve.lector", "eve.grafo", "eve.memoria", "eve.despertar", "eve.retrato",
+    # Los textos de la interfaz. Lo importan gui, tray y consola a nivel de
+    # modulo, asi que PyInstaller deberia verlo solo --pero sin el no arranca
+    # NINGUNA de las tres ventanas, y ese es exactamente el tipo de cosa que se
+    # da por sentada hasta que un dia no viaja.
+    "eve.textos",
 ]
 if sys.platform == "win32":
     # Lo usa `plataforma.archivo_de_fuente` para traducir "Constantia" a

@@ -99,8 +99,11 @@ class Panel(tk.Tk):
         self._ctx_lienzo = None
         self._estilo()
         self.title("LLMJarvis - configuracion")
-        self.geometry("800x790")
-        self.minsize(640, 420)
+        # 900 y no 800: arriba del notebook ahora hay una barra con el modo, el
+        # buscador y el idioma, y con 800 el ultimo boton del pie --el de la
+        # ventana de actividad-- salia cortado como "Ventana de acti".
+        self.geometry("900x820")
+        self.minsize(760, 460)
 
         # El pie va PRIMERO y anclado abajo: pack reparte en orden de empaquetado,
         # asi que si el notebook va antes, empuja el boton Guardar fuera de la
