@@ -4553,6 +4553,48 @@ def test_la_ventana_vacia_dice_que_esta_vacia():
         gc.collect()
 
 
+def test_ningun_boton_apunta_a_la_nada():
+    """`command=self.algo` tiene que resolver a un metodo que exista.
+
+    Un `command` mal escrito no falla al importar ni al leer: falla al ARMAR la
+    pestaña, con un AttributeError que se lleva puesto el panel entero. Y arma
+    la pestaña recien el que la abre, asi que puede pasar una release entera sin
+    que nadie lo note --salvo el que abre justo esa.
+
+    Se leen del fuente y no se instancia el panel: asi tambien vale para las
+    pestañas que un test no llega a abrir.
+    """
+    import ast as _ast
+    import os
+
+    from eve import gui
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    for archivo, clase in (("gui.py", gui.Panel), ("consola.py", None)):
+        ruta = os.path.join(raiz, "eve", archivo)
+        with open(ruta, encoding="utf-8") as f:
+            arbol = _ast.parse(f.read())
+        if clase is None:
+            from eve import consola
+
+            clase = consola.Consola
+        faltan = []
+        for n in _ast.walk(arbol):
+            if not isinstance(n, _ast.Call):
+                continue
+            for kw in n.keywords:
+                if kw.arg != "command":
+                    continue
+                v = kw.value
+                # Solo `command=self.metodo`; los lambda y los parciales se
+                # resuelven en otro lado y aca no se pueden mirar.
+                if (isinstance(v, _ast.Attribute) and isinstance(v.value, _ast.Name)
+                        and v.value.id == "self"):
+                    if not hasattr(clase, v.attr):
+                        faltan.append(f"{archivo}:{n.lineno}  self.{v.attr}")
+        assert not faltan, f"botones apuntando a la nada: {faltan}"
+
+
 def test_la_rueda_no_cambia_ningun_valor():
     """Rodar para leer no te puede cambiar el motor de voz sin que te enteres."""
     import gc
