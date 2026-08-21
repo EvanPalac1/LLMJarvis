@@ -95,6 +95,11 @@ class Panel(tk.Tk):
         self._subnb = None
         self._aciertos: list = []
         self._ctx_pestana = self._ctx_sub = self._ctx_seccion = ""
+        # La clave navega y el rotulo se muestra. Son dos cosas: la clave es un
+        # identificador estable en espanol --con ella se elige la pestaña-- y el
+        # rotulo cambia con el idioma. Guardar una sola daba rutas a medio
+        # traducir: "[Voz > How it speaks to you]".
+        self._ctx_pestana_rot = self._ctx_sub_rot = ""
         self._ctx_abrir = None
         self._ctx_lienzo = None
         self._estilo()
@@ -178,6 +183,7 @@ class Panel(tk.Tk):
             ("Actividad", tr("Actividad"), self._tab_actividad),
         ):
             self._ctx_pestana, self._ctx_sub = titulo, ""
+            self._ctx_pestana_rot, self._ctx_sub_rot = rotulo, ""
             self._ctx_seccion, self._ctx_abrir = "", None
             marco = armar(nb)
             nb.add(marco, text=f"  {rotulo}  ")
@@ -708,8 +714,12 @@ class Panel(tk.Tk):
         if not self._aciertos:
             self.resultados.insert("end", "   " + tr("nada con esas palabras"))
         for e in self._aciertos[:40]:
-            donde = " > ".join(x for x in (e["pestana"], e["sub"], e["seccion"]) if x)
+            donde = " > ".join(x for x in (e["pestana_rot"], e["sub_rot"],
+                                           e["seccion"]) if x)
             self.resultados.insert("end", f"  {e['etiqueta']}      [{donde}]")
+        # Alto = lo que hay, hasta diez. Fijo en ocho dejaba cinco renglones
+        # vacios abajo cuando habia tres resultados.
+        self.resultados.config(height=max(1, min(10, self.resultados.size())))
         x = self.buscar_entry.winfo_rootx() - self.winfo_rootx()
         y = self.buscar_entry.winfo_rooty() - self.winfo_rooty() + self.buscar_entry.winfo_height()
         self.resultados.place(x=x, y=y, width=self.buscar_entry.winfo_width())
@@ -968,12 +978,12 @@ class Panel(tk.Tk):
             ("Modulos", tr("Modulos"), [self._bloque_modulos]),
             ("Subtitulos", tr("Subtitulos"), [self._bloque_subtitulos]),
         ):
-            self._ctx_sub = titulo
+            self._ctx_sub, self._ctx_sub_rot = titulo, rotulo
             self._ctx_seccion, self._ctx_abrir = "", None
             hoja = self._hoja_simple(sub, bloques)
             sub.add(hoja, text=f"  {rotulo}  ")
             self._subtabs[titulo] = hoja
-        self._ctx_sub = ""
+        self._ctx_sub = self._ctx_sub_rot = ""
         return marco
 
     def _hoja_simple(self, padre, bloques):
@@ -1062,6 +1072,8 @@ class Panel(tk.Tk):
             "widget": widget,
             "pestana": self._ctx_pestana,
             "sub": self._ctx_sub,
+            "pestana_rot": self._ctx_pestana_rot or self._ctx_pestana,
+            "sub_rot": self._ctx_sub_rot or self._ctx_sub,
             "seccion": self._ctx_seccion,
             "abrir": self._ctx_abrir,
             "lienzo": self._ctx_lienzo,
