@@ -281,9 +281,27 @@ def main() -> int:
     # El panel corre aparte; al guardar cambia config.json y el listener se rearma
     # solo. El icono actualiza su tooltip para que se note que paso.
     lis.watch_config(on_reload=lambda l: setattr(icono, "title", tray._title(l)))
+    motivo = "sin llegar a arrancar la bandeja"
     try:
         icono.run()  # bloquea hasta 'Salir'
+        motivo = "salida normal"
+    except BaseException as exc:  # noqa: BLE001 - se re-lanza abajo
+        motivo = f"{type(exc).__name__}: {exc}"
+        raise
     finally:
+        # Por que se fue Eve queda ESCRITO, y esto no es paranoia.
+        #
+        # En la version empaquetada el camino del listener no imprime nada: cero
+        # bytes, aunque `--version` y `--check` impriman bien. Asi que si Eve se
+        # cierra sola, hoy no queda ni un rastro en ningun lado --ni siquiera en
+        # el registro de eventos de Windows, porque salir limpio no es un crash.
+        # Se perdio una noche entera creyendo que la app no arrancaba cuando en
+        # realidad estaba entera, y sin este renglon la proxima vez pasaria lo
+        # mismo.
+        try:
+            store.log_action("eve", "salida", motivo)
+        except Exception:  # noqa: BLE001 - salir nunca puede fallar por el log
+            pass
         # Sin esto el panel cree que el asistente sigue vivo hasta que el latido
         # caduque, y el cartel se queda en pantalla otro rato.
         try:
