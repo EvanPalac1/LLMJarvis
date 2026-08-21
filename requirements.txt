@@ -4,10 +4,9 @@ sounddevice>=0.4.6
 numpy>=1.26
 # Arrastra onnxruntime, que ademas es lo que corre el detector de voz de la
 # palabra clave. Ojo con mac Intel: onnxruntime dejo de publicar rueda
-# macosx_x86_64 despues de la 1.23.2, asi que si algun dia el resolvedor pide
-# una mas nueva, ese job se cae. Que se caiga es lo correcto y ahora se nota:
-# release.yml usa if-no-files-found: error.
-faster-whisper>=1.0
+# macosx_x86_64 despues de la 1.23.2 (la 1.29 solo trae macosx_14_0_arm64,
+# manylinux y win). El pin de abajo lo deja escrito.
+faster-whisper>=1.2
 pystray>=0.19
 pillow>=10.0
 keyring>=25.0
@@ -15,7 +14,18 @@ requests>=2.31
 
 # Voces de la comunidad (Piper). Wheels para Windows, macOS Intel/ARM y Linux x64/ARM.
 # Es el unico TTS que funciona igual en los tres: SAPI solo existe en Windows.
-piper-tts>=1.6
+piper-tts>=1.7
+
+# Ultima version de onnxruntime con wheel para mac Intel. No es una preferencia:
+# arriba de esa no existe el archivo, y onnxruntime no publica sdist, asi que no
+# hay de donde compilarlo. Lo piden dos: faster-whisper (onnxruntime<2,>=1.14,
+# directo) y piper-tts (<2,>=1); onnx-asr no lo declara pero corre encima.
+# Sin el pin, el dia que alguno de los dos exija >=1.24 el job `macOS Intel`
+# muere con un `no matching distribution` que no dice por que; con el pin, pip
+# nombra el conflicto y este comentario. Vence solo: macos-15-intel es la ultima
+# imagen x86_64 de Actions y se retira en agosto de 2027. Ese dia se va el job
+# entero y estas tres lineas con el.
+onnxruntime<=1.23.2; sys_platform == "darwin" and platform_machine == "x86_64"
 
 # Atajo global: `keyboard` solo sirve en Windows; en macOS no anda y en Linux
 # exige root. Fuera de Windows va pynput.
