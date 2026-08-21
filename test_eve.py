@@ -4204,6 +4204,14 @@ def test_ingles_cubre_todo_lo_que_el_panel_muestra():
     sobran = [k for k in textos.EN if k not in usados]
     assert not sobran, f"traducciones de textos que ya no existen: {sobran[:5]}"
 
+    # El unico agujero del esquema, y no es teorico: un `tr(variable)` se
+    # muestra y el chequeo no lo ve. Asi salieron en espanol el titulo de la
+    # ventana, la pista del buscador y la barra de estado, con las dos listas
+    # de arriba vacias. El arreglo siempre es mover el literal a donde se
+    # envuelve, asi que la lista tiene que estar vacia.
+    invisibles = textos.textos_invisibles()
+    assert not invisibles, f"tr() con variable, invisible al chequeo: {invisibles}"
+
 
 def test_traducir_no_rompe_nada_si_falta():
     """Sin entrada, sale el espanol. Nunca una clave cruda ni un error."""
@@ -4227,6 +4235,14 @@ def test_el_panel_arma_en_ingles():
     import gc
 
     from eve import gui, store, textos
+
+    import tkinter as tk
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
 
     anterior_cfg = store.load_config()
     anterior_idioma = textos.actual()
@@ -4259,6 +4275,14 @@ def test_el_panel_no_muestra_todo_de_una():
     import gc
 
     from eve import gui, store
+
+    import tkinter as tk
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
 
     anterior = store.load_config()
     store.save_config({**anterior, "ui_modo_panel": "esencial"})
@@ -4299,6 +4323,14 @@ def test_el_buscador_encuentra_y_sabe_donde_esta():
     import gc
 
     from eve import gui
+
+    import tkinter as tk
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
 
     panel = None
     try:
@@ -4422,6 +4454,14 @@ def test_la_ventana_vacia_dice_que_esta_vacia():
 
     from eve import consola, modulos, store
 
+    import tkinter as tk
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+
     antes = store.CONFIG_PATH
     tmp = tempfile.mkdtemp()
     store.CONFIG_PATH = os.path.join(tmp, "config.json")
@@ -4462,6 +4502,14 @@ def test_la_rueda_no_cambia_ningun_valor():
     import gc
 
     from eve import gui
+
+    import tkinter as tk
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
 
     panel = None
     try:

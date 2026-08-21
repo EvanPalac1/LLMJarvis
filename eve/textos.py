@@ -106,7 +106,55 @@ def sin_traducir(idioma: str = "en", carpeta: str = "") -> list:
     return sorted(s for s in usados_en_el_codigo(carpeta) if s not in tabla)
 
 
+def textos_invisibles(carpeta: str = "") -> list:
+    """Los `tr(variable)`: se muestran y el chequeo no los ve.
+
+    Es el unico agujero que tiene este esquema, y no es teorico. Tres textos
+    salieron en espanol con el panel en ingles --el titulo de la ventana, la
+    pista del buscador y la barra de estado del pie-- y `sin_traducir()` decia
+    que estaba todo cubierto, porque los tres se leian de una variable.
+
+    El arreglo es siempre el mismo: mover el literal a donde se envuelve. Por
+    eso esto devuelve el lugar y no intenta resolverlo solo.
+    """
+    import os
+
+    carpeta = carpeta or os.path.dirname(os.path.abspath(__file__))
+    sueltos = []
+    for nombre in ARCHIVOS:
+        ruta = os.path.join(carpeta, nombre)
+        if not os.path.exists(ruta):
+            continue
+        with open(ruta, encoding="utf-8") as f:
+            arbol = ast.parse(f.read())
+        for n in ast.walk(arbol):
+            if not isinstance(n, ast.Call):
+                continue
+            nom = n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", "")
+            if nom not in ("t", "tr") or not n.args:
+                continue
+            if not isinstance(n.args[0], ast.Constant):
+                sueltos.append(f"{nombre}:{n.lineno}  {ast.unparse(n)[:60]}")
+    return sorted(sueltos)
+
+
 EN = {
+    "Buscar un ajuste...   (Ctrl+F)":
+        "Search a setting...   (Ctrl+F)",
+    "Cartel":
+        "Card",
+    "Ventana":
+        "Window",
+    "asistente corriendo":
+        "assistant running",
+    "asistente detenido":
+        "assistant stopped",
+    "configuracion":
+        "settings",
+    "motor":
+        "engine",
+    "tecla":
+        "key",
     "Armar el tablero":
         "Build the board",
     "Esta ventana esta vacia porque el tablero no tiene modulos.":
@@ -656,7 +704,7 @@ EN = {
     "Idioma del panel":
         "Panel language",
     "Idioma en que te habla":
-        "Language it speaks to you in",
+        "Language it speaks",
     "Imagen (PNG o GIF)":
         "Image (PNG or GIF)",
     "Imagen de cabecera":

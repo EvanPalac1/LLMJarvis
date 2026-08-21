@@ -98,7 +98,7 @@ class Panel(tk.Tk):
         self._ctx_abrir = None
         self._ctx_lienzo = None
         self._estilo()
-        self.title("LLMJarvis - configuracion")
+        self.title(f"LLMJarvis - {tr('configuracion')}")
         # 900 y no 800: arriba del notebook ahora hay una barra con el modo, el
         # buscador y el idioma, y con 800 el ultimo boton del pie --el de la
         # ventana de actividad-- salia cortado como "Ventana de acti".
@@ -165,19 +165,22 @@ class Panel(tk.Tk):
         # Siete pestañas agrupadas por lo que uno viene a hacer, no por modulo.
         # En un bucle y no en siete lineas para que el titulo quede asociado a la
         # pestaña: es lo que el buscador necesita para poder saltar hasta ella.
-        for titulo, armar in (
-            ("General", self._tab_general),
-            ("Cuentas", self._tab_cuentas),
-            ("Voz", self._tab_voz),
-            ("Contactos", self._tab_contactos),
-            ("Addons", self._tab_addons),
-            ("Apariencia", self._tab_apariencia),
-            ("Actividad", self._tab_actividad),
+        # El rotulo traducido va en la tupla y la clave queda aparte: `tr(titulo)`
+        # con una variable no lo ve el chequeo de traduccion, y ese fue justo el
+        # camino por el que tres textos salieron en espanol con el panel en ingles.
+        for titulo, rotulo, armar in (
+            ("General", tr("General"), self._tab_general),
+            ("Cuentas", tr("Cuentas"), self._tab_cuentas),
+            ("Voz", tr("Voz"), self._tab_voz),
+            ("Contactos", tr("Contactos"), self._tab_contactos),
+            ("Addons", tr("Addons"), self._tab_addons),
+            ("Apariencia", tr("Apariencia"), self._tab_apariencia),
+            ("Actividad", tr("Actividad"), self._tab_actividad),
         ):
             self._ctx_pestana, self._ctx_sub = titulo, ""
             self._ctx_seccion, self._ctx_abrir = "", None
             marco = armar(nb)
-            nb.add(marco, text=f"  {tr(titulo)}  ")
+            nb.add(marco, text=f"  {rotulo}  ")
             self._tabs[titulo] = marco
         self._contar_secciones()
         # De nuevo, ahora que los widgets existen: el repintado de lo que no es
@@ -443,14 +446,15 @@ class Panel(tk.Tk):
         # proyecto ya rompio dos veces por eso.
         if vivo:
             texto = (
-                f"[on] asistente corriendo   |   motor: {vivo.get('motor', cfg['engine'])}"
-                f"   |   tecla: {vivo.get('tecla', cfg['hotkey'])}"
+                f"[on] {tr('asistente corriendo')}   |   {tr('motor')}: "
+                f"{vivo.get('motor', cfg['engine'])}"
+                f"   |   {tr('tecla')}: {vivo.get('tecla', cfg['hotkey'])}"
             )
             estilo = "Ok.TLabel"
         else:
             texto = (
-                f"[off] asistente detenido   |   motor: {cfg['engine']}"
-                f"   |   tecla: {cfg['hotkey']}"
+                f"[off] {tr('asistente detenido')}   |   {tr('motor')}: {cfg['engine']}"
+                f"   |   {tr('tecla')}: {cfg['hotkey']}"
             )
             estilo = "Ayuda.TLabel"
         self.estado.config(text=f"{texto}   |   {plataforma.NOMBRE}", style=estilo)
@@ -661,14 +665,22 @@ class Panel(tk.Tk):
         self.resultados.bind("<Return>", self._buscar_ir)
         self.resultados.bind("<Escape>", lambda _e: self._buscar_cerrar())
 
-    PISTA = "Buscar un ajuste...   (Ctrl+F)"
+    def _pista(self) -> str:
+        """El texto en gris del buscador.
+
+        Un metodo y no una constante de clase: como constante se leia con
+        `tr(self.PISTA)`, y un `tr(variable)` es invisible para el chequeo de
+        traduccion --el texto salia en espanol con el panel en ingles y ningun
+        test lo decia.
+        """
+        return tr("Buscar un ajuste...   (Ctrl+F)")
 
     def _pista_buscador(self) -> None:
-        self.buscar_var.set(tr(self.PISTA))
+        self.buscar_var.set(self._pista())
         self.buscar_entry.config(foreground=GRIS)
 
     def _pista_limpiar(self, _e=None) -> None:
-        if self.buscar_var.get() == tr(self.PISTA):
+        if self.buscar_var.get() == self._pista():
             self.buscar_var.set("")
             self.buscar_entry.config(foreground="")
 
@@ -683,7 +695,7 @@ class Panel(tk.Tk):
         if evento is not None and getattr(evento, "keysym", "") in ("Down", "Up", "Return", "Escape"):
             return
         texto = self.buscar_var.get().strip().lower()
-        if texto == tr(self.PISTA).lower() or len(texto) < 2:
+        if texto == self._pista().lower() or len(texto) < 2:
             self._buscar_cerrar()
             return
         palabras = texto.split()
@@ -949,17 +961,17 @@ class Panel(tk.Tk):
 
         sub = self._subnb = ttk.Notebook(marco)
         sub.pack(fill="both", expand=True, padx=PAD, pady=(8, PAD))
-        for titulo, bloques in (
-            ("Tema", [self._bloque_tema]),
-            ("Cartel", [self._bloque_hud]),
-            ("Ventana", [self._bloque_ventana]),
-            ("Modulos", [self._bloque_modulos]),
-            ("Subtitulos", [self._bloque_subtitulos]),
+        for titulo, rotulo, bloques in (
+            ("Tema", tr("Tema"), [self._bloque_tema]),
+            ("Cartel", tr("Cartel"), [self._bloque_hud]),
+            ("Ventana", tr("Ventana"), [self._bloque_ventana]),
+            ("Modulos", tr("Modulos"), [self._bloque_modulos]),
+            ("Subtitulos", tr("Subtitulos"), [self._bloque_subtitulos]),
         ):
             self._ctx_sub = titulo
             self._ctx_seccion, self._ctx_abrir = "", None
             hoja = self._hoja_simple(sub, bloques)
-            sub.add(hoja, text=f"  {tr(titulo)}  ")
+            sub.add(hoja, text=f"  {rotulo}  ")
             self._subtabs[titulo] = hoja
         self._ctx_sub = ""
         return marco
