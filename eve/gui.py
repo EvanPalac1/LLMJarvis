@@ -1643,7 +1643,8 @@ class Panel(tk.Tk):
 
             ruta = filedialog.askopenfilename(
                 title="Imagen de cabecera", parent=self,
-                filetypes=[("Imagenes", "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
+                filetypes=[("Imagenes y sprite sheets",
+                            "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
                        ("Todos", "*.*")],
             )
             if ruta:
@@ -1831,8 +1832,52 @@ class Panel(tk.Tk):
             self.mod_vars[prop] = var
             ttk.Label(fila, text="  " + par[1], style="Ayuda.TLabel").pack(side="left")
 
-        ttk.Button(self.mod_props, text="Aplicar",
-                   command=self._mods_aplicar).pack(anchor="w", padx=12, pady=(8, 10))
+        pie = ttk.Frame(self.mod_props)
+        pie.pack(fill="x", padx=12, pady=(8, 10))
+        ttk.Button(pie, text="Aplicar", command=self._mods_aplicar).pack(side="left")
+        if modulo["tipo"] == "particulas":
+            ttk.Button(pie, text="Importar .plist",
+                       command=self._mods_plist).pack(side="left", padx=8)
+            self._ayuda(
+                self.mod_props,
+                "Los editores de particulas --Particle Designer, Particle2dx--\n"
+                "exportan el .plist de cocos2d, que es XML de numeros: vida,\n"
+                "gravedad, color, velocidad. Se importa la CONFIGURACION y la\n"
+                "corre el simulador que ya esta, asi que no entra ninguna\n"
+                "libreria nueva. Llena los campos de arriba; despues Aplicar.\n"
+                "No viaja lo que el simulador no sabe hacer: modo radial,\n"
+                "texturas por particula y mezclas aditivas.")
+
+    def _mods_plist(self) -> None:
+        """Trae los parametros de un .plist al formulario, sin guardarlos.
+
+        Llena los campos y no aplica: importar es proponer valores, y que un
+        archivo ajeno pise el modulo sin que lo veas es la misma sorpresa que el
+        ajuste de autoridad existe para evitar.
+        """
+        from tkinter import filedialog, messagebox
+
+        from . import modulos as mods
+
+        ruta = filedialog.askopenfilename(
+            title="Particulas de Particle Designer", parent=self,
+            filetypes=[("Particulas", "*.plist"), ("Todos", "*.*")])
+        if not ruta:
+            return
+        props = mods.desde_plist(ruta)
+        if not props:
+            messagebox.showerror(
+                "Particulas",
+                "No pude leer ese archivo. Tiene que ser un .plist de cocos2d "
+                "(el que exportan Particle Designer y Particle2dx).", parent=self)
+            return
+        traidas = [p for p in props if p in self.mod_vars]
+        for prop in traidas:
+            self.mod_vars[prop].set(str(props[prop]))
+        messagebox.showinfo(
+            "Particulas",
+            "Traje: " + ", ".join(sorted(traidas)) + ".\n\nRevisalos y toca Aplicar.",
+            parent=self)
 
     def _mods_aplicar(self) -> None:
         """Guarda el modulo. Los tipos salen del esquema, no de adivinar."""
@@ -2014,7 +2059,8 @@ class Panel(tk.Tk):
         def elegir():
             ruta = filedialog.askopenfilename(
                 title=titulo, parent=self,
-                filetypes=[("Imagenes", "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
+                filetypes=[("Imagenes y sprite sheets",
+                            "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
                        ("Todos", "*.*")],
             )
             if ruta:
@@ -2075,7 +2121,8 @@ class Panel(tk.Tk):
 
         ruta = filedialog.askopenfilename(
             title="Imagen para el icono", parent=self,
-            filetypes=[("Imagenes", "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
+            filetypes=[("Imagenes y sprite sheets",
+                            "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
                        ("Todos", "*.*")],
         )
         if ruta:

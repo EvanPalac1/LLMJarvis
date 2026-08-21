@@ -930,8 +930,31 @@ o se deja un archivo en la carpeta de assets y se lo elige, igual que con los fo
 |---|---|---|
 | Procedural | perillas del panel | no hay archivo |
 | Por cuadros | Aseprite, Photoshop, Blender, ezgif | GIF, APNG o WebP animado |
-| Vectorial | After Effects, LottieFiles | pendiente |
-| Particulas | Particle2dx, Particle Designer | pendiente |
+| Sprite sheet | Aseprite, TexturePacker | el PNG y su JSON al lado |
+| Particulas | Particle Designer, Particle2dx | el `.plist` de cocos2d |
+| Vectorial | After Effects, LottieFiles | pendiente, ver abajo |
+
+**Sprite sheets.** Aseprite y TexturePacker exportan un PNG con todos los cuadros pegados y
+un JSON diciendo donde esta cada uno. El JSON se llama igual que la imagen, asi que no hay
+ningun ajuste nuevo que tocar: se deja el par de archivos en la carpeta, se elige el PNG, y
+si el JSON esta se usa. Andan los dos modos de exportacion --lista y diccionario-- porque
+elegir el equivocado en el exportador no es culpa de nadie. Sin JSON, o con uno roto, sigue
+siendo una imagen comun: un sprite sheet mal exportado no puede dejar de mostrar hasta la
+imagen entera.
+
+**Particulas por archivo.** Los editores de particulas exportan el `.plist` de cocos2d, que
+es el formato con mas archivos publicados dando vueltas, y es **XML de numeros**: vida,
+gravedad, color inicial, angulo, dispersion. `plistlib` esta en la stdlib, asi que no se
+importa un runtime sino la CONFIGURACION, y la corre el simulador de numpy que ya existe.
+Mismo criterio que con Graphify: se toma la arquitectura, no la dependencia.
+
+Hay un detalle que solo aparece probandolo: **en cocos2d la `y` crece hacia arriba y en
+pantalla crece hacia abajo**. Sin invertir el signo, una fuente importada dispara sus
+particulas al piso. Lo que no viaja es lo que el simulador no sabe hacer --modo radial,
+texturas por particula, mezclas aditivas y la varianza de cada parametro-- porque importar
+mas seria guardar numeros que nadie lee. El boton llena los campos y **no** aplica: que un
+archivo ajeno pise el modulo sin que lo veas es la misma sorpresa que el ajuste de
+autoridad existe para evitar.
 
 Todas comparten `velocidad`, `easing`, `escala`, `rotacion`, `opacidad`, `tinte`, `color`
 y `cuando` (siempre, trabajando, al pasar el mouse). La que las separa es **`fuente`**:
@@ -1292,7 +1315,7 @@ percibida es todo. Tampoco se envuelve el `/voice` de Claude Code: es un REPL, n
 | `eve/lector.py` | Lee una pagina web y devuelve texto, sin motor web |
 | `eve/despertar.py` | Palabra clave: silero decide cuando, un whisper chico decide que |
 | `eve/tema.py` | Paletas por roles, para el panel y para el cartel |
-| `eve/imagenes.py` | Fondos e iconos: PNG, GIF, APNG y WebP animado, con cache |
+| `eve/imagenes.py` | Fondos e iconos: PNG, GIF, APNG, WebP animado y sprite sheets, con cache |
 | `eve/addons/` | Plugins del usuario, que no se cargan hasta aprobarlos |
 | `eve/updater.py` | Busca e instala versiones nuevas |
 

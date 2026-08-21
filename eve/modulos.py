@@ -16,6 +16,8 @@ runtime. Por eso cada tipo declara sus props con su valor por defecto:
 `tipo_de_clave()` es lo que el panel consulta para no guardar todo como texto.
 """
 
+import plistlib
+
 PREFIJO = "mod_"
 
 # Props que tiene todo modulo, sea del tipo que sea.
@@ -93,6 +95,68 @@ OPCIONES = {
 # importada se puede escalar y teñir, pero no reaccionar: para eso el dibujo lo
 # tiene que calcular la maquina.
 REACTIVOS = ("onda", "particulas")
+
+
+def desde_plist(ruta: str) -> dict:
+    """Los parametros de un `.plist` de particulas, traducidos a props.
+
+    Particle Designer, Particle2dx y el resto de los editores de particulas que
+    hay dando vueltas exportan el `.plist` de cocos2d, que es el formato con mas
+    archivos publicados. Y es XML de numeros: vida, gravedad, color inicial,
+    angulo, dispersion. **`plistlib` esta en la stdlib.**
+
+    Asi que aca no se importa un runtime, se importa la CONFIGURACION y la corre
+    el simulador de numpy que ya existe. Es el mismo criterio que con Graphify:
+    se toma la arquitectura, no la dependencia. Un runtime de terceros habria
+    sido una libreria nueva en los cinco objetivos para dibujar puntos que ya
+    sabemos dibujar.
+
+    Lo que no viaja: modo radial, texturas por particula, mezclas aditivas y la
+    varianza de cada parametro. El simulador tiene una sola forma de nacer y un
+    solo color, asi que importar mas seria guardar numeros que nadie lee.
+
+    Devuelve {} si el archivo no se entiende. Un `.plist` roto no puede tumbar
+    el panel.
+    """
+    try:
+        with open(ruta, "rb") as f:
+            d = plistlib.load(f)
+    except Exception:  # noqa: BLE001 - cualquier motivo da lo mismo aca
+        return {}
+    if not isinstance(d, dict):
+        return {}
+
+    def num(clave, x=0.0):
+        try:
+            return float(d.get(clave, x))
+        except (TypeError, ValueError):
+            return x
+
+    props = {}
+    cant = int(num("maxParticles", 0))
+    if cant > 0:
+        props["cantidad"] = max(1, min(cant, 2000))
+    vida = num("particleLifespan", 0)
+    if vida > 0:
+        props["vida"] = round(min(vida, 30.0), 3)
+    # En cocos2d la y crece hacia ARRIBA y en pantalla crece hacia ABAJO. Sin el
+    # signo cambiado, una fuente importada dispara sus particulas al piso.
+    grav = num("gravityy", 0)
+    if grav:
+        props["gravedad"] = round(-grav, 3)
+    vel = num("speed", 0)
+    if vel > 0:
+        # `speed` viene en pixeles por segundo y `velocidad` es un multiplicador
+        # del tiempo. 100 px/s es mas o menos lo que hace el simulador a 1.0.
+        props["velocidad"] = round(max(0.05, min(vel / 100.0, 20.0)), 2)
+    if "startColorRed" in d:
+        props["tinte"] = "#%02x%02x%02x" % tuple(
+            max(0, min(255, int(num(f"startColor{c}", 1.0) * 255)))
+            for c in ("Red", "Green", "Blue"))
+    alpha = num("startColorAlpha", -1)
+    if 0 <= alpha <= 1:
+        props["opacidad"] = int(round(alpha * 100))
+    return props
 
 
 def props_de(tipo):

@@ -3496,6 +3496,116 @@ def test_variante_de_espanol():
     assert prompt.partes(cfg)["dialecto"] == 0, "sin elegir no ocupa nada"
 
 
+def test_sprite_sheets():
+    """Un PNG con todos los cuadros y un JSON al lado que dice donde esta cada uno."""
+    import json as _json
+
+    from PIL import Image
+
+    from eve import imagenes
+
+    colores = [(220, 40, 40), (40, 220, 40), (40, 40, 220), (220, 220, 40)]
+    with tempfile.TemporaryDirectory() as tmp:
+        hoja = Image.new("RGBA", (128, 32), (0, 0, 0, 0))
+        for i, c in enumerate(colores):
+            hoja.paste(Image.new("RGBA", (32, 32), c + (255,)), (i * 32, 0))
+        png = os.path.join(tmp, "sheet.png")
+        lado = os.path.join(tmp, "sheet.json")
+        hoja.save(png)
+
+        # Modo lista: `aseprite --format json-array`.
+        with open(lado, "w", encoding="utf-8") as f:
+            _json.dump({"frames": [
+                {"filename": f"f{i}", "frame": {"x": i * 32, "y": 0, "w": 32, "h": 32},
+                 "duration": 80 + i * 10} for i in range(4)]}, f)
+        rutas, ms = imagenes.procesar(png, 32, 32, "encajar", 100, 0, "#000", "#fff", True)
+        assert len(rutas) == 4, rutas
+        assert ms == [80, 90, 100, 110], ms
+        # Que cada cuadro traiga SU color es lo que prueba que recorto bien; que
+        # haya cuatro archivos solo prueba que conto bien.
+        for ruta, esperado in zip(rutas, colores):
+            with Image.open(ruta) as im:
+                assert im.convert("RGBA").getpixel((16, 16))[:3] == esperado, ruta
+
+        # Modo diccionario: `--format json-hash`, y el default de TexturePacker.
+        # Se acepta porque elegir mal el modo en el exportador no es culpa de nadie.
+        with open(lado, "w", encoding="utf-8") as f:
+            _json.dump({"frames": {f"sheet {i}.ase": {
+                "frame": {"x": i * 32, "y": 0, "w": 32, "h": 32}, "duration": 120}
+                for i in range(4)}}, f)
+        assert len(imagenes.atlas_de(png)) == 4
+
+        # Editar SOLO el json tiene que invalidar el cache. Sin el mtime del json
+        # en la firma, reacomodar los recortes seguia sirviendo los cuadros viejos.
+        time.sleep(0.01)
+        with open(lado, "w", encoding="utf-8") as f:
+            _json.dump({"frames": [{"frame": {"x": 0, "y": 0, "w": 32, "h": 32}}]}, f)
+        rutas2, _ = imagenes.procesar(png, 32, 32, "encajar", 100, 0, "#000", "#fff", True)
+        assert len(rutas2) == 1, "el cache sirvio los recortes viejos"
+
+        # Y sin json, o con uno roto, sigue siendo una imagen comun. Un sprite
+        # sheet mal exportado no puede dejar de mostrar hasta la imagen entera.
+        os.remove(lado)
+        assert imagenes.atlas_de(png) == []
+        assert len(imagenes.procesar(png, 64, 16, "encajar", 100, 0, "#000", "#fff", True)[0]) == 1
+        with open(lado, "w", encoding="utf-8") as f:
+            f.write("{no es json")
+        assert imagenes.atlas_de(png) == []
+        assert len(imagenes.procesar(png, 32, 32, "encajar", 100, 0, "#000", "#fff", True)[0]) == 1
+
+
+def test_particulas_desde_plist():
+    """Se importa la configuracion, no un runtime."""
+    import plistlib
+
+    from eve import modulos
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ruta = os.path.join(tmp, "fuego.plist")
+        with open(ruta, "wb") as f:
+            plistlib.dump({
+                "maxParticles": 250, "particleLifespan": 2.5,
+                "gravityx": 0.0, "gravityy": 180.0, "speed": 60.0,
+                "startColorRed": 1.0, "startColorGreen": 0.42, "startColorBlue": 0.05,
+                "startColorAlpha": 0.85, "angle": 90.0, "emitterType": 0,
+            }, f)
+        props = modulos.desde_plist(ruta)
+        assert props["cantidad"] == 250
+        assert props["vida"] == 2.5
+        # En cocos2d la y crece hacia ARRIBA y en pantalla hacia ABAJO. Sin el
+        # signo cambiado, una fuente importada dispara sus particulas al piso.
+        assert props["gravedad"] == -180.0, props
+        assert props["tinte"] == "#ff6b0c", props["tinte"]
+        assert props["opacidad"] == 85
+
+        # Toda prop que devuelva tiene que EXISTIR en el tipo particulas, o el
+        # panel guardaria claves que nadie lee y nadie se enteraria.
+        assert set(props) <= set(modulos.props_de("particulas")), props
+
+        # Numeros absurdos se acotan en vez de propagarse: un .plist ajeno no
+        # puede pedir un millon de particulas.
+        with open(ruta, "wb") as f:
+            plistlib.dump({"maxParticles": 999999, "particleLifespan": 1e9,
+                           "startColorRed": 5.0, "startColorGreen": -3.0,
+                           "startColorBlue": 0.5}, f)
+        loco = modulos.desde_plist(ruta)
+        assert loco["cantidad"] == 2000 and loco["vida"] == 30.0, loco
+        assert loco["tinte"] == "#ff007f", loco["tinte"]
+
+        # Y nada de lo roto puede tumbar el panel.
+        for basura in (b"esto no es un plist", b""):
+            with open(ruta, "wb") as f:
+                f.write(basura)
+            assert modulos.desde_plist(ruta) == {}
+        with open(ruta, "wb") as f:
+            plistlib.dump([1, 2, 3], f)
+        assert modulos.desde_plist(ruta) == {}
+        assert modulos.desde_plist(os.path.join(tmp, "no-existe.plist")) == {}
+
+    # plistlib es de la stdlib: eso es lo que hace que esto no cueste nada.
+    assert plistlib.__file__ and "site-packages" not in plistlib.__file__
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):

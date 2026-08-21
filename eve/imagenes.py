@@ -1,4 +1,4 @@
-"""Fondos de imagen para el overlay: PNG y GIF animado.
+"""Fondos de imagen: PNG, GIF, APNG, WebP animado y sprite sheets.
 
 Dos decisiones que valen el comentario:
 
@@ -15,6 +15,7 @@ panel antes de mostrarla, el fondo queda tenue y las letras siguen enteras.
 """
 
 import hashlib
+import json
 import os
 import tempfile
 import tkinter as tk
@@ -69,6 +70,49 @@ def _encajar(img, ancho: int, alto: int, ajuste: str):
     return grande.crop((izq, arriba, izq + ancho, arriba + alto))
 
 
+def atlas_de(ruta: str) -> list[tuple[tuple[int, int, int, int], int]]:
+    """Los recortes de un sprite sheet: [((x, y, x2, y2), ms), ...].
+
+    Aseprite y TexturePacker --que son con lo que la gente arma esto-- exportan
+    un PNG con todos los cuadros pegados y un JSON al lado diciendo donde esta
+    cada uno. El JSON se llama igual que la imagen, asi que no hace falta ningun
+    ajuste nuevo: se deja el par de archivos en la carpeta, se elige el PNG, y
+    si el JSON esta se usa.
+
+    Los dos exportan `frames` como lista o como diccionario segun el modo, y las
+    dos formas traen el mismo `frame: {x, y, w, h}`. Se aceptan las dos porque
+    elegir el modo equivocado en el exportador no es culpa del usuario.
+
+    Devuelve [] si no hay atlas o si el JSON no se entiende: sin eso un sprite
+    sheet roto dejaria de mostrar hasta la imagen entera, que es peor.
+    """
+    lado = os.path.splitext(ruta)[0] + ".json"
+    if not os.path.exists(lado):
+        return []
+    try:
+        with open(lado, encoding="utf-8") as f:
+            datos = json.load(f)
+        crudos = datos.get("frames")
+        if isinstance(crudos, dict):
+            # En modo hash el orden del dict es el de exportacion, que es el de
+            # la animacion. Ordenar por nombre romperia "10" antes que "2".
+            crudos = list(crudos.values())
+        if not isinstance(crudos, list):
+            return []
+        salida = []
+        for entrada in crudos[:MAX_CUADROS]:
+            caja = entrada.get("frame") or {}
+            x, y = int(caja.get("x", 0)), int(caja.get("y", 0))
+            w, h = int(caja.get("w", 0)), int(caja.get("h", 0))
+            if w < 1 or h < 1:
+                continue
+            ms = int(entrada.get("duration") or MS_POR_DEFECTO)
+            salida.append(((x, y, x + w, y + h), ms))
+        return salida
+    except (OSError, ValueError, TypeError, AttributeError):
+        return []
+
+
 def procesar(ruta: str, ancho: int, alto: int, ajuste: str = "recortar",
              opacidad: int = 100, tinte: int = 0, color_base: str = "#000000",
              color_tinte: str = "#000000",
@@ -86,17 +130,24 @@ def procesar(ruta: str, ancho: int, alto: int, ajuste: str = "recortar",
     try:
         from PIL import Image
 
+        lado = os.path.splitext(ruta)[0] + ".json"
+        # El mtime del JSON entra en la firma: si no, reacomodar los recortes sin
+        # tocar el PNG seguia sirviendo los cuadros viejos desde el cache.
+        marca = os.path.getmtime(ruta) + (os.path.getmtime(lado)
+                                          if os.path.exists(lado) else 0)
         firma = hashlib.sha1(
-            f"{ruta}|{os.path.getmtime(ruta)}|{ancho}x{alto}|{ajuste}|"
+            f"{ruta}|{marca}|{ancho}x{alto}|{ajuste}|"
             f"{opacidad}|{tinte}|{color_base}|{color_tinte}|{conservar_alpha}".encode()
         ).hexdigest()[:12]
 
         rutas, tiempos = [], []
+        recortes = atlas_de(ruta)
         with Image.open(ruta) as animada:
-            total = min(getattr(animada, "n_frames", 1), MAX_CUADROS)
+            total = len(recortes) or min(getattr(animada, "n_frames", 1), MAX_CUADROS)
             for i in range(total):
                 destino = os.path.join(_carpeta(), f"{firma}-{i}.png")
-                animada.seek(i)
+                if not recortes:
+                    animada.seek(i)
                 if not os.path.exists(destino):
                     # Un fondo se aplana contra el color del panel: ocupa la
                     # tarjeta entera y no hay nada detras que dejar ver. Un icono
@@ -104,7 +155,8 @@ def procesar(ruta: str, ancho: int, alto: int, ajuste: str = "recortar",
                     # transparente termina en negro, o sea un cuadrado oscuro
                     # alrededor del dibujo. Tk compone PNG con alpha solo.
                     modo = "RGBA" if conservar_alpha else "RGB"
-                    cuadro = _encajar(animada.convert(modo), ancho, alto, ajuste)
+                    fuente = animada.crop(recortes[i][0]) if recortes else animada
+                    cuadro = _encajar(fuente.convert(modo), ancho, alto, ajuste)
                     if tinte > 0:
                         capa = Image.new(modo, cuadro.size, _rgb(color_tinte))
                         if conservar_alpha:
@@ -123,7 +175,8 @@ def procesar(ruta: str, ancho: int, alto: int, ajuste: str = "recortar",
                             cuadro = Image.blend(fondo, cuadro, max(0, opacidad) / 100)
                     cuadro.save(destino)
                 rutas.append(destino)
-                tiempos.append(int(animada.info.get("duration") or MS_POR_DEFECTO))
+                tiempos.append(recortes[i][1] if recortes
+                               else int(animada.info.get("duration") or MS_POR_DEFECTO))
         return rutas, tiempos
     except Exception:  # noqa: BLE001 - un fondo roto no puede tumbar el overlay
         return [], []
