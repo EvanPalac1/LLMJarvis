@@ -271,6 +271,15 @@ def ajustar(clave: str, valor: str) -> str:
     cfg = store.load_config()
     if clave not in store.DEFAULTS and modulos.tipo_de_clave(cfg, clave) is None:
         return f"No existe la opcion {clave!r}."
+    # Antes que cualquier otra cosa, incluida la autoridad: estas seis gobiernan
+    # los frenos de Eve, y un freno que el frenado puede soltar no es un freno.
+    # No hay modo `eve` ni `preguntar` que las habilite, porque el dialogo de
+    # permiso lo dispara la propia Eve y "¿me dejas apagar tu confirmacion?" no
+    # es una pregunta que deba poder hacer.
+    if clave in store.NUNCA_POR_EVE:
+        store.log_action("ajustar", f"{clave} = {valor}", "RECHAZADO: clave de freno")
+        return (f"No puedo tocar {clave}: es una de las que me frenan a mi. "
+                "Cambiala vos en el panel si querés.")
     if store.trabada(clave, cfg):
         return (f"{clave} la fijo el usuario a mano y manda el usuario. "
                 "Deci que si quiere que la cambies, la destrabe en el panel "

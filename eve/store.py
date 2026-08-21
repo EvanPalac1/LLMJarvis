@@ -923,6 +923,32 @@ def historial_neutro(cfg: dict, ahora: float = 0.0) -> list[dict]:
 
 AUTORIDADES = ("usuario", "eve", "preguntar")
 
+# Las claves que Eve NO puede escribir por `E ajustar`, pase lo que pase.
+#
+# No es una preferencia y por eso no es configurable: son las claves que
+# gobiernan sus propios frenos, y un freno que el frenado puede soltar no es un
+# freno. Sin esta lista, cualquiera de estas cinco lineas desarmaba el resto del
+# programa, y las cinco andaban:
+#
+#   E ajustar confirm_destructive false   apaga la confirmacion de destructivos
+#   E ajustar workdirs C:\                el allowlist de rutas deja de existir
+#   E ajustar addons_aprobados x:abc123   se auto-aprueba un addon sin mostrarlo
+#   E ajustar autoridad eve               se da permiso a si misma
+#   E ajustar claves_del_usuario ""       borra lo que el usuario habia trabado
+#   E ajustar cc_permission_mode bypass   le saca el hook al motor claude-code
+#
+# La aprobacion de addons por huella vivia en la misma config que Eve podia
+# escribir, asi que ese freno entero era decorativo. La asimetria es a proposito:
+# vos las cambias en el panel cuando quieras; ella no, ni preguntando.
+NUNCA_POR_EVE = (
+    "confirm_destructive",
+    "workdirs",
+    "addons_aprobados",
+    "autoridad",
+    "claves_del_usuario",
+    "cc_permission_mode",
+)
+
 
 def marcar_tocadas(claves) -> None:
     """Anota que estas claves las cambio el usuario a mano."""

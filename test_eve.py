@@ -3781,6 +3781,62 @@ def test_aviso_de_licencias():
         assert not build._fuerte(no), no
 
 
+def test_eve_no_puede_soltar_sus_propios_frenos():
+    """`E ajustar` no puede escribir las claves que la frenan.
+
+    Sin esto, cualquiera de estas seis lineas desarmaba el resto del programa, y
+    las seis andaban: apagar la confirmacion de destructivos, abrir el allowlist
+    de rutas a todo el disco, auto-aprobarse un addon --la huella vivia en la
+    misma config que Eve podia escribir, asi que ese freno entero era
+    decorativo--, darse autoridad, borrar lo que el usuario habia trabado, y
+    sacarle el hook al motor claude-code.
+
+    No es configurable a proposito. Un freno que el frenado puede soltar no es un
+    freno, y tampoco alcanza con `autoridad=preguntar`: el dialogo lo dispara la
+    propia Eve, y "¿me dejas apagar tu confirmacion?" no es una pregunta que
+    deba poder hacer. La asimetria es la funcion: el usuario las cambia en el
+    panel cuando quiera; ella no.
+    """
+    from eve import integrations
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            for clave in store.NUNCA_POR_EVE:
+                antes = store.load_config().get(clave)
+                # Un valor valido y distinto del actual: si el rechazo no
+                # existiera, el cambio se aplicaria de verdad.
+                nuevo = {"confirm_destructive": "false", "workdirs": "C:\\",
+                         "addons_aprobados": "malo:a1b2c3", "autoridad": "eve",
+                         "claves_del_usuario": "hud_opacidad",
+                         "cc_permission_mode": "bypassPermissions"}[clave]
+                salida = integrations.ajustar(clave, nuevo)
+                assert store.load_config().get(clave) == antes, f"{clave} se escribio"
+                assert "frenan" in salida, salida
+
+            # Y ni con autoridad `eve`, que es el modo mas permisivo que hay.
+            store.save_config({**store.DEFAULTS, "autoridad": "eve"})
+            assert integrations.ajustar("confirm_destructive", "false")
+            assert store.load_config()["confirm_destructive"] is True
+
+            # Lo cosmetico se sigue pudiendo, o el ajuste no serviria para nada.
+            integrations.ajustar("hud_opacidad", "70")
+            assert store.load_config()["hud_opacidad"] == 70
+        finally:
+            store.CONFIG_PATH = real
+
+    # Toda clave que gobierna un freno tiene que estar en la lista. Si aparece
+    # una nueva y nadie la agrega, esto lo dice antes que un incidente.
+    import re
+
+    gobiernan = {k for k in store.DEFAULTS if re.search(
+        r"confirm|autorid|aprob|workdir|permission", k, re.I)}
+    faltan = gobiernan - set(store.NUNCA_POR_EVE)
+    assert not faltan, f"claves de freno fuera de NUNCA_POR_EVE: {faltan}"
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):

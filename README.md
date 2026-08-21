@@ -1028,6 +1028,18 @@ vuelve a 80, y no hay forma de saber quien gano ni de trabar el valor.
 | `eve` | cambia lo que quiera |
 | `preguntar` | sale un dialogo antes de cada cambio |
 
+**Hay seis claves que Eve no puede escribir, y no es configurable**: las que gobiernan sus
+propios frenos. `confirm_destructive`, `workdirs`, `addons_aprobados`, `autoridad`,
+`claves_del_usuario` y `cc_permission_mode`. Un freno que el frenado puede soltar no es un
+freno, y hasta que esto se cerro las seis andaban: `E ajustar confirm_destructive false`
+apagaba la confirmacion de destructivos, `workdirs C:\` borraba el allowlist de rutas, y
+`addons_aprobados` se auto-aprobaba un addon --la huella vivia en la misma config que Eve
+podia escribir, asi que **ese freno entero era decorativo**.
+
+Tampoco alcanza con `autoridad = preguntar`: el dialogo de permiso lo dispara la propia
+Eve, y "¿me dejas apagar tu confirmacion?" no es una pregunta que deba poder hacer. La
+asimetria es la funcion: vos las cambias en el panel cuando quieras; ella no.
+
 El panel anota que claves tocaste vos, y esa lista es lo que se traba. Se suelta con
 `E destrabar CLAVE`. Del lado de Eve quedan `E ajustar CLAVE VALOR`, `E modulo crear` y
 `E perfil guardar|aplicar`, que es lo que le permite armar una interfaz cuando se lo pedis
