@@ -3929,6 +3929,80 @@ def test_el_cartel_toma_clics_solo_donde_corresponde():
     assert mirar(SinPuntero(0, 0), lista) == ("", False)
 
 
+def test_modo_ayuda():
+    """Que Eve pueda armar la interfaz, hasta donde el usuario la deje."""
+    from eve import integrations, modulos, prompt
+
+    cfg = dict(store.DEFAULTS)
+    assert cfg["ayuda_alcance"] == "datos", "el default es lo que ya se podia"
+
+    # El esquema se GENERA de las tablas: una prop nueva aparece sola y no hay
+    # forma de que la lista quede vieja. Escrito a mano, se pudre.
+    esquema = modulos.esquema_corto()
+    for tipo in modulos.TIPOS:
+        assert tipo in esquema, tipo
+    for prop in ("cantidad", "gravedad", "formato", "estilo"):
+        assert prop in esquema, prop
+    assert "microfono" in esquema, "los valores cerrados tienen que viajar"
+
+    # Cuesta tokens en CADA llamada, asi que se puede apagar. Y `partes()`
+    # tiene que seguir sumando exacto, porque el medidor de contexto se apoya
+    # en esa igualdad.
+    for alcance in ("nada", "datos", "codigo"):
+        c = {**cfg, "ayuda_alcance": alcance}
+        p = prompt.partes(c)
+        assert sum(p.values()) == len(prompt.construir(c)), alcance
+        if alcance == "nada":
+            assert p["interfaz"] == 0, "con `nada` no tiene que viajar nada"
+        else:
+            assert p["interfaz"] > 0, alcance
+    # Y que el precio sea el que se dice en el panel, no el doble.
+    assert prompt.partes({**cfg, "ayuda_alcance": "datos"})["interfaz"] < 1400
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            # `editar` existe porque sin el, cambiarle tres cosas a un modulo
+            # eran tres llamadas a `ajustar` y tres vueltas al modelo.
+            integrations.main(["modulo", "crear", "p1", "--tipo", "particulas",
+                               "--prop", "cantidad=300"])
+            integrations.main(["modulo", "editar", "p1", "--prop", "cantidad=500",
+                               "--prop", "gravedad=90"])
+            m = modulos.leer(store.load_config(), "p1")
+            assert m["cantidad"] == 500 and m["gravedad"] == 90.0, m
+            assert m["tipo"] == "particulas", "editar no puede cambiar el tipo"
+
+            # Los errores tienen que ENSEÑAR: si solo dicen "no existe", el
+            # modelo prueba a ciegas y gasta vueltas.
+            a = integrations.modulo_cmd(_args(accion="editar", id="fantasma",
+                                              prop=["x=1"]))
+            assert "listar" in a, a
+            b = integrations.modulo_cmd(_args(accion="editar", id="p1",
+                                              prop=["inventada=1"]))
+            assert "cantidad" in b, "el error tiene que listar las props validas"
+
+            # Y lo que el usuario trabo a mano, Eve no lo pisa ni editando.
+            cfg2 = store.load_config()
+            cfg2["claves_del_usuario"] = modulos.clave("p1", "cantidad")
+            store.save_config(cfg2)
+            integrations.modulo_cmd(_args(accion="editar", id="p1",
+                                          prop=["cantidad=9"]))
+            assert modulos.leer(store.load_config(), "p1")["cantidad"] == 500
+        finally:
+            store.CONFIG_PATH = real
+
+
+def _args(**kw):
+    """Un namespace como el que arma argparse, para probar los comandos."""
+    import argparse
+
+    base = {"accion": "listar", "id": "", "tipo": "texto", "donde": "overlay",
+            "prop": []}
+    return argparse.Namespace(**{**base, **kw})
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):

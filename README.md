@@ -1047,6 +1047,35 @@ hablando.
 
 ---
 
+## Modo ayuda: que Eve arme la interfaz
+
+En **General > Hasta donde arma sola**. Es el pedido de "que la IA pueda crear los addons,
+botones y personalidades", y son **tres cosas con riesgos muy distintos**, asi que son tres
+niveles y no un interruptor:
+
+| | |
+|---|---|
+| `nada` | no toca nada; es la voz y nada mas |
+| `datos` | modulos, ajustes y perfiles **(por defecto)** |
+| `codigo` | ademas puede DEJAR ESCRITO un addon `.py`, que igual no corre hasta aprobarlo |
+
+`datos` es el default porque es lo que ya se podia hacer. Un modulo son claves planas
+`mod_<id>_<prop>` y el vocabulario es cerrado: Eve no puede inventar una prop, y lo que
+vos trabaste a mano no lo pisa ni editando. Lo peor que puede pasar es un modulo feo, y
+`E modulo borrar` lo saca.
+
+**No hay un cuarto nivel donde apruebe sus propios addons, y no deberia haberlo.** La
+huella del contenido es lo unico que separa un plugin de un agujero: un `.py` nuevo no se
+carga hasta que lo mires y lo apruebes, y editarlo lo vuelve a dejar afuera.
+
+Lo que hacia falta no era codigo nuevo sino que el modelo supiera el vocabulario. Sin eso
+sabe que existe `E modulo crear` pero no que props acepta cada tipo, y las descubre a
+fuerza de error: dos o tres vueltas por pedido, que cuestan mas que mandarle la tabla. La
+tabla **se genera de `modulos.py`**, nunca se escribe a mano, asi que una prop nueva
+aparece sola. Cuesta ~260 tokens por llamada, y con `nada` no viaja.
+
+---
+
 ## EVE.md — el manual del agente
 
 `EVE.md` es lo que Eve lee en cada llamada: como decidir que hacer y como hablar. Editalo

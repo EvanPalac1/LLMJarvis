@@ -259,6 +259,16 @@ DEFAULTS = {
     "hud_x": 40,
     "hud_y": 40,
     "hud_escala": 100,      # porcentaje
+    # Hasta donde puede llegar Eve armando cosas cuando se lo pedis hablando.
+    #   nada     no toca nada; es la voz y nada mas
+    #   datos    modulos, ajustes y perfiles: todo lo que ya es una clave de
+    #            config y pasa por el mismo freno que el panel
+    #   codigo   ademas puede DEJAR ESCRITO un addon .py, que igual no corre
+    #            hasta que lo apruebes a mano en el panel
+    # Por defecto `datos`, que es lo que ya se podia hacer. No hay un cuarto
+    # nivel donde apruebe sus propios addons, y no deberia haberlo: la huella
+    # del contenido es lo unico que separa un plugin de un agujero.
+    "ayuda_alcance": "datos",
     # En que monitor vive el cartel. 0 = donde lo dejes, sin restriccion; 1 en
     # adelante lo fija a ese monitor y lo mantiene adentro. El panel llena la
     # lista preguntandole al sistema, asi que el numero es el de ahi.
@@ -423,6 +433,32 @@ DIALECTOS = {
         "vosotros cuando hablas de varios.",
         "es_ES-sharvard-medium"),
 }
+
+
+def bloque_interfaz(cfg: dict) -> str:
+    """El vocabulario de modulos, para que Eve pueda armar la interfaz.
+
+    Cuesta ~190 tokens en CADA llamada, y por eso es opcional en vez de estar
+    siempre: con `ayuda_alcance = nada` no viaja y el prompt queda como estaba.
+    Sin esta seccion Eve sabe que existe `E modulo crear` pero no que props
+    acepta cada tipo, asi que las descubre a fuerza de error --dos o tres
+    vueltas al modelo por cada pedido, que cuestan mas que los 190 tokens.
+
+    Se genera desde las tablas de `modulos.py`, nunca a mano: una prop nueva
+    aparece sola y no hay forma de que la lista quede vieja.
+    """
+    if str(cfg.get("ayuda_alcance", "datos")) == "nada":
+        return ""
+    from . import modulos
+
+    return (
+        "## Armar la interfaz\n\n"
+        "Si te piden algo visual --\"ponete unas particulas\", \"agranda la "
+        "onda\", \"mostrame el grafo\"-- se hace con `E modulo` y `E ajustar`, "
+        "no describiendolo. Un modulo se ajusta con `E ajustar mod_<id>_<prop>`. "
+        "Una personalidad entera es un perfil.\n\n"
+        + modulos.esquema_corto() + "\n"
+    )
 
 
 def bloque_dialecto(cfg: dict) -> str:

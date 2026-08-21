@@ -154,8 +154,9 @@ Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
   E steam-info                           biblioteca y horas
   E programa NOMBRE                      busca un programa que no este en la lista
   E modulo crear ID --tipo T --donde tablero|overlay --prop x=40 --prop alto=60
-      Arma una pieza de la interfaz de una sola vez. `E modulo tipos` los lista;
-      `E modulo listar` muestra los que hay; `E modulo borrar ID` saca uno.
+      Arma una pieza de la interfaz de una sola vez. `E modulo listar` muestra
+      los que hay; `E modulo editar ID --prop alto=60` cambia varios de un tiro;
+      `E modulo borrar ID` saca uno.
       Sirve cuando te piden "ponete unas particulas" o "mostrame el grafo".
   E perfil listar | guardar NOMBRE | aplicar NOMBRE
       Una personalidad entera: colores, formas, voz y modulos.
@@ -204,17 +205,30 @@ def modulo_cmd(a) -> str:  # noqa: ANN001
         store.log_action("modulo", f"borrar {a.id}", "aplicado")
         return f"Borre el modulo {a.id}."
 
-    if a.tipo not in modulos.TIPOS:
-        return f"No existe el tipo {a.tipo!r}. Hay: " + ", ".join(modulos.TIPOS)
-    if a.id in modulos.identificadores(cfg):
-        return f"Ya existe un modulo {a.id!r}. Usa otro nombre o borra ese."
-    nuevo = {"id": a.id, "tipo": a.tipo, "superficie": a.donde}
-    props = modulos.props_de(a.tipo)
+    editando = a.accion == "editar"
+    if editando:
+        # Editar existe porque sin el, cambiarle tres cosas a un modulo eran
+        # tres llamadas a `ajustar` y tres vueltas al modelo. El tipo sale del
+        # modulo, no del argumento: cambiarlo seria otro modulo.
+        if a.id not in modulos.identificadores(cfg):
+            return f"No existe el modulo {a.id!r}. `E modulo listar` los muestra."
+        actual = modulos.leer(cfg, a.id)
+        nuevo = {"id": a.id, "tipo": actual["tipo"]}
+    else:
+        if a.tipo not in modulos.TIPOS:
+            return f"No existe el tipo {a.tipo!r}. Hay: " + ", ".join(modulos.TIPOS)
+        if a.id in modulos.identificadores(cfg):
+            return f"Ya existe un modulo {a.id!r}. Usa otro nombre o borra ese."
+        nuevo = {"id": a.id, "tipo": a.tipo, "superficie": a.donde}
+    props = modulos.props_de(nuevo["tipo"])
     for par in a.prop:
         clave, _, valor = str(par).partition("=")
         clave = clave.strip()
         if clave not in props or clave == "tipo":
-            return f"{a.tipo} no tiene la propiedad {clave!r}."
+            return (f"{nuevo['tipo']} no tiene la propiedad {clave!r}. Tiene: "
+                    + ", ".join(k for k in props if k != "tipo"))
+        if store.trabada(modulos.clave(a.id, clave), cfg):
+            return f"{clave} de {a.id} lo fijo el usuario a mano y manda el usuario."
         defecto = props[clave][0]
         if isinstance(defecto, bool):
             nuevo[clave] = valor.strip().lower() in ("1", "true", "si", "yes")
@@ -231,7 +245,10 @@ def modulo_cmd(a) -> str:  # noqa: ANN001
         else:
             nuevo[clave] = valor
     store.save_config(modulos.guardar(cfg, nuevo))
-    store.log_action("modulo", f"crear {a.id} ({a.tipo})", "aplicado")
+    store.log_action("modulo", f"{a.accion} {a.id} ({nuevo['tipo']})", "aplicado")
+    if editando:
+        return (f"Listo: cambie {len(a.prop)} cosa(s) de {a.id}. "
+                "Se ve al instante, no hace falta reiniciar nada.")
     return (f"Listo: modulo {a.id} de tipo {a.tipo} en el {a.donde}. "
             "Se ve al instante, no hace falta reiniciar nada.")
 
@@ -1285,7 +1302,8 @@ def main(argv=None) -> int:
     pr.add_argument("nombre")
 
     mo = sub.add_parser("modulo")
-    mo.add_argument("accion", choices=["crear", "borrar", "listar", "tipos"])
+    mo.add_argument("accion",
+                    choices=["crear", "editar", "borrar", "listar", "tipos"])
     mo.add_argument("id", nargs="?", default="")
     mo.add_argument("--tipo", default="texto")
     mo.add_argument("--donde", default="tablero")

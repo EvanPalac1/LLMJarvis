@@ -872,6 +872,23 @@ class Panel(tk.Tk):
             "usuario: lo que cambies a mano queda trabado y Eve no lo pisa.\n"
             "eve: puede cambiar lo que quiera.  preguntar: pide permiso cada vez.\n"
             "Para soltar lo trabado, decile 'destraba <clave>' o borra la lista abajo.")
+        self._row(t, "Hasta donde arma sola", "ayuda_alcance",
+                  ["nada", "datos", "codigo"])
+        self._ayuda(
+            t,
+            "Cuando le pedis algo hablando, hasta donde puede llegar:\n"
+            "  nada    no toca nada; es la voz y nada mas\n"
+            "  datos   modulos, ajustes y perfiles -- todo lo que ya es una\n"
+            "          clave de config y pasa por el mismo freno que el panel\n"
+            "  codigo  ademas puede DEJAR ESCRITO un addon .py, que igual no\n"
+            "          corre hasta que lo apruebes a mano en Addons\n"
+            "No hay un cuarto nivel donde apruebe sus propios addons, y no\n"
+            "deberia haberlo: la huella del contenido es lo unico que separa un\n"
+            "plugin de un agujero.\n"
+            "\nEs OTRO eje que 'Quien manda'. Aquel decide quien gana cuando los\n"
+            "dos quieren el mismo valor; este, que clase de cosa puede crear.\n"
+            "Con 'nada' el prompt tampoco lleva el vocabulario de modulos, que\n"
+            "son ~190 tokens por llamada.")
         self._row(t, "Claves que fijaste vos", "claves_del_usuario", width=44)
 
         ttk.Label(t, text="Rutas de trabajo permitidas (una por linea)").pack(

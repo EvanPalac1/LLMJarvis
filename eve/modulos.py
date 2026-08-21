@@ -159,6 +159,25 @@ def desde_plist(ruta: str) -> dict:
     return props
 
 
+def esquema_corto() -> str:
+    """El vocabulario de modulos, en el formato mas barato que se entiende.
+
+    Va en el system prompt, o sea que viaja en CADA llamada, asi que se genera
+    desde las tablas de arriba en vez de escribirse a mano: una prop nueva
+    aparece sola y no hay forma de que quede vieja. Y se manda cortito --solo
+    lo que distingue a un tipo de otro-- porque las props comunes ya estan
+    explicadas en una linea sola.
+    """
+    lineas = ["Comunes a todos: " + ", ".join(
+        k for k in COMUNES if k not in ("tipo", "superficie"))]
+    for tipo, propias in TIPOS.items():
+        detalle = ", ".join(f"{k}={v[0]!r}" for k, v in propias.items())
+        lineas.append(f"  {tipo}: {detalle}" if detalle else f"  {tipo}")
+    cerradas = [f"{k}={'|'.join(str(x) for x in v)}" for k, v in OPCIONES.items()]
+    lineas.append("Valores cerrados: " + "; ".join(cerradas))
+    return "\n".join(lineas)
+
+
 def props_de(tipo):
     """Todas las props de un tipo: las comunes mas las suyas."""
     return {**COMUNES, **TIPOS.get(tipo, {})}

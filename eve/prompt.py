@@ -31,7 +31,7 @@ lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps
 
 {integrations}
 
-{dialecto}{tono}"""
+{interfaz}{dialecto}{tono}"""
 
 # Claude Code: sin la linea de rutas, que las recibe por `--add-dir`.
 PERSONA = """Sos {name}, un asistente de voz. El usuario te habla por microfono y tu
@@ -48,7 +48,7 @@ lo que se escucho, no exijas coincidencia literal. Si no esta, usa Get-StartApps
 
 {integrations}
 
-{dialecto}{tono}"""
+{interfaz}{dialecto}{tono}"""
 
 
 def _usados(cfg: dict):
@@ -93,6 +93,7 @@ def piezas(cfg: dict) -> dict:
         "catalog": apps.catalog(_usados(cfg)),
         "catalog_header": apps.catalog_header(bool(_usados(cfg))),
         "integrations": integrations.prompt_section(),
+        "interfaz": store.bloque_interfaz(cfg),
         "dialecto": store.bloque_dialecto(cfg),
         "tono": store.bloque_tono(cfg),
     }
