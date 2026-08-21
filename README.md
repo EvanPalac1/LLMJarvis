@@ -1489,6 +1489,37 @@ python diagnostico.py    # que falta en esta PC
 
 Sin frameworks: los tests son `assert` sueltos. Cubren lo que no puede fallar en silencio.
 
+### Donde queda el icono, y por que parece que no arranco
+
+Windows 11 **no** pone los iconos nuevos en la barra de tareas: los manda al
+desplegable de la flechita `^`. No es una eleccion de Eve y no hay API para
+pedir lo contrario --Microsoft saco la promocion programatica a proposito.
+
+Medido en la PC donde aparecio esto, sobre `NotifyIconSettings` del registro:
+de **88 iconos registrados hay UNO** con `IsPromoted = 1`, y es de Microsoft.
+Steam, Discord, Spotify, OBS, NVIDIA y WhatsApp estan todos guardados en el
+mismo desplegable que Eve.
+
+El sintoma es feo porque es indistinguible de una falla: el proceso corre, el
+icono existe, el menu se arma --y no se ve nada. Se reporto dos veces como "no
+aparece el proceso en segundo plano". Por eso Eve **avisa una sola vez**, la
+primera que arranca, con un globo que dice donde esta y como fijarlo.
+
+Para fijarlo: arrastralo fuera del desplegable a la barra, o
+**Configuracion > Personalizacion > Barra de tareas > Otros iconos de la bandeja**.
+
+Si el globo nunca aparece pero el icono si esta, no pasa nada: la marca vive en
+`.aviso_bandeja` dentro de la carpeta de datos, y borrarla lo vuelve a mostrar.
+
+Un detalle del camino, por si vuelve a fallar: el globo de Windows tiene campos
+de tamano fijo --`szInfo` es un `WCHAR[256]`-- y pasarse hace que ctypes rechace
+la llamada entera. El primer mensaje tenia 273 caracteres, el `except` que
+existe para que un globo no impida arrancar se comio el error, y el aviso no
+salio nunca sin dejar rastro. Ahora el texto se recorta antes de mandarlo y hay
+un test que lo comprueba contra los 256 de Windows, no contra nuestra constante.
+
+---
+
 ## Problemas comunes
 
 | Sintoma | Causa |
@@ -1499,6 +1530,6 @@ Sin frameworks: los tests son `assert` sueltos. Cubren lo que no puede fallar en
 | La primera frase tarda muchisimo | Esta descargando el modelo de voz. Pasa una sola vez |
 | No entiende nombres de juegos | Panel > Voz > *Reescanear programas* |
 | La voz no transcribe nada | `Eve.exe --probar-voz` para ver donde corta |
-| No aparece el icono | Esta en el desbordamiento (la flechita); arrastralo a la barra |
+| No aparece el icono / "no arranca" | **Esta corriendo.** Windows 11 manda los iconos nuevos al desplegable de la flechita; ver abajo |
 | Windows dice que es peligroso | Sin firma digital. *Mas informacion > Ejecutar de todas formas* |
 | macOS no lo deja abrir | Boton derecho sobre el `.app` > Abrir, solo la primera vez |

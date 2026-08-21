@@ -144,6 +144,12 @@ def _probar_imports() -> int:
     return 0
 
 
+# Lo que entra en el globo de la bandeja de Windows: `NOTIFYICONDATAW.szInfo`
+# es un WCHAR[256] y `szInfoTitle` un WCHAR[64]. Se deja margen a proposito para
+# que una traduccion mas larga no quede al borde.
+TOPE_GLOBO, TOPE_TITULO_GLOBO = 250, 60
+
+
 def _avisar_donde_esta(icono) -> None:
     """La primera vez que Eve corre, decir DONDE quedo su icono.
 
@@ -169,14 +175,17 @@ def _avisar_donde_esta(icono) -> None:
         if os.path.exists(marca):
             return
         textos.desde_config(store.load_config())
+        # Recortado a lo que entra en el globo de Windows: `szInfo` es un
+        # WCHAR[256] y `szInfoTitle` un WCHAR[64], y pasarse hace que ctypes
+        # rechace la llamada entera. Ya paso: el mensaje en espanol tenia 273
+        # caracteres, el `except` de abajo se comio el error, y el aviso no
+        # salio nunca sin dejar rastro. Que el que traduce tenga que acordarse
+        # del tamano de un struct de Win32 es pedirle que falle.
         icono.notify(
-            tr("Windows 11 guarda los iconos nuevos en el desplegable de la "
-               "flechita de la barra de tareas. Ahi esta Eve, junto a Steam y "
-               "Discord.\n\n"
-               "Para fijarlo en la barra: arrastralo fuera del desplegable, o "
-               "Configuracion > Personalizacion > Barra de tareas > Otros iconos "
-               "de la bandeja."),
-            tr("Eve esta corriendo"),
+            tr("Estoy en el desplegable de la flechita de la barra de tareas, con "
+               "Steam y Discord. Arrastrame fuera para fijarme en la "
+               "barra.")[:TOPE_GLOBO],
+            tr("Eve esta corriendo")[:TOPE_TITULO_GLOBO],
         )
         with open(marca, "w", encoding="utf-8") as f:
             f.write("mostrado una vez\n")

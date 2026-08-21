@@ -4601,6 +4601,33 @@ def test_eve_dice_donde_quedo_su_icono():
         main._avisar_donde_esta(Roto())
         assert not os.path.exists(os.path.join(store.BASE, ".aviso_bandeja")), \
             "se dio por avisado sin haber avisado"
+
+        # Y lo que de verdad rompio esto la primera vez: el globo de Windows
+        # tiene campos de tamano fijo --`szInfo` es WCHAR[256] y `szInfoTitle`
+        # WCHAR[64]-- y pasarse hace que ctypes rechace la llamada ENTERA. El
+        # mensaje en espanol tenia 273 caracteres, el `except` de mas abajo se
+        # comio el ValueError, y el aviso no salio nunca sin dejar rastro.
+        #
+        # Se comprueba con una traduccion larga a proposito, y contra los
+        # tamanos de WINDOWS y no contra nuestra constante: comparar el recorte
+        # con la misma constante que recorta no puede dar falso nunca.
+        WIN_INFO, WIN_TITULO = 256, 64
+        from eve import textos
+
+        real_t = textos.t
+        try:
+            textos.t = lambda s: ("flechita " * 60) if "flechita" in s else s * 40
+            vistos.clear()
+            store.BASE = tempfile.mkdtemp()
+            main._avisar_donde_esta(Falso())
+            assert vistos, "no aviso"
+            titulo, mensaje = vistos[0]
+            assert len(mensaje) <= WIN_INFO, (
+                f"mensaje de {len(mensaje)}: no entra en szInfo[{WIN_INFO}]")
+            assert len(titulo) <= WIN_TITULO, (
+                f"titulo de {len(titulo)}: no entra en szInfoTitle[{WIN_TITULO}]")
+        finally:
+            textos.t = real_t
     finally:
         store.BASE = base_real
 

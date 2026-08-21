@@ -144,12 +144,8 @@ def textos_invisibles(carpeta: str = "") -> list:
 EN = {
     "Eve esta corriendo":
         "Eve is running",
-    "Windows 11 guarda los iconos nuevos en el desplegable de la flechita de la barra de tareas. Ahi esta Eve, junto a Steam y Discord.\n"
-    "\n"
-    "Para fijarlo en la barra: arrastralo fuera del desplegable, o Configuracion > Personalizacion > Barra de tareas > Otros iconos de la bandeja.":
-        "Windows 11 keeps new icons in the flyout behind the arrow on the taskbar. That is where Eve is, next to Steam and Discord.\n"
-        "\n"
-        "To pin it to the taskbar: drag it out of the flyout, or go to Settings > Personalization > Taskbar > Other system tray icons.",
+    "Estoy en el desplegable de la flechita de la barra de tareas, con Steam y Discord. Arrastrame fuera para fijarme en la barra.":
+        "I am in the flyout behind the arrow on the taskbar, with Steam and Discord. Drag me out to pin me to the taskbar.",
     "Buscar un ajuste...   (Ctrl+F)":
         "Search a setting...   (Ctrl+F)",
     "Cartel":
