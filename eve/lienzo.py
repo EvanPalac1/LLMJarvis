@@ -65,6 +65,23 @@ def _rgba(color, opacidad=100):
     return (r, g, b, max(0, min(255, int(255 * opacidad / 100))))
 
 
+def _curva(x: float, easing: str) -> float:
+    """Aplica la curva elegida a un valor de 0 a 1.
+
+    `easing` estaba declarada en COMUNES, salia en el panel de todos los modulos
+    y no la leia nadie. Ahora es la forma en que el nivel del microfono se
+    convierte en movimiento: `lineal` sigue el volumen tal cual, `suave` ignora
+    los ruiditos y exagera los picos, y `rebote` se pasa un poco de largo, que
+    es lo que hace que algo parezca vivo y no una barra de progreso.
+    """
+    x = max(0.0, min(float(x), 1.0))
+    if easing == "suave":
+        return x * x * (3 - 2 * x)          # smoothstep
+    if easing == "rebote":
+        return x * (1.7 - 0.7 * x) if x < 1 else 1.0
+    return x
+
+
 class Particulas:
     """Un sistema de particulas por modulo, en numpy.
 
@@ -226,9 +243,22 @@ class Lienzo:
         if tipo == "lector":
             return base + (str(estado.get("pagina", ""))[:80], modulo.get("tam"))
         if tipo == "icono":
-            # Un GIF, APNG o WebP animado cambia solo; una imagen fija no.
-            fondo = self._fondos.get(modulo["id"])
-            animado = bool(fondo is not None and fondo.hay() and modulo.get("imagen"))
+            # Un GIF, APNG, WebP o sprite sheet cambia solo; una imagen fija no.
+            #
+            # Aca habia dos errores en una linea. `_fondos` guarda la tupla
+            # (clave, rutas, tiempos) que arma `_cuadro_de`, no un
+            # `imagenes.Fondo`, asi que `fondo.hay()` tiraba AttributeError; y
+            # aunque hubiera sido un Fondo, `hay` es una property y llamarla
+            # habria fallado igual. Reventaba en el SEGUNDO cuadro de cualquier
+            # icono con imagen --el primero pasa porque todavia no hay nada
+            # cacheado-- y como ni `overlay.tick` ni `consola.tick` lo atajan,
+            # se cortaba el `after` y el dibujo se congelaba entero.
+            #
+            # De paso, la condicion correcta es "tiene mas de un cuadro" y no
+            # "tiene cuadros": con la vieja, un PNG quieto se declaraba animado
+            # y se repintaba sesenta veces por segundo para mostrar lo mismo.
+            guardado = self._fondos.get(modulo["id"])
+            animado = bool(guardado and len(guardado[1]) > 1 and modulo.get("imagen"))
             return base + (modulo.get("imagen"), modulo.get("lados"),
                            round(ahora, 2) if animado else 0)
         return base
@@ -259,8 +289,18 @@ class Lienzo:
 
     def pintar(self, modulo, estado, ahora):
         """El modulo, como una imagen RGBA de su propio tamaño."""
-        ancho = max(1, int(modulo["ancho"] * modulo["escala"] / 100))
-        alto = max(1, int(modulo["alto"] * modulo["escala"] / 100))
+        # `fuente = microfono` dejo de ser cosa de dos tipos. Antes solo la onda
+        # y las particulas leian el nivel, asi que la perilla estaba en el panel
+        # de todos los modulos y no hacia nada en ninguno de los otros seis. Con
+        # esto late lo que sea: un GIF, un sprite sheet, un reloj, un PNG quieto.
+        # Es lo que separa "tiene animaciones" de "reacciona a tu voz", y vale
+        # para todo lo importado, que por definicion no puede calcular nada.
+        crece = 1.0
+        if str(modulo.get("fuente")) == "microfono" and modulo["tipo"] not in modulos.REACTIVOS:
+            crece = 1.0 + _curva(float(estado.get("nivel") or 0.0),
+                                 str(modulo.get("easing", "lineal"))) * 0.35
+        ancho = max(1, int(modulo["ancho"] * modulo["escala"] / 100 * crece))
+        alto = max(1, int(modulo["alto"] * modulo["escala"] / 100 * crece))
         img = Image.new("RGBA", (ancho, alto), (0, 0, 0, 0))
         dibujo = ImageDraw.Draw(img)
         opac = int(modulo["opacidad"])
@@ -321,7 +361,13 @@ class Lienzo:
         indice = 0
         if len(rutas) > 1:
             total = sum(tiempos) or 100
-            transcurrido = int(time.monotonic() * 1000) % total
+            # `velocidad` es un multiplicador de tiempo, y hasta ahora lo leian
+            # solo la onda y las particulas: acelerar una animacion importada
+            # era algo que el README prometia y el codigo no hacia. Se aplica
+            # corriendo el reloj mas rapido, no re-escribiendo las duraciones,
+            # asi el cache de cuadros sigue sirviendo igual.
+            veloc = max(0.05, min(float(modulo.get("velocidad", 1.0) or 1.0), 20.0))
+            transcurrido = int(time.monotonic() * 1000 * veloc) % total
             acumulado = 0
             for i, ms in enumerate(tiempos):
                 acumulado += ms

@@ -3606,6 +3606,141 @@ def test_particulas_desde_plist():
     assert plistlib.__file__ and "site-packages" not in plistlib.__file__
 
 
+def _recortar_comunes(texto: str) -> str:
+    """Saca la tabla COMUNES del fuente de modulos.py.
+
+    Ahi estan DECLARADAS todas las props, asi que si contara como lectura el
+    test no podria fallar nunca."""
+    cuerpo = texto.split("COMUNES = {", 1)[-1]
+    return cuerpo.split(chr(10) + "}", 1)[-1]
+
+
+def test_las_perillas_del_panel_hacen_algo():
+    """Toda prop que el panel muestra tiene que leerla alguien.
+
+    Es el test que faltaba y por el que se colaron tres mentiras a la vez:
+    `easing` y `pantalla` estaban declaradas en COMUNES, salian en el
+    formulario de TODOS los modulos, y no las leia una sola linea de codigo; y
+    `velocidad` la leian la onda y las particulas nada mas, asi que "una
+    animacion importada se puede escalar, teñir y acelerar" --que el README
+    prometia-- era falso para acelerar.
+
+    Un control que no hace nada es peor que uno que falta: el usuario lo mueve,
+    no pasa nada, y no tiene forma de saber si se rompio el programa o si el
+    valor no era el que esperaba.
+    """
+    from eve import modulos
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    fuentes = ""
+    for nombre in ("modulos.py", "lienzo.py", "overlay.py", "consola.py", "gui.py"):
+        with open(os.path.join(raiz, "eve", nombre), encoding="utf-8") as f:
+            # Se saca la propia tabla COMUNES: ahi estan declaradas todas, y si
+            # contara como lectura el test no podria fallar nunca.
+            texto = f.read()
+            if nombre == "modulos.py":
+                texto = _recortar_comunes(texto)
+            fuentes += texto
+
+    # `tipo` y `superficie` eligen el dibujo y la ventana, no son perillas.
+    #
+    # `pantalla` e `interactivo` estan declaradas y todavia NO implementadas: son
+    # del paso del overlay modular, no de este. Se listan aca a proposito, con
+    # nombre, para que sea una deuda anotada y no una perilla que miente en
+    # silencio; el dia que se implementen se sacan de esta lista y el test las
+    # exige como a las demas. Lo que la lista NO permite es que aparezca una
+    # perilla nueva sin nadie que la lea.
+    PENDIENTES = ("pantalla", "interactivo")
+    sin_leer = [p for p in modulos.COMUNES
+                if p not in ("tipo", "superficie") + PENDIENTES
+                and f'"{p}"' not in fuentes]
+    assert not sin_leer, f"props que el panel muestra y nadie lee: {sin_leer}"
+
+    # Y que las pendientes sigan pendientes de verdad: si alguna se implemento,
+    # hay que sacarla de la lista o el test deja de cuidar nada.
+    ya_estan = [p for p in PENDIENTES if f'"{p}"' in fuentes]
+    assert not ya_estan, f"ya se implementaron, sacalas de PENDIENTES: {ya_estan}"
+
+
+def test_icono_animado_no_revienta_en_el_segundo_cuadro():
+    """El bug que congelaba el dibujo entero de un icono con imagen.
+
+    `_fondos` guarda la tupla (clave, rutas, tiempos) que arma `_cuadro_de`, no
+    un `imagenes.Fondo`. La firma llamaba `fondo.hay()`, que no existe en una
+    tupla --y que aunque el objeto hubiera sido el correcto habria fallado
+    igual, porque `hay` es una property. El primer cuadro pasaba porque todavia
+    no habia nada cacheado, y el segundo tiraba AttributeError adentro del
+    `after` de tkinter, que nadie ataja: el overlay se quedaba quieto.
+    """
+    from PIL import Image
+
+    from eve import lienzo, modulos
+
+    base = {k: v[0] for k, v in modulos.props_de("icono").items()}
+    with tempfile.TemporaryDirectory() as tmp:
+        png = os.path.join(tmp, "ico.png")
+        Image.new("RGBA", (32, 32), (200, 60, 60, 255)).save(png)
+        mod = {**base, "id": "x", "tipo": "icono", "imagen": png}
+        lz = lienzo.Lienzo.__new__(lienzo.Lienzo)
+        lz._fondos = {}
+        estado = {"nivel": 0.0}
+
+        lz._firma(mod, estado, 1.0)                      # primera vez: sin cache
+        lz._fondos["x"] = ((png, 64, 64, 100), [png], [100])
+        fija = lz._firma(mod, estado, 1.0)               # aca reventaba
+        lz._fondos["x"] = ((png, 64, 64, 100), [png] * 3, [80, 80, 80])
+        animada = lz._firma(mod, estado, 2.0)
+
+        # Y la condicion correcta es "mas de un cuadro", no "tiene cuadros":
+        # con la vieja, un PNG quieto se declaraba animado y se repintaba
+        # sesenta veces por segundo para mostrar exactamente lo mismo.
+        assert fija[-1] == 0, "una imagen fija no se repinta sola"
+        assert animada[-1] != 0, "una animada tiene que cambiar con el tiempo"
+
+
+def test_easing_y_reaccion_al_microfono():
+    """Las tres curvas, y que `fuente: microfono` valga para cualquier tipo."""
+    from PIL import Image
+
+    from eve import lienzo, modulos
+
+    # lineal sigue el volumen tal cual; suave ignora los ruiditos y exagera los
+    # picos; rebote se pasa de largo, que es lo que parece vivo.
+    for e in ("lineal", "suave", "rebote"):
+        assert lienzo._curva(0, e) == 0.0 and lienzo._curva(1, e) == 1.0, e
+    assert lienzo._curva(0.25, "suave") < 0.25 < lienzo._curva(0.25, "rebote")
+    # Fuera de rango se acota: el nivel del microfono se calcula con un min()
+    # pero un modulo puede recibir cualquier cosa de un perfil ajeno.
+    assert lienzo._curva(-5, "suave") == 0.0 and lienzo._curva(9, "rebote") == 1.0
+    assert lienzo._curva(0.5, "loquesea") == 0.5, "una curva desconocida es lineal"
+
+    # Un Lienzo de verdad necesita un canvas; sin pantalla no hay tkinter, y el
+    # CI de Linux corre sin servidor grafico. Se arma a mano solo lo que `pintar`
+    # toca para un reloj, que es la unica forma de probar esto sin display.
+    base = {k: v[0] for k, v in modulos.props_de("reloj").items()}
+    lz = lienzo.Lienzo.__new__(lienzo.Lienzo)
+    lz._fondos = {}
+    lz._cache_fuentes = {}
+    lz.familia = "Consolas"
+    lz.por_punto = 96 / 72
+    lz.paleta = {"panel": "#101010", "acento": "#44aaff", "texto": "#eeeeee",
+                 "texto_tenue": "#888888", "acento2": "#ffaa44",
+                 "borde": "#333333", "alerta": "#ff4444"}
+    quieto = {**base, "id": "r", "tipo": "reloj", "fuente": "reloj",
+              "ancho": 100, "alto": 40}
+    late = {**quieto, "fuente": "microfono"}
+
+    # Un reloj no es de los tipos "reactivos", y antes de esto la perilla
+    # `fuente` no hacia absolutamente nada en el ni en otros cinco tipos.
+    chico = lz.pintar(late, {"nivel": 0.0}, 1.0)
+    grande = lz.pintar(late, {"nivel": 1.0}, 1.0)
+    assert grande.size[0] > chico.size[0], "no reacciona al microfono"
+    # Y con fuente=reloj el tamaño no depende del nivel.
+    a = lz.pintar(quieto, {"nivel": 0.0}, 1.0)
+    b = lz.pintar(quieto, {"nivel": 1.0}, 1.0)
+    assert a.size == b.size, "reacciona cuando no se lo pidieron"
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):

@@ -958,9 +958,18 @@ autoridad existe para evitar.
 
 Todas comparten `velocidad`, `easing`, `escala`, `rotacion`, `opacidad`, `tinte`, `color`
 y `cuando` (siempre, trabajando, al pasar el mouse). La que las separa es **`fuente`**:
-`reloj` o `microfono`. Una animacion importada se puede escalar, teñir y acelerar, pero
-no puede **reaccionar**; para eso el dibujo lo tiene que calcular la maquina. Por eso las
-particulas y la onda responden a tu voz de verdad.
+`reloj` o `microfono`.
+
+**Cualquier modulo puede reaccionar a tu voz**, no solo los dos que la calculan. Con
+`fuente = microfono` el nivel del microfono agranda el modulo hasta un 35%, y `easing`
+decide con que curva: `lineal` sigue el volumen tal cual, `suave` ignora los ruiditos y
+exagera los picos, y `rebote` se pasa un poco de largo, que es lo que hace que algo
+parezca vivo y no una barra de progreso. Asi late un GIF, un sprite sheet, un reloj o un
+PNG quieto, que es justo lo que una animacion importada no puede calcular sola.
+
+La onda y las particulas siguen siendo distintas: no se agrandan con tu voz, la **dibujan**
+--la forma de la onda ES el historial de niveles-- y eso ninguna animacion importada lo
+puede hacer.
 
 El rendimiento sale de una medicion, no de un gusto. Sobre 1200x800 con seis modulos con
 alpha y 500 particulas:
