@@ -81,16 +81,55 @@ if sys.platform == "win32":
     IMPORTS_CRITICOS.append("winreg")
 
 
+# Estos abren una conexion con el servidor de ventanas al importarse. En un
+# runner sin pantalla eso revienta, y no dice nada sobre si el modulo viajo.
+NECESITAN_PANTALLA = ("pystray", "pynput")
+
+SIN_PANTALLA = ("display", "DisplayName", "X connection", "_xorg", "$DISPLAY")
+
+
+def _es_falta_de_pantalla(exc: BaseException) -> bool:
+    """Si el import fallo por no haber servidor de ventanas, no por faltar.
+
+    Se mira el texto del error y no el tipo porque cada libreria elige el suyo:
+    pystray tira `Xlib.error.DisplayNameError` y pynput un `ImportError` con el
+    motivo adentro del mensaje.
+    """
+    texto = f"{type(exc).__name__}: {exc}"
+    return any(marca in texto for marca in SIN_PANTALLA)
+
+
 def _probar_imports() -> int:
-    """Importa lo critico y devuelve 1 si falta algo. Corre DENTRO del paquete."""
+    """Verifica que lo critico VIAJE en el binario. Corre DENTRO del paquete.
+
+    "No viajo" y "no hay pantalla" no son lo mismo, y confundirlos freno un
+    release entero: `pystray` y `pynput` abrian una conexion con X al importarse
+    y en el runner de Linux no hay ninguna, asi que el paquete --que estaba
+    perfecto-- se reportaba como incompleto.
+
+    Cuando el import falla por falta de pantalla se cae a buscar el spec del
+    modulo, que es lo que de verdad contesta la pregunta y no necesita display.
+    """
     import importlib
+    import importlib.util
 
     faltan = []
     for nombre in IMPORTS_CRITICOS + PROPIOS_DIFERIDOS:
         try:
             importlib.import_module(nombre)
         except Exception as exc:  # noqa: BLE001 - vale cualquier motivo
-            faltan.append(f"{nombre}: {type(exc).__name__}: {exc}")
+            sin_pantalla = nombre in NECESITAN_PANTALLA and _es_falta_de_pantalla(exc)
+            if not sin_pantalla:
+                faltan.append(f"{nombre}: {type(exc).__name__}: {exc}")
+                continue
+            try:
+                viaja = importlib.util.find_spec(nombre) is not None
+            except Exception:  # noqa: BLE001 - un spec roto tambien es no viajar
+                viaja = False
+            if viaja:
+                print(f"  ok  {nombre}  (viaja; sin pantalla para importarlo)")
+            else:
+                faltan.append(f"{nombre}: no viaja en el paquete")
         else:
             print(f"  ok  {nombre}")
     if faltan:
