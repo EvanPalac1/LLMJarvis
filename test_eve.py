@@ -4264,6 +4264,62 @@ def test_el_panel_arma_en_ingles():
         gc.collect()
 
 
+def test_cambiar_el_idioma_guarda_y_no_pierde_nada():
+    """Elegir otro idioma escribe la clave, conserva lo demas y reabre el panel.
+
+    Las tres cosas importan por separado. Que escriba `ui_idioma` es la funcion;
+    que NO pise el resto de la config es lo que hace que se pueda cambiar el
+    idioma en medio de una edicion sin perderla; y que reabra el panel es lo que
+    evita la pantalla mitad en un idioma y mitad en el otro.
+
+    El relanzamiento se intercepta: abrir una ventana de verdad desde un test
+    deja un proceso colgado que nadie cierra.
+    """
+    import gc
+    import os
+    import tempfile
+    import tkinter as tk
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+
+    from eve import gui, textos, tray
+
+    antes_ruta = store.CONFIG_PATH
+    antes_idioma = textos.actual()
+    abrir_real = tray.open_panel
+    tmp = tempfile.mkdtemp()
+    store.CONFIG_PATH = os.path.join(tmp, "config.json")
+    store.save_config({**store.DEFAULTS, "ui_idioma": "es",
+                       "assistant_name": "Marcador"})
+    reabierto = []
+    tray.open_panel = lambda: reabierto.append(1)
+    panel = None
+    try:
+        panel = gui.Panel()
+        panel.withdraw()
+        panel.idioma_var.set(textos.IDIOMAS["en"])
+        panel._cambiar_idioma()
+
+        guardado = store.load_config()
+        assert guardado["ui_idioma"] == "en", guardado["ui_idioma"]
+        assert guardado["assistant_name"] == "Marcador", "piso otra clave"
+        assert reabierto, "no reabrio el panel: quedaria mitad traducido"
+    finally:
+        if panel is not None:
+            try:
+                panel.destroy()
+            except tk.TclError:
+                pass  # `_cambiar_idioma` ya lo destruyo si llego hasta el final
+        tray.open_panel = abrir_real
+        store.CONFIG_PATH = antes_ruta
+        textos.usar(antes_idioma)
+        gc.collect()
+
+
 def test_el_panel_no_muestra_todo_de_una():
     """Modo `esencial`: lo de ajuste fino arranca plegado, y nada desaparece.
 
