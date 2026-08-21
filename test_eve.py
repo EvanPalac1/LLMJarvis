@@ -4,6 +4,7 @@ seguridad y la ventana de contexto. Sin dependencias externas.
     python test_eve.py
 """
 
+import gc
 import json
 import os
 import re
@@ -1783,6 +1784,16 @@ def test_menu_bandeja():
             assert "Salir" in [i.text for i in icono.menu]
         finally:
             store.PERFILES_PATH = real
+            # Los dos iconos de pystray se sueltan aca a proposito. Cada
+            # `build()` crea objetos del sistema y, en Windows, el backend
+            # levanta su propio hilo; si quedan para que el recolector los junte
+            # cuando quiera, ese hilo termina liberando un interprete de Tcl que
+            # creo el hilo principal y el proceso ABORTA con "Tcl_AsyncDelete:
+            # async handler deleted by the wrong thread". No es una teoria: sin
+            # estas tres lineas la suite se cortaba en el test siguiente, cinco
+            # corridas de cinco, y el test que moria no tenia nada que ver.
+            icono = perfiles = None
+            gc.collect()
 
 
 def test_icono_con_transparencia():
