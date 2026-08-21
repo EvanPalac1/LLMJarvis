@@ -369,12 +369,27 @@ TOPE_TONO = 400
 # viaja en cada llamada, y el proyecto se paso un dia entero recortando el prompt
 # como para gastarlo en un ensayo sobre dialectologia.
 #
-# `voz` es la voz de Piper que le corresponde. La eleccion no es de gusto:
-# `es_AR-daniela-high` es la que peor se entiende de las siete voces en espanol
-# de Piper --16.9% y 19.3% de WER al volver a transcribirla en dos corridas,
-# contra 7-10% de las demas-- y ademas la mas lenta por lejos. Por eso hasta el
-# dialecto rioplatense sugiere una voz mexicana: la voz es el canal, no el
-# acento del que habla.
+# `voz` es la voz de Piper que le corresponde, y no es una eleccion de gusto.
+# Las siete voces en espanol de Piper, tres corridas cada una, sintetizando diez
+# frases y volviendo a transcribirlas con el mejor reconocedor que hay:
+#
+#   es_ES-sharvard-medium   4.8  6.0  8.4  ->  6.4%   RTF 0.09
+#   es_MX-claude-high       7.2  6.0  7.2  ->  6.8%   RTF 0.08
+#   es_ES-davefx-medium     8.4  7.2  9.6  ->  8.4%   RTF 0.09
+#   es_ES-carlfm-x_low     10.8  9.6  9.6  -> 10.0%   RTF 0.05
+#   es_MX-ald-medium        9.6 12.0  9.6  -> 10.4%   RTF 0.09
+#   es_MX-ald-x_low        14.5  8.4 10.8  -> 11.2%   RTF 0.08
+#   es_AR-daniela-high     24.1 21.7 15.7  -> 20.5%   RTF 0.43
+#
+# Hacen falta las tres corridas: Piper no es determinista y una misma voz se
+# mueve entre 1.2 y 8.4 puntos, mediana 2.4. Con una sola medicion, casi todo
+# este orden seria ruido.
+#
+# Lo que sobrevive a esa banda: `es_AR-daniela-high` es la peor de las siete por
+# mucho y la mas lenta por cinco veces. Por eso hasta el dialecto rioplatense
+# sugiere una voz mexicana: la voz es el canal, no el acento del que habla.
+# Y `es_MX-claude-high` le gana a `es_MX-ald-medium` de verdad --su PEOR corrida
+# es mejor que la mejor de la otra-- asi que el dialecto mexicano tambien la usa.
 DIALECTOS = {
     "": ("", ""),
     "rioplatense": (
@@ -388,7 +403,7 @@ DIALECTOS = {
     "mexicano": (
         "Hablas espanol de Mexico: tu, con giros de ahi. Ahorita, ya quedo, "
         "orale, sale.",
-        "es_MX-ald-medium"),
+        "es_MX-claude-high"),
     "castellano": (
         "Hablas espanol de Espana: tu, con giros de ahi. Vale, ordenador, movil, "
         "vosotros cuando hablas de varios.",

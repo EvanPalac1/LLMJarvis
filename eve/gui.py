@@ -1456,16 +1456,17 @@ class Panel(tk.Tk):
             "\nLa voz va aparte porque no es lo mismo. Medido sobre diez frases,\n"
             "sintetizando y volviendo a transcribir --si el mejor reconocedor que\n"
             "hay no la entiende, vos con el juego de fondo tampoco:\n"
-            "  es_ES-davefx-medium    7.2 a 8.4%    es_MX-ald-x_low    8.4 a 9.6%\n"
-            "  es_ES-sharvard-medium  7.2 a 8.4%    es_ES-carlfm-x_low 9.6 a 14.5%\n"
-            "  es_MX-claude-high      7.2 a 8.4%    es_AR-daniela-high  16.9 a 19.3%\n"
-            "  es_MX-ald-medium       8.4 a 9.6%\n"
-            "Son rangos porque Piper sintetiza con algo de azar: la misma voz\n"
-            "repetida se mueve un punto largo. Las de arriba empatan entre si.\n"
-            "es_AR-daniela-high queda muy afuera, y es la mas lenta. Por eso\n"
-            "hasta la variante rioplatense sugiere una voz mexicana: la voz es\n"
-            "el canal, no el acento del que habla. Si igual la queres, elegila\n"
-            "a mano.")
+            "  es_ES-sharvard-medium   6.4%     es_ES-carlfm-x_low  10.0%\n"
+            "  es_MX-claude-high       6.8%     es_MX-ald-medium    10.4%\n"
+            "  es_ES-davefx-medium     8.4%     es_MX-ald-x_low     11.2%\n"
+            "                                   es_AR-daniela-high  20.5%\n"
+            "Es la media de tres corridas, y hacen falta las tres: Piper no es\n"
+            "determinista y una misma voz se mueve hasta 8 puntos. Con una sola\n"
+            "medicion casi todo este orden seria ruido.\n"
+            "Lo que sobrevive: es_AR-daniela-high es la peor por mucho y la mas\n"
+            "lenta por cinco veces. Por eso hasta la variante rioplatense\n"
+            "sugiere una voz mexicana: la voz es el canal, no el acento del que\n"
+            "habla. Si igual la queres, elegila a mano en Voz de Piper.")
 
         pers = ttk.LabelFrame(t, text="Personalidad")
         pers.pack(fill="x", padx=12, pady=(12, 4))
