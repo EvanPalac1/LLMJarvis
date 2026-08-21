@@ -436,6 +436,40 @@ class Hud(Ventana):
     def avanzar(self, objetivo: float) -> None:
         self.pintor.avanzar(objetivo)
 
+    def bajo_el_puntero(self, lista):
+        """(id del modulo que tiene el mouse encima, si alguno recibe clics).
+
+        Un solo poll resuelve dos props que estaban muertas. `interactivo`
+        estaba declarada y no la leia nadie; `cuando = hover` tampoco dibujaba
+        nunca, porque `lienzo.dibujar` lee `estado["hover"]` y nadie la escribia.
+        Las dos fallaban por lo mismo: el programa no sabia donde estaba el
+        mouse.
+
+        Se pregunta en vez de escuchar eventos porque la ventana es fantasma:
+        una ventana con WS_EX_TRANSPARENT no recibe `<Motion>`, asi que
+        esperarlo seria esperar para siempre. `winfo_pointerxy` le pregunta al
+        servidor de ventanas y funciona igual.
+
+        No se parte el cartel en dos ventanas, que era el plan viejo. Click
+        through es por ventana, si, pero se puede prender y apagar treinta veces
+        por segundo: si el puntero esta sobre un modulo que recibe clics, se
+        saca el bit; si no, se pone. Partir en dos rompia `z` --el orden entre
+        ventanas lo decide el gestor, no nosotros-- y obligaba a partir tambien
+        el contorno de la tarjeta, que lo pinta el chrome sobre el mismo canvas.
+        """
+        try:
+            px, py = self.winfo_pointerxy()
+        except Exception:  # noqa: BLE001 - sin puntero (CI sin pantalla)
+            return "", False
+        x, y = self.winfo_rootx(), self.winfo_rooty()
+        encima, toma_clics = "", False
+        for modulo in lista:
+            mx, my = x + int(modulo["x"]), y + int(modulo["y"])
+            if mx <= px < mx + int(modulo["ancho"]) and my <= py < my + int(modulo["alto"]):
+                encima = modulo["id"]           # gana el ultimo, que es el de arriba
+                toma_clics = bool(modulo.get("interactivo"))
+        return encima, toma_clics
+
     def pintar(self, estado: str, titulo: str, linea2: str, vista=None) -> None:
         # Se arma una vez por config, no treinta veces por segundo: recorrer
         # las claves y materializar cada modulo en cada cuadro es trabajo que no
@@ -449,8 +483,19 @@ class Hud(Ventana):
             self.pintor.pintar(self.lienzo, estado, titulo, linea2)
             return
         self.pintor.pintar_chrome(self.lienzo)
+        encima, toma_clics = self.bajo_el_puntero(lista)
+        # Mientras el puntero esta sobre un modulo que recibe clics, el cartel
+        # deja de ser fantasma. `fantasma()` ya de-duplica el SetWindowPos, asi
+        # que preguntarlo en cada cuadro no parpadea ni cuesta.
+        if str(self.cfg.get("overlay_clics", "hover")) == "hover":
+            self.fantasma(not toma_clics)
+        elif str(self.cfg.get("overlay_clics", "hover")) == "fijo":
+            self.fantasma(False)
+        else:
+            self.fantasma(True)
         self.modulos.dibujar(lista, {
             "estado": estado,
+            "hover": encima,
             "nivel": _num(vista or {}, "nivel", 0, 1),
             "detalle": linea2,
             "titulo": titulo,
@@ -625,12 +670,29 @@ class Overlay:
                       self._escritorio())
 
     def _escritorio(self) -> tuple:
-        """(x0, y0, ancho, alto) de todos los monitores juntos.
+        """(x0, y0, ancho, alto) donde el cartel puede vivir.
 
-        En Windows tk no implementa el virtual root y devuelve el monitor
-        principal, asi que se le pregunta al sistema: si no, arrastrar el cartel
-        al segundo monitor lo devolvia de un salto al primero.
+        Con `overlay_pantalla = 0` es el escritorio entero, o sea todos los
+        monitores juntos, que es como venia: asi arrastrar el cartel de una
+        pantalla a la otra sigue funcionando. Con 1 o mas, es ese monitor solo,
+        y ahi acotar() lo mantiene adentro --que es lo que hace que elegir
+        pantalla signifique algo y no solo mueva el cartel una vez.
+
+        `overlay_area = trabajo` descuenta la barra de tareas. Es lo que evita
+        que el cartel quede debajo de ella cuando se lo manda a la esquina de
+        abajo, y solo Windows sabe decirlo; en el resto es igual al completo.
         """
+        elegida = int(_num(self.cfg, "overlay_pantalla", 0, 16))
+        if elegida:
+            pantallas = plataforma.monitores()
+            if 0 < elegida <= len(pantallas):
+                m = pantallas[elegida - 1]
+                if str(self.cfg.get("overlay_area", "trabajo")) == "trabajo":
+                    return tuple(m["trabajo"])
+                return (m["x"], m["y"], m["ancho"], m["alto"])
+            # Se pidio un monitor que ya no esta --lo desenchufaron, o la
+            # config viajo en un perfil desde otra maquina. Cae al escritorio
+            # entero en vez de dejar el cartel en un lugar que no existe.
         if plataforma.WINDOWS:
             import ctypes
 

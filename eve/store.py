@@ -259,6 +259,20 @@ DEFAULTS = {
     "hud_x": 40,
     "hud_y": 40,
     "hud_escala": 100,      # porcentaje
+    # En que monitor vive el cartel. 0 = donde lo dejes, sin restriccion; 1 en
+    # adelante lo fija a ese monitor y lo mantiene adentro. El panel llena la
+    # lista preguntandole al sistema, asi que el numero es el de ahi.
+    "overlay_pantalla": 0,
+    # `trabajo` descuenta la barra de tareas, `completa` no. Solo cambia algo en
+    # Windows: en macOS y Linux no hay forma de saberlo sin mas dependencias.
+    "overlay_area": "trabajo",
+    # Cuando el cartel deja de ser fantasma y toma los clics.
+    #   nunca   nunca los toma; es lo de siempre
+    #   hover   solo mientras el puntero esta sobre un modulo `interactivo`
+    #   fijo    siempre los toma (y siempre tapa lo que este debajo)
+    # `hover` es el default porque no hay que aprender nada: si no configuraste
+    # ningun modulo interactivo, se comporta igual que `nunca`.
+    "overlay_clics": "hover",
     "hud_opacidad": 92,     # porcentaje
     "hud_titulo": "",       # vacio = el nombre de la IA
     "hud_subtitulo": "Canal de Seguridad 7",

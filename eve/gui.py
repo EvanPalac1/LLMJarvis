@@ -108,6 +108,7 @@ class Panel(tk.Tk):
         nb = ttk.Notebook(self)
         nb.pack(side="top", fill="both", expand=True, padx=10, pady=(10, 6))
         self.vars: dict[str, tk.Variable] = {}
+        self._nombres_pantalla = {}
         self.key_vars: dict[str, tk.Variable] = {}
         # Siete pestañas agrupadas por lo que uno viene a hacer, no por modulo.
         nb.add(self._tab_general(nb), text="  General  ")
@@ -1209,6 +1210,23 @@ class Panel(tk.Tk):
         messagebox.showinfo("Voz", f"Voz puesta en {clave}. Guarda para aplicarlo.",
                             parent=self)
 
+    def _pantallas(self) -> list:
+        """Los numeros de monitor que se pueden elegir, con su tamaño al lado.
+
+        Se le pregunta al sistema en vez de ofrecer un entero a ciegas: elegir
+        "2" sin saber cual es el 2 es adivinar. Si no se pueden enumerar --pasa
+        en Linux sin xrandr-- queda solo el 0, que es el comportamiento de
+        siempre, y no se ofrece una opcion que no haria nada.
+        """
+        from . import plataforma
+
+        valores = ["0"]
+        for i, m in enumerate(plataforma.monitores(), 1):
+            marca = " principal" if m["principal"] else ""
+            valores.append(f"{i}")
+            self._nombres_pantalla[f"{i}"] = f"{m['ancho']}x{m['alto']}{marca}"
+        return valores
+
     def _voz_sel(self) -> str:
         sel = self.voz_tree.selection()
         return self.voz_tree.item(sel[0], "values")[0] if sel else ""
@@ -1985,6 +2003,36 @@ class Panel(tk.Tk):
                   ["barras", "espejo", "linea", "puntos", "ninguna"])
         self._row(caja, "Escala (%)", "hud_escala")
         self._row(caja, "Opacidad (%)", "hud_opacidad")
+        self._ayuda(
+            caja,
+            "Menos de 10 se trata como 10: por debajo de eso el cartel no se ve\n"
+            "y no habria forma de encontrarlo para subirlo de nuevo. La opacidad\n"
+            "de cada modulo se MULTIPLICA con esta, asi que 20% de ventana por\n"
+            "20% de modulo da 4% de verdad.")
+
+        self._row(caja, "Pantalla", "overlay_pantalla", self._pantallas())
+        self._row(caja, "Area", "overlay_area", ["trabajo", "completa"])
+        self._ayuda(
+            caja,
+            "0 = donde lo dejes, sin restriccion, y podes arrastrarlo de un\n"
+            "monitor al otro. 1 en adelante lo fija a ese monitor y lo mantiene\n"
+            "adentro aunque lo arrastres. Si desenchufas el que elegiste, vuelve\n"
+            "al escritorio entero en vez de quedar en un lugar que no existe.\n"
+            "'trabajo' descuenta la barra de tareas; solo cambia algo en Windows.")
+
+        self._row(caja, "Toma clics", "overlay_clics", ["nunca", "hover", "fijo"])
+        self._ayuda(
+            caja,
+            "El cartel normalmente deja pasar los clics al programa de atras.\n"
+            "  nunca   nunca los toma\n"
+            "  hover   solo mientras el puntero esta sobre un modulo marcado\n"
+            "          como 'interactivo'; si no marcaste ninguno, es igual\n"
+            "          que 'nunca'\n"
+            "  fijo    siempre los toma, y siempre tapa lo que este debajo\n"
+            "Se pregunta donde esta el puntero treinta veces por segundo en vez\n"
+            "de escuchar eventos, porque una ventana que deja pasar los clics\n"
+            "tampoco recibe los de movimiento: esperarlos seria esperar para\n"
+            "siempre. Ese mismo poll es el que hace andar 'cuando = hover'.")
 
         self._row(caja, "Forma", "hud_forma", ["caja", "recortado"])
         self._ayuda(

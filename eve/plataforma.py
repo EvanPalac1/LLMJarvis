@@ -500,3 +500,112 @@ def _fuente_fontconfig(familia: str, negrita: bool) -> str:
         return ""
     ruta = (r.stdout or "").strip()
     return ruta if ruta and os.path.exists(ruta) else ""
+
+
+def monitores() -> list[dict]:
+    """Los monitores conectados: `[{x, y, ancho, alto, trabajo, principal}]`.
+
+    `trabajo` es el rectangulo sin la barra de tareas; en los sistemas donde no
+    se puede saber, es igual al completo. El principal va primero, y el resto
+    ordenado por posicion, para que el numero que elige el usuario sea estable
+    entre arranques.
+
+    **tkinter no da esta lista en ningun sistema.** `winfo_screenwidth` es el
+    monitor principal y `winfo_vroot*` es el rectangulo de todos juntos, que es
+    lo que ya usa `overlay._escritorio()`. Asi que hay una via por sistema, y
+    las tres usan algo que el proyecto ya tiene:
+
+      Windows  EnumDisplayMonitors por ctypes, igual que los dialogos nativos
+      macOS    Quartz, que viaja como dependencia dura de pynput en darwin
+      Linux    `xrandr --listmonitors`, el mismo criterio que `fc-match`
+
+    Si alguna falla, se devuelve UNA sola pantalla con el rectangulo virtual.
+    Un cartel en el monitor equivocado es molesto; uno fuera de la vista, no se
+    puede arreglar sin editar la config a mano.
+    """
+    try:
+        crudos = _monitores_windows() if WINDOWS else (
+            _monitores_macos() if MACOS else _monitores_linux())
+    except Exception:  # noqa: BLE001 - cualquier motivo da lo mismo: se degrada
+        crudos = []
+    if not crudos:
+        return []
+    principal = [m for m in crudos if m["principal"]]
+    resto = sorted((m for m in crudos if not m["principal"]),
+                   key=lambda m: (m["x"], m["y"]))
+    return principal + resto
+
+
+def _monitores_windows() -> list[dict]:
+    import ctypes
+    from ctypes import wintypes
+
+    class RECT(ctypes.Structure):
+        _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                    ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [("cbSize", ctypes.c_ulong), ("rcMonitor", RECT),
+                    ("rcWork", RECT), ("dwFlags", ctypes.c_ulong)]
+
+    salida = []
+    PROTO = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HMONITOR, wintypes.HDC,
+                               ctypes.POINTER(RECT), wintypes.LPARAM)
+
+    def por_cada(hmon, _hdc, _rect, _datos):
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(MONITORINFO)
+        if ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(info)):
+            r, t = info.rcMonitor, info.rcWork
+            salida.append({
+                "x": r.left, "y": r.top,
+                "ancho": r.right - r.left, "alto": r.bottom - r.top,
+                "trabajo": (t.left, t.top, t.right - t.left, t.bottom - t.top),
+                "principal": bool(info.dwFlags & 1),   # MONITORINFOF_PRIMARY
+            })
+        return 1
+
+    ctypes.windll.user32.EnumDisplayMonitors(0, 0, PROTO(por_cada), 0)
+    return salida
+
+
+def _monitores_macos() -> list[dict]:
+    # Quartz llega por pynput, que en darwin depende de pyobjc-framework-Quartz.
+    from Quartz import CGDisplayBounds, CGGetActiveDisplayList, CGMainDisplayID
+
+    ok, ids, cuantos = CGGetActiveDisplayList(16, None, None)
+    if ok != 0:
+        return []
+    principal = CGMainDisplayID()
+    salida = []
+    for ident in list(ids)[:cuantos]:
+        caja = CGDisplayBounds(ident)
+        x, y = int(caja.origin.x), int(caja.origin.y)
+        w, h = int(caja.size.width), int(caja.size.height)
+        salida.append({"x": x, "y": y, "ancho": w, "alto": h,
+                       "trabajo": (x, y, w, h),  # el Dock no se puede restar asi
+                       "principal": ident == principal})
+    return salida
+
+
+def _monitores_linux() -> list[dict]:
+    import re
+    import shutil
+    import subprocess
+
+    if not shutil.which("xrandr"):
+        return []
+    salida = subprocess.run(["xrandr", "--listmonitors"], capture_output=True,
+                            text=True, timeout=5).stdout
+    monitores = []
+    # ` 0: +*eDP-1 1920/344x1080/193+0+0  eDP-1`  --el * marca la primaria
+    patron = re.compile(r"^\s*\d+:\s+\+(\*?)\S*\s+(\d+)/\d+x(\d+)/\d+\+(\d+)\+(\d+)")
+    for linea in salida.splitlines():
+        m = patron.match(linea)
+        if not m:
+            continue
+        w, h, x, y = (int(g) for g in m.groups()[1:])
+        monitores.append({"x": x, "y": y, "ancho": w, "alto": h,
+                          "trabajo": (x, y, w, h),
+                          "principal": m.group(1) == "*"})
+    return monitores

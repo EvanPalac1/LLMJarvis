@@ -3644,13 +3644,13 @@ def test_las_perillas_del_panel_hacen_algo():
 
     # `tipo` y `superficie` eligen el dibujo y la ventana, no son perillas.
     #
-    # `pantalla` e `interactivo` estan declaradas y todavia NO implementadas: son
-    # del paso del overlay modular, no de este. Se listan aca a proposito, con
-    # nombre, para que sea una deuda anotada y no una perilla que miente en
-    # silencio; el dia que se implementen se sacan de esta lista y el test las
-    # exige como a las demas. Lo que la lista NO permite es que aparezca una
-    # perilla nueva sin nadie que la lea.
-    PENDIENTES = ("pantalla", "interactivo")
+    # `pantalla` esta declarada y todavia NO implementada: elegir monitor pide
+    # enumerarlos, y tk no da esa lista en ningun sistema. Se lista aca con
+    # nombre para que sea una deuda anotada y no una perilla que miente en
+    # silencio; el dia que se implemente se saca y el test la exige como a las
+    # demas. Lo que la lista NO permite es que aparezca una perilla nueva sin
+    # nadie que la lea.
+    PENDIENTES = ("pantalla",)
     sin_leer = [p for p in modulos.COMUNES
                 if p not in ("tipo", "superficie") + PENDIENTES
                 and f'"{p}"' not in fuentes]
@@ -3835,6 +3835,98 @@ def test_eve_no_puede_soltar_sus_propios_frenos():
         r"confirm|autorid|aprob|workdir|permission", k, re.I)}
     faltan = gobiernan - set(store.NUNCA_POR_EVE)
     assert not faltan, f"claves de freno fuera de NUNCA_POR_EVE: {faltan}"
+
+
+def test_monitores():
+    """Enumerar pantallas, que tkinter no sabe hacer en ningun sistema.
+
+    `winfo_screenwidth` es el principal y `winfo_vroot*` es el rectangulo de
+    todos juntos: la LISTA no la da Tk 8.6. De ahi una via por sistema, y las
+    tres usan algo que el proyecto ya tiene --ctypes en Windows, Quartz en macOS
+    (viaja como dependencia dura de pynput) y `xrandr` en Linux, el mismo
+    criterio que `fc-match`.
+    """
+    from eve import plataforma
+
+    ms = plataforma.monitores()
+    if not ms:
+        print("    (no se pudieron enumerar; el degradado se prueba abajo igual)")
+    for m in ms:
+        for clave in ("x", "y", "ancho", "alto", "trabajo", "principal"):
+            assert clave in m, (clave, m)
+        assert m["ancho"] > 0 and m["alto"] > 0, m
+        # El area de trabajo no puede ser mas grande que la pantalla: si lo
+        # fuera, el cartel se podria ir abajo de la barra de tareas.
+        tx, ty, tw, th = m["trabajo"]
+        assert tw <= m["ancho"] and th <= m["alto"], m
+        assert tx >= m["x"] and ty >= m["y"], m
+    if ms:
+        # El principal va primero, para que el numero que elige el usuario sea
+        # estable entre arranques.
+        assert ms[0]["principal"] or not any(x["principal"] for x in ms), ms
+
+
+def test_acotar_a_una_pantalla():
+    """Elegir monitor tiene que MANTENER el cartel ahi, no moverlo una vez.
+
+    Con coordenadas negativas incluidas: un segundo monitor a la izquierda del
+    principal empieza en x negativo, y una version ingenua de acotar lo tira al
+    origen.
+    """
+    from eve import overlay
+
+    izquierda = (-1920, 230, 1920, 1032)
+    assert overlay.acotar(99999, 99999, 400, 200, izquierda) == (-400, 1062)
+    assert overlay.acotar(-99999, -99999, 400, 200, izquierda) == (-1920, 230)
+    # Un cartel mas grande que la pantalla se pega al origen en vez de salirse.
+    assert overlay.acotar(0, 0, 5000, 5000, izquierda) == (-1920, 230)
+
+
+def test_el_cartel_toma_clics_solo_donde_corresponde():
+    """`interactivo` y `cuando=hover` fallaban por lo mismo: nadie sabia donde
+    estaba el mouse. Un solo poll arregla los dos."""
+    from eve import overlay as ov
+
+    # Un Hud de verdad necesita pantalla; se prueba la funcion pura con un
+    # objeto que responde lo que ella pregunta.
+    class HudFalso:
+        def __init__(self, px, py):
+            self._p = (px, py)
+
+        def winfo_pointerxy(self):
+            return self._p
+
+        def winfo_rootx(self):
+            return 100
+
+        def winfo_rooty(self):
+            return 50
+
+    lista = [
+        {"id": "fondo", "x": 0, "y": 0, "ancho": 300, "alto": 200,
+         "interactivo": False},
+        {"id": "boton", "x": 10, "y": 10, "ancho": 80, "alto": 30,
+         "interactivo": True},
+    ]
+    mirar = ov.Hud.bajo_el_puntero
+
+    # Sobre el boton: se sabe cual y ademas toma clics.
+    assert mirar(HudFalso(120, 70), lista) == ("boton", True)
+    # Sobre el fondo pero no sobre el boton: se sabe cual, y NO toma clics.
+    assert mirar(HudFalso(300, 200), lista) == ("fondo", False)
+    # Afuera del cartel: nada.
+    assert mirar(HudFalso(5000, 5000), lista) == ("", False)
+    # Justo en el borde de salida del boton: adentro empieza, afuera termina.
+    assert mirar(HudFalso(110, 60), lista)[0] == "boton"
+    assert mirar(HudFalso(190, 60), lista)[0] == "fondo"
+
+    # Y sin puntero --CI sin pantalla-- no puede reventar: el dibujo entero
+    # depende de esto treinta veces por segundo.
+    class SinPuntero(HudFalso):
+        def winfo_pointerxy(self):
+            raise RuntimeError("no hay display")
+
+    assert mirar(SinPuntero(0, 0), lista) == ("", False)
 
 
 if __name__ == "__main__":
