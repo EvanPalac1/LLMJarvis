@@ -108,6 +108,19 @@ class Panel(tk.Tk):
         nb = ttk.Notebook(self)
         nb.pack(side="top", fill="both", expand=True, padx=10, pady=(10, 6))
         self.vars: dict[str, tk.Variable] = {}
+        # La rueda del mouse NO cambia el valor de una lista desplegable.
+        #
+        # Es el comportamiento de fabrica de ttk y es una trampa: las pestañas
+        # scrollean, asi que rodas para leer mas abajo, el puntero pasa por
+        # encima de un combo, y le cambiaste el motor de voz sin enterarte. El
+        # valor queda mal hasta que alguien lo note, y no hay nada en pantalla
+        # que diga que paso. Se aplica por CLASE, asi que vale para los combos
+        # que ya existen y para los que se agreguen despues.
+        self.bind_class("TCombobox", "<MouseWheel>", lambda e: "break")
+        self.bind_class("TCombobox", "<Button-4>", lambda e: "break")
+        self.bind_class("TCombobox", "<Button-5>", lambda e: "break")
+        # Lo mismo con los spinbox, por el mismo motivo.
+        self.bind_class("TSpinbox", "<MouseWheel>", lambda e: "break")
         self._nombres_pantalla = {}
         self.key_vars: dict[str, tk.Variable] = {}
         # Siete pestañas agrupadas por lo que uno viene a hacer, no por modulo.
@@ -626,6 +639,7 @@ class Panel(tk.Tk):
         for titulo, bloques in (
             ("Tema", [self._bloque_tema]),
             ("Cartel", [self._bloque_hud]),
+            ("Ventana", [self._bloque_ventana]),
             ("Modulos", [self._bloque_modulos]),
             ("Subtitulos", [self._bloque_subtitulos]),
         ):
@@ -1497,7 +1511,22 @@ class Panel(tk.Tk):
             "            mejor aca.",
             style="Ayuda.TLabel", justify="left",
         ).pack(anchor="w", padx=12, pady=(0, 6))
-        ttk.Button(t, text="Probar GPU", command=self.gpu_probar).pack(anchor="w", padx=12)
+        pruebas = ttk.Frame(t)
+        pruebas.pack(fill="x", padx=12, pady=(4, 2))
+        ttk.Button(pruebas, text="Probar GPU", command=self.gpu_probar).pack(side="left")
+        ttk.Button(pruebas, text="Probar que te escucha",
+                   command=self.probar_stt).pack(side="left", padx=6)
+        ttk.Button(pruebas, text="Probar que te habla",
+                   command=self.probar_tts).pack(side="left")
+        ttk.Button(pruebas, text="Mostrar el cartel",
+                   command=self.probar_overlay).pack(side="left", padx=6)
+        self._ayuda(
+            t,
+            "Los tres prueban el camino completo, no una pieza suelta: escuchar\n"
+            "graba de tu microfono de verdad y transcribe con el modelo que\n"
+            "tengas elegido; hablar sintetiza con la voz elegida; y el cartel lo\n"
+            "hace aparecer unos segundos aunque este en modo 'auto'. Si algo no\n"
+            "anda, aca se ve cual de los tres es sin tener que adivinar.")
         self.gpu_label = ttk.Label(t, text="", style="Ayuda.TLabel", justify="left")
         self.gpu_label.pack(anchor="w", padx=12, pady=(4, 8))
         self._row(t, "TTS (voz)", "tts_provider", ["sapi", "piper", "elevenlabs"])
@@ -1791,6 +1820,44 @@ class Panel(tk.Tk):
 
         addons.todos(recargar=True)
         messagebox.showinfo("Listo", "Cerra y abri el panel para verlo cargado.")
+
+    def _bloque_ventana(self, nb):
+        """La ventana de actividad: cuando se abre y que muestra.
+
+        Estuvo sin pestaña propia desde que existe, y la unica forma de abrirla
+        era un boton adentro de Modulos --o sea, escondido detras de una funcion
+        que no tiene nada que ver. Si una ventana entera no tiene donde
+        configurarse, para el usuario no existe.
+        """
+        t = ttk.Frame(nb)
+        caja = self._seccion(t, "La ventana de actividad")
+        self._ayuda(
+            caja,
+            "Es la tercera ventana de Eve, aparte del panel y del cartel. Ahi se\n"
+            "ve que esta haciendo: los modulos que le pongas, el grafo de lo que\n"
+            "ejecuto, el medidor de contexto y el lector de paginas.\n"
+            "\nTiene dos modos arriba, y no son dos pantallas sino quien puede\n"
+            "escribir. En 'Work' se mira; en 'Edit' se agarran los modulos con el\n"
+            "mouse: clic elige, Ctrl suma, Shift agrega un rango, arrastrar mueve\n"
+            "y Ctrl+Z deshace. Con varios elegidos se editan las propiedades que\n"
+            "TIENEN EN COMUN, y si el valor difiere el campo arranca vacio para\n"
+            "que aplicar no los iguale sin querer.")
+        self._row(caja, "Cuando se abre", "consola_modo", ["nunca", "con_eve"])
+        self._ayuda(
+            caja,
+            "'nunca' = solo cuando la abris vos. 'con_eve' = se abre junto con\n"
+            "Eve y queda ahi. Corre como proceso aparte, asi que si se cuelga no\n"
+            "se lleva puesto al asistente.")
+        fila = ttk.Frame(caja)
+        fila.pack(fill="x", padx=12, pady=(4, 10))
+        ttk.Button(fila, text="Abrir la ventana de actividad",
+                   command=self._abrir_consola).pack(side="left")
+        ttk.Button(fila, text="Armar el tablero de arranque",
+                   command=self._mods_semilla_tablero).pack(side="left", padx=6)
+        self._ayuda(
+            fila,
+            "  si la abris y esta vacia, es porque no hay modulos en el tablero")
+        return t
 
     def _bloque_modulos(self, nb):
         """Los modulos del cartel y del tablero.
@@ -2393,6 +2460,88 @@ class Panel(tk.Tk):
             self._ui(lambda: self.gmail_label.config(text=texto))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def probar_stt(self) -> None:
+        """Graba tres segundos del microfono y los transcribe.
+
+        El camino entero y no una pieza: microfono, sensibilidad, modelo y
+        vocabulario, que es donde de verdad falla. Corre en un hilo porque
+        grabar y transcribir bloquean, y el panel no puede quedarse duro.
+        """
+        import threading
+
+        self.estado.config(text="Hablá ahora... (3 segundos)")
+        self.update_idletasks()
+
+        def trabajo():
+            try:
+                import time as _t
+
+                import numpy as np
+
+                from . import voice
+
+                cfg = store.load_config()
+                rec = voice.Recorder()
+                rec.start()
+                _t.sleep(3.0)
+                audio = rec.stop()
+                if audio.size < 1000:
+                    return "No entro audio. ¿Esta tomado el microfono por otro programa?"
+                pico = 20 * np.log10(max(1e-9, float(np.abs(audio).max())))
+                texto = voice.transcribe(audio, cfg)
+                umbral, aire, modo = voice.sensibilidad(cfg)
+                if not texto:
+                    return (f"No entendi nada. Pico {pico:.0f} dBFS, modo {modo}. "
+                            "Si el pico es menor a -40 el microfono esta muy bajo.")
+                return f"Te escuche: {texto!r}   (pico {pico:.0f} dBFS, modo {modo})"
+            except Exception as exc:  # noqa: BLE001 - el panel no puede morir
+                return f"Fallo escuchando: {type(exc).__name__}: {exc}"
+
+        def correr():
+            r = trabajo()
+            self.after(0, lambda: self.estado.config(text=r))
+
+        threading.Thread(target=correr, daemon=True).start()
+
+    def probar_tts(self) -> None:
+        """Dice una frase con la voz configurada."""
+        import threading
+
+        self.estado.config(text="Hablando...")
+
+        def correr():
+            try:
+                from . import voice
+
+                cfg = store.load_config()
+                voice.speak("Hola, soy " + str(cfg.get("assistant_name", "Eve"))
+                            + ". Si escuchas esto, la voz anda.", cfg)
+                r = f"Listo. Voz: {cfg.get('tts_provider')} / {cfg.get('piper_voice') or '-'}"
+            except Exception as exc:  # noqa: BLE001
+                r = f"Fallo hablando: {type(exc).__name__}: {exc}"
+            self.after(0, lambda: self.estado.config(text=r))
+
+        threading.Thread(target=correr, daemon=True).start()
+
+    def probar_overlay(self) -> None:
+        """Hace aparecer el cartel unos segundos, este en el modo que este.
+
+        Sirve para separar "el cartel esta mal configurado" de "el cartel no
+        arranca": si aparece, el problema es cuando se muestra y no si existe.
+        """
+        from . import overlay
+
+        cfg = store.load_config()
+        overlay.asegurar(cfg)
+        store.emitir_overlay({
+            "estado": "hablando", "detalle": "PRUEBA DEL CARTEL", "nivel": 0.5,
+            "titulo": str(cfg.get("assistant_name", "Eve")).upper(),
+            "usuario": "probando el cartel", "eve": "Si ves esto, el cartel anda.",
+        })
+        self.estado.config(
+            text="Cartel mostrado unos segundos. Si no aparecio, fijate 'Cuando se ve' "
+                 "y 'Pantalla' mas abajo.")
 
     def gpu_probar(self):
         """Carga el modelo en la GPU y transcribe algo, en un hilo.

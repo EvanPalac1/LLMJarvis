@@ -269,6 +269,13 @@ DEFAULTS = {
     # nivel donde apruebe sus propios addons, y no deberia haberlo: la huella
     # del contenido es lo unico que separa un plugin de un agujero.
     "ayuda_alcance": "datos",
+    # Cuando se abre la ventana de actividad.
+    #   nunca      solo si la abris a mano desde la bandeja
+    #   con_eve    se abre junto con Eve y queda ahi
+    # `nunca` de fabrica: es una ventana grande y quien no la pidio no tiene por
+    # que encontrarsela. El plan la nombraba desde el principio y nunca existio,
+    # asi que la unica forma de abrirla era un boton escondido en Modulos.
+    "consola_modo": "nunca",
     # En que monitor vive el cartel. 0 = donde lo dejes, sin restriccion; 1 en
     # adelante lo fija a ese monitor y lo mantiene adentro. El panel llena la
     # lista preguntandole al sistema, asi que el numero es el de ahi.

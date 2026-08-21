@@ -47,7 +47,15 @@ IMPORTS_CRITICOS = [
     "piper",
     "onnxruntime",
     "onnx_asr",      # el reconocedor opcional de NVIDIA; rueda pura, sin deps nuevas
+    # El icono de bandeja. Sin el no hay forma de llegar al panel ni de salir:
+    # el proceso queda corriendo sin nada en pantalla, que es indistinguible de
+    # que Eve no arranco.
+    "pystray",
+    "tkinter",
 ]
+# El atajo global, que es EL feature: sin esto Eve corre y no responde a nada.
+# Es Windows contra el resto y por eso no puede ir en la lista de arriba.
+IMPORTS_CRITICOS += ["keyboard"] if sys.platform == "win32" else ["pynput"]
 
 # Los modulos de Eve que NINGUN import a nivel de modulo alcanza: los carga el
 # codigo cuando hacen falta, o los lanza otro proceso. PyInstaller no los ve
@@ -242,6 +250,13 @@ def main() -> int:
     from eve import overlay
 
     overlay.asegurar(cfg)  # corre aparte y se cierra solo cuando Eve sale
+
+    if str(cfg.get("consola_modo", "nunca")) == "con_eve":
+        # Igual que el cartel: proceso aparte, para que colgarse no se lleve
+        # puesto al asistente.
+        from eve import consola
+
+        consola.abrir()
 
     try:
         lis = listener_mod.Listener(cfg)
