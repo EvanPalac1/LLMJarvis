@@ -969,8 +969,12 @@ def test_rutas_instalacion():
     else:
         assert ".config" in datos or "XDG" in datos or datos.startswith("/")
 
-    # Lo que se escribe va a datos; el manual viaja con el programa.
-    for ruta in (store.CONFIG_PATH, store.DB_PATH, store.CONTACTS_PATH, store.MEMORIA_PATH):
+    # Lo que se escribe va a datos; el manual viaja con el programa. Se miran
+    # los valores DE FABRICA porque la suite corre con todo redirigido a un
+    # temporal --si mirara los de ahora, este test aprobaria el corral en vez de
+    # la instalacion.
+    for nombre in ("CONFIG_PATH", "DB_PATH", "CONTACTS_PATH", "MEMORIA_PATH"):
+        ruta = DE_FABRICA.get(nombre) or getattr(store, nombre)
         assert os.path.dirname(ruta) == datos, ruta
     assert os.path.dirname(store.BRIEF_PATH) == recursos
 
@@ -4174,7 +4178,53 @@ def test_todo_ajuste_se_puede_tocar_desde_el_panel():
         gc.collect()
 
 
+DE_FABRICA = {}
+
+
+def _corral():
+    """Manda TODO lo que escribe a un directorio temporal, antes del primer test.
+
+    Aca no alcanza con que cada test se acuerde de aislar lo suyo. Ya paso dos
+    veces: `test_addons` escribia addons aprobados en la config de verdad, y mas
+    tarde tres tests nuevos dejaron seis entradas inventadas en el log de
+    auditoria del usuario --incluidas `ajustar confirm_destructive = false` y
+    `addons_aprobados = malo:a1b2c3`, que leidas de afuera parecen un intento de
+    Eve de soltarse los frenos. Un log de auditoria que miente es peor que no
+    tenerlo.
+
+    Redirigir una vez, al arranque, es lo unico que hace que olvidarse no
+    importe. Los tests que ademas aislan lo suyo siguen andando: restauran al
+    corral, no a la carpeta del usuario.
+    """
+    import tempfile
+
+    corral = tempfile.mkdtemp(prefix="eve-tests-")
+    for modulo, atributo, nombre in (
+        (store, "DB_PATH", "eve.db"),
+        (store, "CONFIG_PATH", "config.json"),
+        (store, "PERFILES_PATH", "perfiles.json"),
+        (store, "CONTACTS_PATH", "contactos.json"),
+        (store, "MEMORIA_PATH", "MEMORIA.md"),
+        (store, "LATIDO_PATH", "latido.json"),
+        (store, "OVERLAY_PATH", "overlay.json"),
+        (store, "OVERLAY_VIVO_PATH", "overlay-vivo.json"),
+        (store, "OVERLAY_SALIR_PATH", "overlay-salir"),
+    ):
+        if hasattr(modulo, atributo):
+            # Se anota el valor de fabrica: hay un test que comprueba justamente
+            # que los archivos vayan a la carpeta de datos y no al lado del
+            # programa, y con el corral puesto no lo podria mirar de otra forma.
+            DE_FABRICA[atributo] = getattr(modulo, atributo)
+            setattr(modulo, atributo, os.path.join(corral, nombre))
+    from eve import addons
+
+    addons.CARPETA_USUARIO = os.path.join(corral, "addons")
+    os.makedirs(addons.CARPETA_USUARIO, exist_ok=True)
+    return corral
+
+
 if __name__ == "__main__":
+    _CORRAL = _corral()
     fallo = ""
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
