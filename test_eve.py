@@ -1396,6 +1396,44 @@ def test_cola_y_pulso():
             voz.transcribe, voz.speak = voz_real
 
 
+def test_revocar_un_addon():
+    """Aprobar tenia que poder deshacerse.
+
+    Era un camino de ida: una vez dado el si, la unica forma de volver atras era
+    editar config.json a mano --y desde que `addons_aprobados` es una de las
+    claves que Eve no puede escribir, ella tampoco podia deshacerlo. Una
+    decision de seguridad que no se puede desandar es una que la gente evita
+    tomar, y evitar tomarla significa no usar addons.
+    """
+    from eve import addons
+
+    with tempfile.TemporaryDirectory() as raiz:
+        reales = addons.CARPETA_USUARIO, store.CONFIG_PATH
+        addons.CARPETA_USUARIO = raiz
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            with open(os.path.join(raiz, "x.py"), "w", encoding="utf-8") as f:
+                f.write('NOMBRE = "x"\nDESCRIPCION = "d"\nPROMPT = ""\n'
+                        'def ejecutar(a, b, c):\n    return "ok"\n')
+
+            assert [n for n, _, _ in addons.pendientes()] == ["x"]
+            addons.aprobar("x")
+            assert addons.aprobados_ahora() == ["x"]
+            assert not addons.pendientes(), "aprobado no puede seguir pendiente"
+
+            assert "sin revisar" in addons.revocar("x")
+            assert addons.aprobados_ahora() == []
+            assert [n for n, _, _ in addons.pendientes()] == ["x"],                 "revocado tiene que volver a la lista de sin revisar"
+            # El archivo NO se toca: borrarle el .py a alguien porque dijo "ya
+            # no confio" seria decidir por el.
+            assert os.path.exists(os.path.join(raiz, "x.py"))
+            # Y revocar dos veces no explota.
+            assert "no estaba" in addons.revocar("x")
+        finally:
+            addons.CARPETA_USUARIO, store.CONFIG_PATH = reales
+
+
 def test_addons():
     """Cargarlos, filtrarlos, y que ninguno roto pueda tumbar a Eve."""
     from eve import addons
@@ -4058,6 +4096,82 @@ def test_retrato_golden():
             ruta = retrato.a_archivo(os.path.join(tmp, f"{estado}.png"), cfg,
                                      **{**comun, "estado": estado, "nivel": 0.7})
             assert os.path.getsize(ruta) > 200, ruta
+
+
+def test_todo_ajuste_se_puede_tocar_desde_el_panel():
+    """Cada clave de config tiene que ser alcanzable sin editar un archivo.
+
+    Es el espejo del test que exige que toda perilla del panel haga algo: aquel
+    busca controles que mienten, este busca ajustes escondidos. Los dos existen
+    porque el pedido de este proyecto es que TODO se pueda tocar, y la unica
+    forma de que eso no se degrade sola es que un test lo cuente.
+
+    Encontro nueve de una: los ocho colores del cartel --que estaban afuera con
+    una razon escrita, pero la razon era la pared de campos y no la funcion-- y
+    los dos de Discord, que andaban desde siempre sin tener donde escribirlos.
+    """
+    import gc
+    import tkinter as tk
+
+    from eve import gui
+
+    try:
+        panel = gui.Panel()
+    except tk.TclError:
+        print("    (salteado: no hay pantalla)")
+        return
+    panel.withdraw()
+    try:
+        # Estas NO son campos y no deberian serlo: las escribe el programa, o
+        # tienen un control propio que no pasa por `self.vars`.
+        SIN_CAMPO = {
+            # las maneja un widget propio en la pestaña de permisos
+            "workdirs", "confirm_destructive",
+            # las escribe el propio panel al guardar o aplicar un perfil
+            "perfil_activo",
+            # las escriben los botones de la pestaña Addons, por huella
+            "addons_activos", "addons_aprobados",
+            # se escriben arrastrando el cartel con el mouse, que es como se
+            # elige una posicion; un campo de numeros seria peor
+            "hud_x", "hud_y", "overlay_mover",
+        }
+        faltan = [k for k in store.DEFAULTS
+                  if k not in panel.vars and k not in SIN_CAMPO]
+        assert not faltan, f"ajustes que solo se pueden cambiar a mano: {faltan}"
+
+        # Y al reves: si una de las excepciones consigue un campo, hay que
+        # sacarla de la lista o la lista deja de significar algo.
+        sobran = [k for k in SIN_CAMPO if k in panel.vars]
+        assert not sobran, f"ya tienen campo, sacalas de SIN_CAMPO: {sobran}"
+
+        # Las claves que Eve no puede tocar TIENEN que ser tocables por el
+        # usuario: el mensaje de rechazo dice "cambiala vos en el panel", y si
+        # no hubiera donde, ese mensaje seria mentira.
+        #
+        # Se nombra el control que las cambia en vez de buscar la clave en el
+        # fuente, porque tres de las seis se cambian con botones o widgets
+        # propios y ahi el nombre de la clave no aparece. Nombrarlo obliga a
+        # saber cual es: si alguien saca el boton, este test no lo puede
+        # detectar solo, pero el nombre queda escrito para que se note.
+        POR_OTRO_CAMINO = {
+            "workdirs": "el cuadro de texto de la pestaña de permisos",
+            "confirm_destructive": "el selector de permisos",
+            "addons_aprobados": "los botones Aprobar y Revocar de la pestaña Addons",
+        }
+        raiz = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(raiz, "eve", "gui.py"), encoding="utf-8") as f:
+            fuente = f.read()
+        for clave in store.NUNCA_POR_EVE:
+            if clave in panel.vars:
+                continue
+            assert clave in POR_OTRO_CAMINO, (
+                f"{clave} se le niega a Eve y el usuario tampoco puede cambiarla")
+        # Y los botones que reemplazan a esos campos tienen que existir.
+        for texto in ("Aprobar", "Revocar"):
+            assert f'text="{texto}"' in fuente, f"falta el boton {texto}"
+    finally:
+        panel.destroy()
+        gc.collect()
 
 
 if __name__ == "__main__":

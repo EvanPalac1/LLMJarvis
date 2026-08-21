@@ -101,6 +101,34 @@ def aprobar(nombre: str, marca: str = "") -> str:
     return f"{nombre} aprobado."
 
 
+def revocar(nombre: str) -> str:
+    """Saca la aprobacion de un addon: vuelve a la lista de sin revisar.
+
+    Aprobar era un camino de ida. Una vez que dabas el si, la unica forma de
+    volver atras era editar `config.json` a mano --y desde que
+    `addons_aprobados` es una de las claves que Eve no puede escribir, ella
+    tampoco podia deshacerlo. Una decision de seguridad que no se puede desandar
+    es una que la gente evita tomar.
+
+    El archivo no se toca: se saca de la lista y nada mas. Borrarle el `.py` a
+    alguien porque dijo "ya no confio" seria decidir por el.
+    """
+    cfg = store.load_config()
+    aprobados = _aprobados(cfg)
+    if nombre not in aprobados:
+        return f"{nombre} no estaba aprobado."
+    del aprobados[nombre]
+    cfg["addons_aprobados"] = ",".join(f"{n}:{m}" for n, m in sorted(aprobados.items()))
+    store.save_config(cfg)
+    _cache.clear()
+    return f"{nombre} vuelve a la lista de sin revisar. El archivo sigue ahi."
+
+
+def aprobados_ahora() -> list[str]:
+    """Los nombres aprobados hoy, para que el panel los pueda mostrar."""
+    return sorted(_aprobados(store.load_config()))
+
+
 def _del_usuario() -> dict:
     """Los `.py` sueltos de la carpeta de datos, SOLO los aprobados.
 

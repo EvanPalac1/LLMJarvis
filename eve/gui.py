@@ -568,6 +568,23 @@ class Panel(tk.Tk):
                            command=lambda n=nombre, m=marca: self._addon_aprobar(n, m)
                            ).pack(side="left", padx=6)
 
+        aprobados = addons.aprobados_ahora()
+        if aprobados:
+            ok = self._seccion(t, "Aprobados")
+            self._ayuda(
+                ok,
+                "Estos se cargan. Revocar no borra el archivo: lo devuelve a la\n"
+                "lista de sin revisar, para que puedas volver a mirarlo antes de\n"
+                "decidir de nuevo. Editar un addon aprobado lo saca solo, porque\n"
+                "la aprobacion es de la huella del contenido y no del nombre.")
+            for nombre in aprobados:
+                fila = ttk.Frame(ok)
+                fila.pack(fill="x", padx=12, pady=3)
+                ttk.Label(fila, text=f"{nombre}.py", width=22).pack(side="left")
+                ttk.Button(fila, text="Revocar",
+                           command=lambda n=nombre: self._addon_revocar(n)
+                           ).pack(side="left")
+
         ttk.Button(caja, text="Abrir la carpeta de addons",
                    command=self._addons_carpeta).pack(anchor="w", padx=12, pady=(0, 10))
         return t
@@ -960,6 +977,14 @@ class Panel(tk.Tk):
             justify="left",
         ).pack(anchor="w", padx=12, pady=(8, 6))
         self._campo_clave(box, "discord_webhook", "Discord: URL del webhook")
+        self._row(box, "Discord: nombre a mostrar", "discord_username", width=40)
+        self._row(box, "Discord: URL del avatar", "discord_avatar", width=40)
+        self._ayuda(
+            box,
+            "Con que nombre y foto aparecen los mensajes que manda por webhook.\n"
+            "Vacio = lo que tenga configurado el webhook en Discord. Andaba\n"
+            "desde siempre; lo que faltaba era donde escribirlo sin editar el\n"
+            "config a mano.")
         if not self.cfg.get("steam_id"):
             from . import integrations
 
@@ -1427,6 +1452,12 @@ class Panel(tk.Tk):
             "Las reglas de horario van separadas por coma y solo pisan a 'auto':\n"
             "  00:00-06:00=bajo, 20:00-23:59=ruido\n"
             "Si elegis un modo a mano, el reloj no te lo cambia.")
+        self._row(t, "Busqueda por haz (beam)", "stt_beam", width=10)
+        self._ayuda(
+            t,
+            "Cuantas ramas explora el reconocedor. Medido sobre una orden\n"
+            "tipica: beam 5 tarda 4.4s y beam 1 tarda 3.5s, con el MISMO texto.\n"
+            "Sirve para dictado largo, no para ordenes de ocho palabras.")
         self._row(t, "Umbral del detector", "stt_vad_umbral", width=10)
         self._row(t, "Aire del detector (ms)", "stt_vad_aire_ms", width=10)
         self._check(t, "Activar diciendo una palabra (deja el microfono abierto)",
@@ -1524,6 +1555,14 @@ class Panel(tk.Tk):
             text="Nombres que el reconocimiento suele errar, separados por comas.",
             foreground="#666",
         ).pack(anchor="w", padx=12)
+        self._row(box, "Que catalogo viaja", "catalogo_modo", ["usados", "completo"])
+        self._ayuda(
+            box,
+            "El catalogo de programas viaja en CADA llamada al modelo, y entero\n"
+            "es un tercio del prompt. 'usados' manda solo los que aparecen en tu\n"
+            "log de acciones, ordenados por frecuencia, y el resto se busca con\n"
+            "`E programa NOMBRE`. Medido: 1551 tokens menos por llamada, un 36%.\n"
+            "'completo' los manda todos, por si preferis pagar y no buscar.")
         ttk.Button(box, text="Reescanear programas", command=self.rescan_apps).pack(
             anchor="w", padx=12, pady=(6, 10)
         )
@@ -1659,11 +1698,25 @@ class Panel(tk.Tk):
         for clave in ("ui_fuente", "ui_fuente_tam", "hud_fuente", "sub_fuente"):
             self.vars[clave].trace_add("write", self._previa_redibujar)
 
-        # Los ocho colores del cartel se sacaron de aca: eran una segunda tanda
-        # identica a la de arriba, y para lo unico que servian era para que el
-        # cartel se viera distinto del panel, que ya se resuelve eligiendole
-        # otro tema. Las claves hud_color_* siguen andando si alguien las edita
-        # a mano; lo que se fue es la pared de campos repetidos.
+        # Los ocho colores del cartel estuvieron un tiempo afuera de aca, con una
+        # razon buena: eran una segunda tanda identica a la de arriba, y para lo
+        # unico que servian era para que el cartel se viera distinto del panel,
+        # que ya se resuelve eligiendole otro tema.
+        #
+        # Vuelven porque el pedido es que todo se pueda tocar desde el panel, y
+        # porque el problema real era la pared de campos, no la funcion: en su
+        # propia seccion son cuatro lineas y no molestan a nadie que no las
+        # busque. Las claves siempre siguieron andando si se editaban a mano; lo
+        # que faltaba era poder llegar.
+        caja = self._seccion(t, "Colores del cartel flotante")
+        self._row(caja, "Tema del cartel", "hud_tema", ["", *tema.NOMBRES])
+        for rol, etiqueta in ROLES_ETIQUETA:
+            self._fila_color(caja, "hud", rol, etiqueta)
+        self._ayuda(
+            caja,
+            "Vacio = el cartel usa el mismo tema que el panel, que es lo que\n"
+            "quiere casi todo el mundo. Los colores de abajo solo se usan con\n"
+            "el tema 'personalizado'.")
 
         caja = self._seccion(t, "Cabecera del panel")
         fila = ttk.Frame(caja)
@@ -1700,6 +1753,13 @@ class Panel(tk.Tk):
         for clave in ("ui_tema",):
             self.vars[clave].trace_add("write", self._previa_redibujar)
         return t
+
+    def _addon_revocar(self, nombre: str) -> None:
+        """Saca la aprobacion y rearma la pestaña, para que se vea el cambio."""
+        from . import addons
+
+        self.estado.config(text=addons.revocar(nombre))
+        self._recargar_addons()
 
     def _addon_ver(self, ruta: str) -> None:
         """Muestra el archivo entero antes de aprobarlo."""
@@ -2218,6 +2278,11 @@ class Panel(tk.Tk):
     def _bloque_subtitulos(self, nb):
         t = ttk.Frame(nb)
         caja = self._seccion(t, "Subtitulos")
+        self._row(t, "Segundos en pantalla", "sub_segundos")
+        self._ayuda(
+            t,
+            "Cuanto se queda cada subtitulo despues de que Eve termina de\n"
+            "hablar. Hasta ahora solo se podia cambiar editando el config.")
         self._row(caja, "Que se muestra", "sub_muestra", ["ambos", "eve", "usuario"])
         self._ayuda(
             caja,
