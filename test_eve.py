@@ -4014,6 +4014,52 @@ def _args(**kw):
     return argparse.Namespace(**{**base, **kw})
 
 
+def test_retrato_golden():
+    """Dibujar los modulos a un PNG sin ventana, y que sea reproducible.
+
+    Es la unica forma honesta de testear un sistema de dibujo: mismo perfil,
+    misma imagen, mismo hash. Sin esto "el overlay se ve bien" es una opinion, y
+    una regresion de pixeles pasa sin que nadie se entere --como paso con el
+    icono que se congelaba en el segundo cuadro, que estuvo roto vaya a saber
+    cuanto.
+    """
+    from eve import modulos, retrato
+
+    cfg = dict(store.DEFAULTS)
+    for ident, props in modulos.por_defecto(cfg).items():
+        cfg = modulos.guardar(cfg, {"id": ident, **props})
+    assert modulos.listar(cfg, "overlay"), "el cartel de siempre, como modulos"
+
+    comun = {"superficie": "overlay", "ancho": 560, "alto": 220,
+             "estado": "escuchando", "momento": 3.0}
+
+    # Reproducible: dos corridas con los mismos datos dan el mismo PNG. Fijar
+    # `momento` es lo que lo hace posible; con el reloj de verdad, un reloj o
+    # una onda cambiarian en cada llamada.
+    a = retrato.firma(cfg, nivel=0.5, **comun)
+    assert a == retrato.firma(cfg, nivel=0.5, **comun)
+
+    # Y sensible: si cambia algo que se dibuja, el hash cambia. Un golden image
+    # que da siempre lo mismo pase lo que pase no prueba nada.
+    assert a != retrato.firma(cfg, nivel=0.9, **comun), "no reacciona al nivel"
+    assert a != retrato.firma({**cfg, "hud_fuente": "Impact"}, nivel=0.5, **comun), \
+        "cambiar la fuente no cambio el dibujo"
+
+    # Sin modulos configurados no puede reventar: es el estado de una
+    # instalacion nueva, y `--retrato` tiene que poder correrse igual.
+    vacio = retrato.dibujar(dict(store.DEFAULTS), **comun)
+    assert vacio.size == (560, 220) and vacio.mode == "RGBA"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # Los cuatro estados de una: un modulo con `cuando = trabajando` no se
+        # dibuja en reposo, asi que mirar solo el reposo esconde lo que se
+        # quiso configurar.
+        for estado in retrato.ESTADOS:
+            ruta = retrato.a_archivo(os.path.join(tmp, f"{estado}.png"), cfg,
+                                     **{**comun, "estado": estado, "nivel": 0.7})
+            assert os.path.getsize(ruta) > 200, ruta
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):

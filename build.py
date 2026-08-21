@@ -42,7 +42,7 @@ OCULTOS = [
     "eve.brain", "eve.cc_engine", "eve.ollama_engine", "eve.voices",
     "eve.integrations", "eve.hook_gate", "eve.gui",
     "eve.modulos", "eve.lienzo", "eve.prompt", "eve.consola",
-    "eve.lector", "eve.grafo", "eve.memoria", "eve.despertar",
+    "eve.lector", "eve.grafo", "eve.memoria", "eve.despertar", "eve.retrato",
 ]
 if WINDOWS:
     OCULTOS += [

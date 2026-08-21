@@ -59,7 +59,7 @@ PROPIOS_DIFERIDOS = [
     "eve.brain", "eve.cc_engine", "eve.ollama_engine", "eve.compat_engine",
     "eve.gui", "eve.consola", "eve.overlay", "eve.integrations", "eve.hook_gate",
     "eve.voices", "eve.modulos", "eve.lienzo", "eve.prompt",
-    "eve.lector", "eve.grafo", "eve.memoria", "eve.despertar",
+    "eve.lector", "eve.grafo", "eve.memoria", "eve.despertar", "eve.retrato",
 ]
 if sys.platform == "win32":
     # Lo usa `plataforma.archivo_de_fuente` para traducir "Constantia" a
@@ -114,6 +114,12 @@ def main() -> int:
             from eve import consola
 
             return consola.main(resto)
+        if flag == "--retrato":
+            # Dibuja los modulos a un PNG sin abrir ninguna ventana. Sirve para
+            # ver un perfil ajeno antes de aplicarlo y para testear lo visual.
+            from eve import retrato
+
+            return retrato.main(resto)
         if flag == "--overlay":
             from eve import overlay
 
