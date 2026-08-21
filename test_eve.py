@@ -3741,6 +3741,46 @@ def test_easing_y_reaccion_al_microfono():
     assert a.size == b.size, "reacciona cuando no se lo pidieron"
 
 
+def test_aviso_de_licencias():
+    """El build tiene que declarar solo las librerias ajenas que empaqueta.
+
+    Escrito a mano, un aviso de licencias se pudre en la primera dependencia
+    nueva, y una lista vieja es peor que ninguna porque parece revisada. Por eso
+    se genera en cada compilacion desde los metadatos instalados.
+    """
+    import build
+
+    with tempfile.TemporaryDirectory() as tmp:
+        build._terceros(tmp)
+        carpeta = os.path.join(tmp, "licencias")
+        with open(os.path.join(carpeta, "TERCEROS.md"), encoding="utf-8") as f:
+            md = f.read()
+
+        # Las que se sabe que estan, y que son justamente las que obligan a algo.
+        assert "piper-tts" in md and "GPL-3.0" in md
+        assert "pystray" in md
+        assert "Copyleft fuerte" in md, "piper-tts es GPL: tiene que estar destacado"
+
+        # Y el texto de cada una tiene que viajar, no solo el nombre.
+        archivos = os.listdir(carpeta)
+        assert any(a.startswith("piper-tts-") for a in archivos), archivos
+        # La LGPLv3 son DOS archivos: la GPLv3 mas el suplemento que la ablanda.
+        # Quedarse con el primero deja el aviso a medias.
+        lgpl = [a for a in archivos if a.startswith("pystray-")]
+        assert len(lgpl) >= 2, f"falta el suplemento de la LGPL: {lgpl}"
+
+    # `_fuerte` es lo que separa "avisar" de "avisar y ofrecer el fuente del
+    # conjunto". Confundir LGPL con GPL en cualquiera de las dos direcciones
+    # seria el error caro.
+    for si in ("GPL-3.0-or-later", "GPLv2", "AGPL-3.0", "GNU General Public License"):
+        assert build._fuerte(si), si
+    for si in ("GNU General Public License v3 (GPLv3)",):
+        assert build._fuerte(si), si
+    for no in ("LGPLv3", "LGPL-2.1", "MIT", "Apache-2.0", "BSD-3-Clause", "MPL-2.0",
+               "GNU Lesser General Public License v3 (LGPLv3)"):
+        assert not build._fuerte(no), no
+
+
 if __name__ == "__main__":
     fallo = ""
     for name, fn in sorted(globals().items()):

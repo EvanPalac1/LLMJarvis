@@ -1330,6 +1330,28 @@ percibida es todo. Tampoco se envuelve el `/voice` de Claude Code: es un REPL, n
 
 ---
 
+## Licencias de terceros
+
+Eve es MIT, pero adentro del paquete viajan librerias que no lo son. `build.py` genera en
+cada compilacion un `licencias/TERCEROS.md` adentro de `dist/Eve`, leyendo los metadatos de
+lo instalado: nombre, version, licencia y de donde sale el fuente de cada una, mas el texto
+completo de las que obligan a adjuntarlo. Como la carpeta va adentro de `dist/Eve`, viaja
+sola en los cuatro instaladores sin tocar ningun guion de `packaging/`.
+
+**Se genera, no se escribe.** Un aviso de licencias hecho a mano se pudre en la primera
+dependencia nueva, y una lista vieja es peor que ninguna porque parece revisada.
+
+El build avisa por consola cuando encuentra **copyleft fuerte**, que es lo que separa
+"hay que dar aviso" de "la licencia alcanza al conjunto distribuido". Hoy hay uno:
+**`piper-tts` 1.6.0 es GPL-3.0-or-later** --es `piper1-gpl`, que enlaza espeak-ng-- y se
+empaqueta en los cinco instaladores. Aparecio revisando esto; verificado leyendo su
+`COPYING`, no la ficha de PyPI. Queda a la vista para decidirlo, que es de lo que se
+trataba: `pystray` es LGPLv3 y con enlace dinamico alcanza con el aviso, pero la GPL de
+Piper es otra cosa. La salida obvia si se decide no distribuirla es la que ya usan los
+modelos de voz: bajarla en la primera ejecucion en vez de empaquetarla.
+
+---
+
 ## Desarrollo
 
 ```bash

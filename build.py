@@ -16,9 +16,11 @@ la primera vez. El instalador ofrece bajarlos durante la instalacion.
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 WINDOWS = sys.platform == "win32"
@@ -243,6 +245,170 @@ def _verificar_imports(carpeta: str) -> None:
         )
 
 
+# Licencias que obligan a algo cuando distribuis un binario que las incluye. No
+# es una lista de "malas": es la lista de las que piden aviso, texto de licencia
+# y --las de copyleft fuerte-- ofrecer el fuente del conjunto. Estan aca para que
+# el build las señale en vez de que aparezcan el dia que alguien mire.
+COPYLEFT = ("GPL", "LGPL", "AGPL", "MPL", "EPL", "CDDL", "CC-BY-SA")
+COPYLEFT_FUERTE = ("GPL",)   # sin la L ni delante ni detras: eso lo filtra _fuerte()
+
+
+def _fuerte(licencia: str) -> bool:
+    """GPL o AGPL a secas. LGPL no: con enlace dinamico solo pide aviso.
+
+    Se miran las dos escrituras porque las dos aparecen de verdad en los
+    metadatos: la sigla ("GPL-3.0-or-later", de `License-Expression`) y el
+    nombre entero ("GNU General Public License", de los classifiers). Con solo
+    la sigla, un paquete que se declara con el nombre largo pasaba de largo, y
+    ese es justo el error que este archivo existe para no cometer.
+    """
+    l = licencia.upper().replace("-", "").replace(" ", "")
+    sigla = "AGPL" in l or "GPL" in l
+    escrito = "GENERALPUBLICLICENSE" in l
+    if not (sigla or escrito):
+        return False
+    return "LGPL" not in l and "LESSERGENERALPUBLICLICENSE" not in l
+
+
+def _licencia_de(dist) -> str:
+    """La licencia de un paquete, mirando los tres lugares donde puede estar."""
+    md = dist.metadata
+    for clave in ("License-Expression", "License"):
+        valor = (md.get(clave) or "").strip()
+        # Algunos paquetes meten el TEXTO entero de la licencia en el campo.
+        if valor and len(valor) < 120:
+            return valor.splitlines()[0].strip()
+        if valor:
+            return valor.splitlines()[0].strip()[:80]
+    for c in md.get_all("Classifier") or []:
+        if c.startswith("License ::"):
+            return c.split("::")[-1].strip()
+    return "sin declarar"
+
+
+def _cierre(nombres) -> dict:
+    """Los paquetes pedidos mas todo lo que ellos arrastran.
+
+    Se calcula desde requirements.txt y no desde lo que PyInstaller metio de
+    verdad, y es a proposito: leer el .toc de PyInstaller seria mas exacto pero
+    tambien mas fragil, y en un aviso de licencias sobrar es inofensivo mientras
+    que faltar es el problema entero.
+    """
+    import importlib.metadata as meta
+
+    vistos, pendientes = {}, list(nombres)
+    while pendientes:
+        nombre = pendientes.pop().split("[")[0].strip()
+        clave = nombre.lower().replace("_", "-")
+        if not clave or clave in vistos:
+            continue
+        try:
+            dist = meta.distribution(nombre)
+        except meta.PackageNotFoundError:
+            continue
+        vistos[clave] = dist
+        for req in dist.requires or []:
+            # Las dependencias de extras no viajan salvo que se pidan.
+            if "extra ==" in req:
+                continue
+            pendientes.append(re.split(r"[<>=!;\[ ]", req, 1)[0])
+    return vistos
+
+
+def _terceros(carpeta: str) -> None:
+    """Escribe `licencias/TERCEROS.md` adentro del paquete, con los textos.
+
+    Va adentro de `dist/Eve` a proposito: los cuatro empaquetadores copian esa
+    carpeta entera --el .iss con dist/Eve/*, y el deb, el rpm y el dmg desde
+    `$RAIZ/dist/Eve`-- asi que el aviso viaja en los cuatro instaladores sin
+    tocar ningun guion.
+
+    Se genera en cada build y no se escribe a mano. Un aviso de licencias hecho
+    a mano se pudre en la primera dependencia nueva, y una lista de licencias
+    vieja es peor que no tenerla porque parece que alguien la reviso.
+    """
+    reqs = []
+    with open(os.path.join(RAIZ, "requirements.txt"), encoding="utf-8") as f:
+        for linea in f:
+            linea = linea.split("#")[0].strip()
+            if linea:
+                reqs.append(re.split(r"[<>=!;\[ ]", linea, 1)[0])
+
+    paquetes = _cierre(reqs)
+    destino = os.path.join(carpeta, "licencias")
+    os.makedirs(destino, exist_ok=True)
+
+    filas, avisados, fuertes = [], [], []
+    for clave in sorted(paquetes):
+        dist = paquetes[clave]
+        lic = _licencia_de(dist)
+        nombre = dist.metadata["Name"]
+        url = (dist.metadata.get("Home-page")
+               or next((u.split(",", 1)[-1].strip()
+                        for u in (dist.metadata.get_all("Project-URL") or [])), ""))
+        archivo = 0
+        if any(m in lic.upper() for m in COPYLEFT):
+            archivo = _copiar_licencia(dist, nombre, destino)
+            if archivo:
+                avisados.append(nombre)
+            if _fuerte(lic):
+                fuertes.append((nombre, lic, url))
+        filas.append((nombre, dist.version, lic, url, archivo))
+
+    with open(os.path.join(destino, "TERCEROS.md"), "w", encoding="utf-8") as f:
+        f.write("# Librerias de terceros\n\n")
+        f.write("Eve se distribuye bajo licencia MIT (ver `LICENSE`). Este archivo lo\n"
+                "genera `build.py` en cada compilacion leyendo los metadatos de los\n"
+                "paquetes instalados, asi que no puede quedar viejo.\n\n")
+        if fuertes:
+            f.write("## Copyleft fuerte\n\n"
+                    "Estos paquetes viajan adentro del programa y su licencia alcanza al\n"
+                    "conjunto distribuido, no solo a ellos:\n\n")
+            for nombre, lic, url in fuertes:
+                f.write(f"- **{nombre}** ({lic}) — fuente en {url or 'su repositorio'}\n")
+            f.write("\nEl texto completo de cada una esta en esta misma carpeta.\n\n")
+        f.write("## Todas\n\n| paquete | version | licencia | fuente |\n")
+        f.write("|---|---|---|---|\n")
+        for nombre, ver, lic, url, archivo in filas:
+            marca = " *" if archivo else ""
+            f.write(f"| {nombre}{marca} | {ver} | {lic} | {url or '—'} |\n")
+        f.write("\n`*` = el texto de la licencia viaja en esta carpeta.\n")
+
+    print(f"    licencias: {len(filas)} paquetes, {len(avisados)} con texto adjunto")
+    if fuertes:
+        print("    ATENCION, copyleft fuerte adentro del paquete: "
+              + ", ".join(f"{n} ({l})" for n, l, _ in fuertes))
+
+
+def _copiar_licencia(dist, nombre: str, destino: str) -> int:
+    """Copia TODOS los textos de licencia del paquete. Devuelve cuantos.
+
+    Todos y no el primero: la LGPLv3 se distribuye como dos archivos --el texto
+    de la GPLv3 mas el suplemento que la ablanda-- y quedarse con uno solo deja
+    el aviso a medias. pystray es exactamente ese caso.
+    """
+    copiados = 0
+    vistos = set()
+    for archivo in dist.files or []:
+        base = os.path.basename(str(archivo))
+        if not base.upper().startswith(("LICENSE", "COPYING", "NOTICE")):
+            continue
+        if base in vistos:      # el mismo archivo puede estar en el dist-info y afuera
+            continue
+        try:
+            origen = dist.locate_file(archivo)
+            texto = Path(str(origen)).read_text(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            continue
+        if len(texto) < 200:      # un stub que solo dice "ver el repo" no sirve
+            continue
+        vistos.add(base)
+        with open(os.path.join(destino, f"{nombre}-{base}"), "w", encoding="utf-8") as f:
+            f.write(texto)
+        copiados += 1
+    return copiados
+
+
 def main() -> int:
     try:
         import PyInstaller  # noqa: F401
@@ -266,6 +432,7 @@ def main() -> int:
     destino = os.path.join(RAIZ, "dist", "Eve.app" if MACOS else "Eve")
     _verificar(destino)
     _verificar_imports(destino)
+    _terceros(os.path.join(destino, "Contents", "Resources") if MACOS else destino)
 
     salida = os.path.join(RAIZ, "dist")
     print(f"\nListo: {salida}  ({sys.platform} {ARCH})")
