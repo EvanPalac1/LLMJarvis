@@ -1400,6 +1400,65 @@ def test_cola_y_pulso():
             voz.transcribe, voz.speak = voz_real
 
 
+def test_la_pestana_generada_cubre_lo_mismo_que_la_config():
+    """Una pestaña migrada al registro no puede perder ni cambiar una clave.
+
+    Es la mitigacion que el plan original escribio para el unico riesgo real de
+    este refactor: migrar toca lo unico que hoy funciona bien.
+
+    Mientras las dos versiones convivieron se comparo la generada contra la
+    escrita a mano, clave por clave, y dieron igual --por eso se borro la vieja.
+    Lo que queda es lo que protege a las proximas: que el registro declare sus
+    claves, que todas lleguen al panel, y que el tipo y el valor sean los que
+    dice la config. Una clave perdida tambien la agarraria el test de cobertura;
+    un TIPO cambiado no, y un `sub_tam` que pase de entero a texto guarda igual
+    y se rompe recien al leerlo.
+    """
+    import gc
+    import tkinter as tk
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+
+    from eve import gui, registro
+
+    # El registro se puede leer sin abrir una ventana: es una tabla, no codigo
+    # de interfaz. Eso vale comprobarlo, porque es la propiedad que lo separa
+    # de lo que reemplaza.
+    esperadas = registro.claves(registro.SUBTITULOS)
+    assert len(esperadas) == len(set(esperadas)), "el registro repite una clave"
+    assert len(esperadas) >= 13, f"solo {len(esperadas)} claves declaradas"
+    huerfanas = [k for k in esperadas if k not in store.DEFAULTS]
+    assert not huerfanas, f"el registro nombra claves que no existen: {huerfanas}"
+
+    panel = None
+    try:
+        panel = gui.Panel()
+        panel.withdraw()
+        faltan = [k for k in esperadas if k not in panel.vars]
+        assert not faltan, f"declaradas y sin llegar al panel: {faltan}"
+
+        for clave in esperadas:
+            var = panel.vars[clave]
+            defecto = store.DEFAULTS[clave]
+            # `_row` usa StringVar para todo salvo los booleanos, que van a
+            # Checkbutton. Si eso cambia, `Panel.save()` castea distinto.
+            esperado = tk.BooleanVar if isinstance(defecto, bool) else tk.StringVar
+            assert isinstance(var, esperado), (
+                f"{clave}: {type(var).__name__}, se esperaba {esperado.__name__}")
+            actual = panel.cfg.get(clave, defecto)
+            leido = var.get() if isinstance(defecto, bool) else str(var.get())
+            quiero = actual if isinstance(defecto, bool) else str(actual)
+            assert leido == quiero, f"{clave}: muestra {leido!r} y vale {quiero!r}"
+    finally:
+        if panel is not None:
+            panel.destroy()
+        gc.collect()
+
+
 def test_un_addon_riesgoso_pide_confirmacion():
     """Una accion declarada riesgosa pasa por el mismo freno que todo lo demas.
 
@@ -4554,6 +4613,23 @@ def test_los_botones_de_prueba_existen_y_prueban_el_camino_entero():
     raiz = os.path.dirname(os.path.abspath(__file__))
     with open(os.path.join(raiz, "eve", "gui.py"), encoding="utf-8") as f:
         fuente = f.read()
+
+    # Las secciones que ya viven en el registro: ahi "estar adentro" es
+    # estructura y no texto, asi que se comprueba sobre los objetos.
+    from eve import registro
+
+    def boton_en_seccion(bloque, titulo, etiqueta) -> bool:
+        for item in bloque:
+            if isinstance(item, registro.Seccion):
+                if item.titulo == titulo:
+                    return any(isinstance(h, registro.Boton) and h.etiqueta == etiqueta
+                               for h in item.hijos)
+                if boton_en_seccion(item.hijos, titulo, etiqueta):
+                    return True
+        return False
+
+    declarados = [item for tabla in registro.TABLAS for item in tabla]
+
     for seccion, boton in (
         ("Como te escucha", "Probar que te escucha"),
         ("Como te habla", "Probar que te habla"),
@@ -4561,7 +4637,12 @@ def test_los_botones_de_prueba_existen_y_prueban_el_camino_entero():
         ("Subtitulos", "Mostrar un subtitulo de prueba"),
         ("Despertarla diciendo su nombre", "Probar la palabra"),
     ):
-        i = fuente.index(f'_seccion(t, tr("{seccion}")')
+        if boton_en_seccion(declarados, seccion, boton):
+            continue
+        marca = f'_seccion(t, tr("{seccion}")'
+        assert marca in fuente, (
+            f"{seccion} no esta ni en el registro ni escrita a mano en gui.py")
+        i = fuente.index(marca)
         # La seccion siguiente marca el final de esta.
         j = fuente.find("self._seccion(", i + 10)
         trozo = fuente[i:j if j > 0 else len(fuente)]

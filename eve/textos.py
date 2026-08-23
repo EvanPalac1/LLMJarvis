@@ -100,6 +100,14 @@ def usados_en_el_codigo(carpeta: str = "") -> set:
             a = n.args[0]
             if isinstance(a, ast.Constant) and isinstance(a.value, str):
                 encontrados.add(a.value)
+    # Y lo que declara el registro. Ahi los rotulos son datos y no literales
+    # adentro de `tr()`, asi que el recorrido de arriba no los ve.
+    try:
+        from . import registro
+
+        encontrados.update(registro.textos())
+    except Exception:  # noqa: BLE001 - sin registro, lo demas sigue valiendo
+        pass
     return encontrados
 
 
@@ -107,6 +115,12 @@ def sin_traducir(idioma: str = "en", carpeta: str = "") -> list:
     """Lo que el codigo muestra y ese idioma todavia no cubre."""
     tabla = TABLA.get(idioma, {})
     return sorted(s for s in usados_en_el_codigo(carpeta) if s not in tabla)
+
+
+# Funciones donde un `tr(variable)` es correcto: traducen texto que viene de
+# una tabla declarada, y esa tabla ya la cubre `usados_en_el_codigo()`. Fuera de
+# aca, un `tr(variable)` sigue siendo un texto que nadie verifica.
+DESDE_TABLA = ("_pintar_registro",)
 
 
 def textos_invisibles(carpeta: str = "") -> list:
@@ -124,20 +138,26 @@ def textos_invisibles(carpeta: str = "") -> list:
 
     carpeta = carpeta or os.path.dirname(os.path.abspath(__file__))
     sueltos = []
-    for nombre in ARCHIVOS:
+    for nombre in ARCHIVOS:  # noqa: PLR1702
         ruta = os.path.join(carpeta, nombre)
         if not os.path.exists(ruta):
             continue
         with open(ruta, encoding="utf-8") as f:
             arbol = ast.parse(f.read())
-        for n in ast.walk(arbol):
-            if not isinstance(n, ast.Call):
+        for fn in ast.walk(arbol):
+            if isinstance(fn, ast.FunctionDef) and fn.name in DESDE_TABLA:
                 continue
-            nom = n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", "")
-            if nom not in ("t", "tr") or not n.args:
+            if not isinstance(fn, ast.FunctionDef):
                 continue
-            if not isinstance(n.args[0], ast.Constant):
-                sueltos.append(f"{nombre}:{n.lineno}  {ast.unparse(n)[:60]}")
+            for n in ast.walk(fn):
+                if not isinstance(n, ast.Call):
+                    continue
+                nom = (n.func.attr if isinstance(n.func, ast.Attribute)
+                       else getattr(n.func, "id", ""))
+                if nom not in ("t", "tr") or not n.args:
+                    continue
+                if not isinstance(n.args[0], ast.Constant):
+                    sueltos.append(f"{nombre}:{n.lineno}  {ast.unparse(n)[:60]}")
     return sorted(sueltos)
 
 

@@ -14,7 +14,7 @@ import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from . import modulos, plataforma, store, textos, voice
+from . import modulos, plataforma, registro, store, textos, voice
 from .textos import t as tr
 
 CREATE_NEW_CONSOLE = 0x00000010
@@ -533,6 +533,37 @@ class Panel(tk.Tk):
         if hasattr(self, "perfil_var"):
             self.perfil_var.set(self.cfg.get("perfil_activo", ""))
         self.repintar()
+
+    def _pintar_registro(self, padre, bloque) -> None:
+        """Dibuja un bloque del registro repartiendo entre los helpers de siempre.
+
+        Aca no hay dibujo nuevo: `Campo` va a `_row`, `Interruptor` a `_check`,
+        `Fondo` a `_bloque_fondo`. Si esto tuviera que saber pintar algo por su
+        cuenta, seria un framework nuevo en vez de una tabla --y el plan dice
+        que en ese caso el control se escribe a mano y se anota como `Propio`.
+        """
+        for item in bloque:
+            if isinstance(item, registro.Seccion):
+                caja = self._seccion(padre, tr(item.titulo), item.nivel)
+                self._pintar_registro(caja, item.hijos)
+            elif isinstance(item, registro.Campo):
+                self._row(padre, tr(item.etiqueta), item.clave,
+                          item.opciones, item.ancho)
+            elif isinstance(item, registro.Interruptor):
+                self._check(padre, tr(item.etiqueta), item.clave)
+            elif isinstance(item, registro.Ayuda):
+                self._ayuda(padre, tr(item.texto))
+            elif isinstance(item, registro.Boton):
+                fila = ttk.Frame(padre)
+                fila.pack(fill="x", padx=12, pady=(8, 2))
+                ttk.Button(fila, text=tr(item.etiqueta),
+                           command=getattr(self, item.metodo)).pack(side="left")
+            elif isinstance(item, registro.Fondo):
+                self._bloque_fondo(padre, item.prefijo, tr(item.titulo))
+            elif isinstance(item, registro.Propio):
+                getattr(self, item.metodo)(padre)
+            else:  # pragma: no cover - una entrada de un tipo que no existe
+                raise TypeError(f"el registro trae algo que no se dibujar: {item!r}")
 
     def _seccion(self, padre, titulo: str, nivel: str = BASICO):
         """Una seccion plegable. Devuelve el cuerpo, donde va el contenido.
@@ -2768,29 +2799,17 @@ class Panel(tk.Tk):
         messagebox.showinfo(tr("Posicion"), tr("El cartel vuelve a la esquina de arriba a la izquierda."))
 
     def _bloque_subtitulos(self, nb):
+        """Generado desde `registro.SUBTITULOS`.
+
+        Primera pestaña migrada. Convivio con la escrita a mano hasta que el
+        test comprobo que las dos daban las mismas claves, los mismos tipos y
+        los mismos valores; recien ahi se borro la vieja. "Produce el mismo
+        config" sin medirlo es una afirmacion, no una migracion.
+        """
         t = ttk.Frame(nb)
-        caja = self._seccion(t, tr("Subtitulos"))
-        fila = ttk.Frame(caja)
-        fila.pack(fill="x", padx=12, pady=(8, 2))
-        ttk.Button(fila, text=tr("Mostrar un subtitulo de prueba"),
-                   command=self.probar_subtitulo).pack(side="left")
-        self._row(t, tr("Segundos en pantalla"), "sub_segundos")
-        self._ayuda(
-            t,
-            tr("Cuanto se queda cada subtitulo despues de que Eve termina de\n"
-            "hablar. Hasta ahora solo se podia cambiar editando el config."))
-        self._row(caja, tr("Que se muestra"), "sub_muestra", ["ambos", "eve", "usuario"])
-        self._ayuda(
-            caja,
-            tr("ambos = lo que dijiste tu (para ver si te entendio) y lo que responde Eve,\n"
-            "revelandose mientras lo dice."),
-        )
-        self._row(caja, tr("Tamano de letra"), "sub_tam")
-        self._row(caja, tr("Lineas maximas"), "sub_lineas")
-        self._row(caja, tr("Opacidad (%)"), "sub_opacidad")
-        self._row(caja, tr("Separacion del cartel (px)"), "sub_separacion")
-        self._bloque_fondo(t, "sub", tr("Fondo de los subtitulos"))
+        self._pintar_registro(t, registro.SUBTITULOS)
         return t
+
 
     def _bloque_historial(self, nb):
         t = ttk.Frame(nb)
