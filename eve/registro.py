@@ -76,6 +76,16 @@ class Propio(NamedTuple):
     metodo: str
 
 
+class Fila(NamedTuple):
+    """Varias cosas en el mismo renglon, en vez de una debajo de otra.
+
+    Es layout y nada mas: el registro sigue sin saber pintar, solo dice que va
+    junto con que. Sin esto, dos botones que van al lado se apilarian.
+    """
+
+    hijos: tuple
+
+
 class Seccion(NamedTuple):
     """Un grupo plegable con su nivel y lo que lleva adentro."""
 
@@ -125,6 +135,8 @@ def textos(bloque=None) -> list:
         if isinstance(item, Seccion):
             salida.append(item.titulo)
             salida.extend(textos(item.hijos))
+        elif isinstance(item, Fila):
+            salida.extend(textos(item.hijos))
         elif isinstance(item, (Campo, Interruptor, Boton)):
             salida.append(item.etiqueta)
         elif isinstance(item, Ayuda):
@@ -143,7 +155,7 @@ def claves(bloque) -> list:
     """
     salida = []
     for item in bloque:
-        if isinstance(item, Seccion):
+        if isinstance(item, (Seccion, Fila)):
             salida.extend(claves(item.hijos))
         elif isinstance(item, (Campo, Interruptor)):
             salida.append(item.clave)
@@ -160,8 +172,34 @@ def claves(bloque) -> list:
     return salida
 
 
+VENTANA = (
+    Seccion(
+        "La ventana de actividad",
+        (
+            Ayuda("Es la tercera ventana de Eve, aparte del panel y del cartel. Ahi se\n"
+                  "ve que esta haciendo: los modulos que le pongas, el grafo de lo que\n"
+                  "ejecuto, el medidor de contexto y el lector de paginas.\n"
+                  "\nTiene dos modos arriba, y no son dos pantallas sino quien puede\n"
+                  "escribir. En 'Work' se mira; en 'Edit' se agarran los modulos con el\n"
+                  "mouse: clic elige, Ctrl suma, Shift agrega un rango, arrastrar mueve\n"
+                  "y Ctrl+Z deshace. Con varios elegidos se editan las propiedades que\n"
+                  "TIENEN EN COMUN, y si el valor difiere el campo arranca vacio para\n"
+                  "que aplicar no los iguale sin querer."),
+            Campo("consola_modo", "Cuando se abre", ["nunca", "con_eve"]),
+            Ayuda("'nunca' = solo cuando la abres tu. 'con_eve' = se abre junto con\n"
+                  "Eve y queda ahi. Corre como proceso aparte, asi que si se cuelga no\n"
+                  "se lleva puesto al asistente."),
+            Fila((
+                Boton("Abrir la ventana de actividad", "_abrir_consola"),
+                Boton("Armar el tablero de arranque", "_mods_semilla_tablero"),
+                Ayuda("  si la abres y esta vacia, es porque no hay modulos en el tablero"),
+            )),
+        ),
+    ),
+)
+
 
 # Todas las tablas migradas. Va al final porque nombra las de arriba, y existe
 # para que el chequeo de traduccion las recorra sin que nadie tenga que
 # acordarse de sumar cada pestaña nueva a mano.
-TABLAS = (SUBTITULOS,)
+TABLAS = (SUBTITULOS, VENTANA)

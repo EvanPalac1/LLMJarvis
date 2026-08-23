@@ -534,7 +534,7 @@ class Panel(tk.Tk):
             self.perfil_var.set(self.cfg.get("perfil_activo", ""))
         self.repintar()
 
-    def _pintar_registro(self, padre, bloque) -> None:
+    def _pintar_registro(self, padre, bloque, en_fila: bool = False) -> None:
         """Dibuja un bloque del registro repartiendo entre los helpers de siempre.
 
         Aca no hay dibujo nuevo: `Campo` va a `_row`, `Interruptor` a `_check`,
@@ -546,18 +546,30 @@ class Panel(tk.Tk):
             if isinstance(item, registro.Seccion):
                 caja = self._seccion(padre, tr(item.titulo), item.nivel)
                 self._pintar_registro(caja, item.hijos)
+            elif isinstance(item, registro.Fila):
+                fila = ttk.Frame(padre)
+                fila.pack(fill="x", padx=12, pady=(4, 10))
+                self._pintar_registro(fila, item.hijos, en_fila=True)
             elif isinstance(item, registro.Campo):
                 self._row(padre, tr(item.etiqueta), item.clave,
                           item.opciones, item.ancho)
             elif isinstance(item, registro.Interruptor):
                 self._check(padre, tr(item.etiqueta), item.clave)
             elif isinstance(item, registro.Ayuda):
-                self._ayuda(padre, tr(item.texto))
+                if en_fila:
+                    ttk.Label(padre, text=tr(item.texto), style="Ayuda.TLabel",
+                              justify="left").pack(side="left", padx=8)
+                else:
+                    self._ayuda(padre, tr(item.texto))
             elif isinstance(item, registro.Boton):
-                fila = ttk.Frame(padre)
-                fila.pack(fill="x", padx=12, pady=(8, 2))
-                ttk.Button(fila, text=tr(item.etiqueta),
-                           command=getattr(self, item.metodo)).pack(side="left")
+                # Adentro de una `Fila` el renglon ya esta puesto; suelto, se le
+                # arma uno. Sin esto dos botones que van juntos se apilarian.
+                caja = padre if en_fila else ttk.Frame(padre)
+                if caja is not padre:
+                    caja.pack(fill="x", padx=12, pady=(8, 2))
+                ttk.Button(caja, text=tr(item.etiqueta),
+                           command=getattr(self, item.metodo)).pack(
+                               side="left", padx=(0, 6) if en_fila else 0)
             elif isinstance(item, registro.Fondo):
                 self._bloque_fondo(padre, item.prefijo, tr(item.titulo))
             elif isinstance(item, registro.Propio):
@@ -2270,41 +2282,15 @@ class Panel(tk.Tk):
         messagebox.showinfo(tr("Listo"), tr("Cierra y abre el panel para verlo cargado."))
 
     def _bloque_ventana(self, nb):
-        """La ventana de actividad: cuando se abre y que muestra.
+        """Generado desde `registro.VENTANA`.
 
-        Estuvo sin pestaña propia desde que existe, y la unica forma de abrirla
-        era un boton adentro de Modulos --o sea, escondido detras de una funcion
-        que no tiene nada que ver. Si una ventana entera no tiene donde
-        configurarse, para el usuario no existe.
+        Segunda pestaña migrada. La ventana de actividad estuvo sin pestaña
+        propia desde que existe, y la unica forma de abrirla era un boton
+        adentro de Modulos: si una ventana entera no tiene donde configurarse,
+        para el usuario no existe.
         """
         t = ttk.Frame(nb)
-        caja = self._seccion(t, tr("La ventana de actividad"))
-        self._ayuda(
-            caja,
-            tr("Es la tercera ventana de Eve, aparte del panel y del cartel. Ahi se\n"
-            "ve que esta haciendo: los modulos que le pongas, el grafo de lo que\n"
-            "ejecuto, el medidor de contexto y el lector de paginas.\n"
-            "\nTiene dos modos arriba, y no son dos pantallas sino quien puede\n"
-            "escribir. En 'Work' se mira; en 'Edit' se agarran los modulos con el\n"
-            "mouse: clic elige, Ctrl suma, Shift agrega un rango, arrastrar mueve\n"
-            "y Ctrl+Z deshace. Con varios elegidos se editan las propiedades que\n"
-            "TIENEN EN COMUN, y si el valor difiere el campo arranca vacio para\n"
-            "que aplicar no los iguale sin querer."))
-        self._row(caja, tr("Cuando se abre"), "consola_modo", ["nunca", "con_eve"])
-        self._ayuda(
-            caja,
-            tr("'nunca' = solo cuando la abres tu. 'con_eve' = se abre junto con\n"
-            "Eve y queda ahi. Corre como proceso aparte, asi que si se cuelga no\n"
-            "se lleva puesto al asistente."))
-        fila = ttk.Frame(caja)
-        fila.pack(fill="x", padx=12, pady=(4, 10))
-        ttk.Button(fila, text=tr("Abrir la ventana de actividad"),
-                   command=self._abrir_consola).pack(side="left")
-        ttk.Button(fila, text=tr("Armar el tablero de arranque"),
-                   command=self._mods_semilla_tablero).pack(side="left", padx=6)
-        self._ayuda(
-            fila,
-            tr("  si la abres y esta vacia, es porque no hay modulos en el tablero"))
+        self._pintar_registro(t, registro.VENTANA)
         return t
 
     def _bloque_modulos(self, nb):
