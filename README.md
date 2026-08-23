@@ -920,7 +920,7 @@ exportables y no rearma el motor al cambiar, asi que mover un modulo no corta la
 conversacion y un layout entero viaja en un `.eveperfil`.
 
 Tipos: `texto`, `icono`, `onda`, `particulas`, `reloj`, `contexto`, `grafo`,
-`lector`, `documento`, `historial`, `acciones` y `boton`.
+`lector`, `documento`, `historial`, `acciones`, `boton` y `lottie`.
 
 Los cuatro ultimos existen porque el panel mostraba cosas que la ventana de
 actividad no podia: lo que Eve te muestra, la conversacion, el log de auditoria,
@@ -1129,6 +1129,43 @@ ventana en blanco ya demostro ser indistinguible de un programa que no arranco.
 Se agrega **una** vez: si ya hay uno, no se toca ni su posicion ni su tamaño,
 que son del usuario.
 
+### Animacion vectorial (Lottie)
+
+El modulo `lottie` toma un `.json` de After Effects --exportado con Bodymovin, o
+bajado de LottieFiles-- y lo rasteriza cuadro a cuadro. Escala sin pixelarse y
+pasa el tope de 60 cuadros de un GIF, que es lo unico que de verdad agrega sobre
+un APNG.
+
+Estuvo frenado hasta medir las dos puertas que este proyecto le pone a cualquier
+dependencia:
+
+| | |
+|---|---|
+| **Licencia** | LGPL 2.1. Ya se distribuye `pystray` (LGPLv3) y `piper-tts` (GPL-3.0), asi que no cambia la naturaleza del paquete |
+| **Ruedas** | `cp37-abi3`, valida para todo CPython 3.7+, con archivo para los **cinco** objetivos |
+
+Es exactamente la puerta que dejo afuera a `mediapipe`. Cuesta 0.7 MB y 0.22 ms
+por cuadro a 200x200, y devuelve un `PIL.Image` RGBA, o sea que entra por el
+mismo camino que todo lo demas.
+
+El import es diferido: quien no ponga un modulo de este tipo no paga nada, y si
+la libreria faltara el modulo queda en blanco en vez de impedir que Eve arranque.
+
+### Cuadros por segundo
+
+`ui_fps`, en **Apariencia > Tema > Fluidez**. Vale para el cartel y para la
+ventana de actividad. `0` = lo que sugiera la maquina: 30 en un PC normal, 20 en
+ARM.
+
+El numero sale de medir, no de elegir: componer la ventana entera --1100x700,
+seis capas con alpha, quinientas particulas por numpy, una sola `PhotoImage`
+viva mas `.paste()`-- cuesta **21.6 ms de mediana y 23.1 de p95**. A 30 cuadros
+quedan 11 ms de margen. Si ves tirones, bajalo antes que apagar modulos: 20
+cuadros con todo puesto se ve mejor que 30 a medias.
+
+Ese mismo numero es el que decidio el stack. El umbral escrito antes de empezar
+era "p95 bajo 25 ms sigue tkinter, arriba de 33 entra Kivy"; dio 23.08.
+
 ### Botones como modulos
 
 Un modulo `boton` corre una accion al tocarlo, en modo Work. La lista es
@@ -1139,6 +1176,31 @@ es un accidente esperando, no una funcion.
 
 Es `interactivo` de fabrica: un boton que hay que habilitar con una casilla para
 que responda al clic es una trampa, no una opcion.
+
+### Que se manda de la memoria, y por que
+
+`MEMORIA.md` viaja en cada llamada, asi que crece hasta comerse el presupuesto.
+La poda elige los hechos **siguiendo enlaces**: dos cosas estan ligadas si algun
+hecho las nombra a las dos, y se sigue hasta dos enlaces desde lo que Eve viene
+haciendo. Un dato del router es relevante hablando de Minecraft si algun hecho
+menciona los dos.
+
+Medido sobre un caso con respuesta conocida --tres hechos que importan y
+cincuenta de relleno, con presupuesto para pocos:
+
+| enlaces | relevantes que entran | ruido |
+|---|---|---|
+| 0 (solo lo reciente) | 1 de 3 | 5 |
+| **2** | **3 de 3** | **3** |
+| 3 | 3 de 3 | 3 |
+
+Con 3 no cambia nada: el grafo de una memoria real es chato. Y si la memoria es
+densa --pocos temas que se repiten-- dos enlaces alcanzan todo y el criterio se
+degrada al anterior, que es lo aceptable: no elige peor, deja de aportar.
+
+El grafo **no se guarda**: armarlo son 0.6 ms con 200 hechos, asi que
+persistirlo seria mantener un cache que puede quedar viejo a cambio de
+microsegundos.
 
 **El lector** no es un navegador y no pretende serlo. Renderizar un sitio arbitrario ES un
 motor web, y lo que hace falta no son pixeles: es texto que entre al contexto y que se
@@ -1492,7 +1554,8 @@ percibida es todo. Tampoco se envuelve el `/voice` de Claude Code: es un REPL, n
 | `eve/consola.py` | Ventana de actividad, con modo Work y modo Edit |
 | `eve/overlay.py` | El cartel flotante sobre el escritorio |
 | `eve/grafo.py` | Que hizo Eve y en que proyectos, sacado del log |
-| `eve/memoria.py` | Poda MEMORIA.md para que no crezca adentro de cada llamada |
+| `eve/memoria.py` | Poda MEMORIA.md y elige por grafo lo que vale mandar |
+| `eve/registro.py` | Las opciones del panel como datos: seis pestañas se generan |
 | `eve/lector.py` | Lee una pagina web y devuelve texto, sin motor web |
 | `eve/despertar.py` | Palabra clave: silero decide cuando, un whisper chico decide que |
 | `eve/tema.py` | Paletas por roles, para el panel y para el cartel |
@@ -1527,7 +1590,7 @@ modelos de voz: bajarla en la primera ejecucion en vez de empaquetarla.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 71 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 119 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```
