@@ -24,6 +24,17 @@ from typing import NamedTuple
 # que es lo que hace que un test lo revise sin abrir una ventana.
 BASICO, AVANZADO = "basico", "avanzado"
 
+# Los roles de la paleta con su rotulo, en el orden en que se muestran. Viven
+# aca y no en `gui` por dos motivos: el registro tiene que poder enumerar las
+# claves de un `Colores` sin importar la interfaz, y los rotulos son texto de
+# pantalla, asi que el chequeo de traduccion los tiene que ver.
+ROLES_ETIQUETA = (
+    ("fondo", "Fondo"), ("panel", "Cajas y campos"), ("texto", "Texto"),
+    ("texto_tenue", "Texto secundario"), ("acento", "Acento"),
+    ("acento2", "Acento apagado"), ("borde", "Contorno"), ("alerta", "Alerta"),
+)
+ROLES = tuple(rol for rol, _ in ROLES_ETIQUETA)
+
 
 class Campo(NamedTuple):
     """Una fila: etiqueta, clave de config y opciones si son cerradas.
@@ -77,9 +88,34 @@ class Propio(NamedTuple):
 
     Existe para que el registro NO tenga que crecer hasta describir cualquier
     cosa. Un control con logica propia se escribe en tkinter y se anota aca.
+
+    Y DECLARA que claves toca. Sin eso, una excepcion seria un agujero en la
+    verificacion: lo que dibuja a mano no se podria enumerar, y el test que
+    compara el registro contra la config dejaria de ver esa parte.
     """
 
     metodo: str
+    claves_propias: tuple = ()
+
+
+class Colores(NamedTuple):
+    """Las ocho filas de color de un tema, para un prefijo.
+
+    Ya estaba escrito como un bucle sobre `ROLES_ETIQUETA`; declararlo hace que
+    las claves se puedan enumerar sin abrir una ventana.
+    """
+
+    prefijo: str
+
+
+class Vivo(NamedTuple):
+    """Claves cuyo cambio repinta la vista previa, al instante.
+
+    Estaba como bucles de `trace_add` sueltos en medio del bloque: logica
+    mezclada con layout, y facil de olvidar al agregar un campo.
+    """
+
+    claves: tuple
 
 
 class Salida(NamedTuple):
@@ -160,6 +196,8 @@ def textos(bloque=None) -> list:
             salida.append(item.etiqueta)
         elif isinstance(item, Ayuda):
             salida.append(item.texto)
+        elif isinstance(item, Colores):
+            salida.extend(etiqueta for _rol, etiqueta in ROLES_ETIQUETA)
         elif isinstance(item, Fondo):
             salida.append(item.titulo)
     return salida
@@ -196,8 +234,12 @@ def claves(bloque) -> list:
     for item in bloque:
         if isinstance(item, (Seccion, Fila)):
             salida.extend(claves(item.hijos))
+        elif isinstance(item, Propio):
+            salida.extend(item.claves_propias)
         elif isinstance(item, (Campo, Interruptor)):
             salida.append(item.clave)
+        elif isinstance(item, Colores):
+            salida.extend(f"{item.prefijo}_color_{rol}" for rol in ROLES)
         elif isinstance(item, Fondo):
             salida.extend([
                 f"{item.prefijo}_fondo",
@@ -418,7 +460,65 @@ VOZ = (
 )
 
 
+TEMA = (
+    Seccion(
+        "Colores del panel",
+        (
+            Campo("ui_tema", "Tema", "_temas_disponibles"),
+            Interruptor("ui_pintar_panel", "Pintar tambien este panel con el tema"),
+            Ayuda("Pintar el panel obliga a dibujar los controles por nuestra cuenta: Windows\n"
+                  "no deja cambiarle el color a los suyos. El cambio se ve al instante."),
+            Interruptor("ui_sin_animacion", "No animar los GIF (dejar el primer cuadro)"),
+        ),
+    ),
+    Seccion(
+        "Colores a mano",
+        (
+            Ayuda("Solo se usan con el tema 'personalizado'."),
+            Colores("ui"),
+        ),
+        AVANZADO,
+    ),
+    Seccion(
+        "Tipografia",
+        (
+            Campo("ui_fuente", "Fuente del panel", "_fuentes_disponibles"),
+            Campo("ui_fuente_tam", "Tamaño (0 = el de la fuente)"),
+            Campo("hud_fuente", "Fuente del cartel", "_fuentes_disponibles"),
+            Campo("sub_fuente", "Fuente de los subtitulos", "_fuentes_disponibles"),
+        ),
+        AVANZADO,
+    ),
+    Seccion(
+        "Colores del cartel flotante",
+        (
+            Campo("hud_tema", "Tema del cartel", "_temas_del_cartel"),
+            Colores("hud"),
+            Ayuda("Vacio = el cartel usa el mismo tema que el panel, que es lo que\n"
+                  "quiere casi todo el mundo. Los colores de abajo solo se usan con\n"
+                  "el tema 'personalizado'."),
+        ),
+        AVANZADO,
+    ),
+    Seccion(
+        "Cabecera del panel",
+        (
+            Propio("_cabecera_del_panel", ("ui_banner",)),
+            Campo("ui_banner_opacidad", "Opacidad (%)"),
+            Ayuda("Se ve arriba de cada pestaña y se aplica al reabrir el panel. No hay fondo\n"
+                  "para todo el panel: los controles de Windows pintan su propio fondo opaco\n"
+                  "y lo taparian."),
+        ),
+        AVANZADO,
+    ),
+    # Lo que repinta la vista previa al instante. Junto y al final, en vez de
+    # tres bucles de `trace_add` sueltos en medio del bloque.
+    Vivo(("ui_tema", "ui_sin_animacion", "ui_fuente", "ui_fuente_tam",
+          "hud_fuente", "sub_fuente")),
+)
+
+
 # Todas las tablas migradas. Va al final porque nombra las de arriba, y existe
 # para que el chequeo de traduccion las recorra sin que nadie tenga que
 # acordarse de sumar cada pestaña nueva a mano.
-TABLAS = (SUBTITULOS, VENTANA, VOZ)
+TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA)

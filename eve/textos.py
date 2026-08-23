@@ -162,6 +162,20 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Acento":
+        "Accent",
+    "Acento apagado":
+        "Muted accent",
+    "Alerta":
+        "Alert",
+    "Cajas y campos":
+        "Boxes and fields",
+    "Fondo":
+        "Background",
+    "Texto":
+        "Text",
+    "Texto secundario":
+        "Secondary text",
     "Eve no ejecuto nada todavia":
         "Eve has not run anything yet",
     "accion desconocida":

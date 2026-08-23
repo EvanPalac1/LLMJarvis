@@ -66,11 +66,9 @@ def _auth_status() -> str:
         f"Plan: {data.get('subscriptionType', '?')}   |   Metodo: {data.get('authMethod', '?')}"
     )
 
-ROLES_ETIQUETA = (
-    ("fondo", "Fondo"), ("panel", "Cajas y campos"), ("texto", "Texto"),
-    ("texto_tenue", "Texto secundario"), ("acento", "Acento"),
-    ("acento2", "Acento apagado"), ("borde", "Contorno"), ("alerta", "Alerta"),
-)
+# Los roles viven en el registro: tenerlos en dos lados era una lista que se
+# podia desfasar de la otra sin que nada lo dijera.
+ROLES_ETIQUETA = registro.ROLES_ETIQUETA
 
 MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
 CC_MODELS = ["opus", "sonnet", "haiku"]
@@ -586,12 +584,67 @@ class Panel(tk.Tk):
                 ttk.Button(caja, text=tr(item.etiqueta),
                            command=getattr(self, item.metodo)).pack(
                                side="left", padx=(0, 6) if en_fila else 0)
+            elif isinstance(item, registro.Colores):
+                for rol, etiqueta in registro.ROLES_ETIQUETA:
+                    self._fila_color(padre, item.prefijo, rol, tr(etiqueta))
+            elif isinstance(item, registro.Vivo):
+                # Al final del bloque y no al vuelo: las variables tienen que
+                # existir para poder atarles el repintado.
+                for clave in item.claves:
+                    if clave in self.vars:
+                        self.vars[clave].trace_add("write", self._previa_redibujar)
             elif isinstance(item, registro.Fondo):
                 self._bloque_fondo(padre, item.prefijo, tr(item.titulo))
             elif isinstance(item, registro.Propio):
                 getattr(self, item.metodo)(padre)
             else:  # pragma: no cover - una entrada de un tipo que no existe
                 raise TypeError(f"el registro trae algo que no se dibujar: {item!r}")
+
+    def _temas_disponibles(self) -> list:
+        from . import tema
+
+        return tema.NOMBRES
+
+    def _temas_del_cartel(self) -> list:
+        """Igual que los del panel, mas el vacio: heredar el del panel."""
+        from . import tema
+
+        return ["", *tema.NOMBRES]
+
+    def _fuentes_disponibles(self) -> list:
+        from . import tema
+
+        return tema.fuentes_disponibles()
+
+    def _cabecera_del_panel(self, padre) -> None:
+        """La imagen de cabecera: campo, selector de archivo y quitar.
+
+        Excepcion declarada del registro: abre un dialogo de archivos, asi que
+        no es una fila con una clave. Declara `ui_banner` para que la
+        verificacion la siga viendo.
+        """
+        from tkinter import filedialog
+
+        fila = ttk.Frame(padre)
+        fila.pack(fill="x", padx=12, pady=5)
+        ttk.Label(fila, text=tr("Imagen (PNG o GIF)"), width=24).pack(side="left")
+        var = tk.StringVar(value=str(self.cfg.get("ui_banner", "")))
+        self.vars["ui_banner"] = var
+        ttk.Entry(fila, textvariable=var).pack(side="left", fill="x", expand=True)
+
+        def elegir():
+            ruta = filedialog.askopenfilename(
+                title=tr("Imagen de cabecera"), parent=self,
+                filetypes=[("Imagenes y sprite sheets",
+                            "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
+                           ("Todos", "*.*")],
+            )
+            if ruta:
+                var.set(ruta)
+
+        ttk.Button(fila, text="...", width=4, command=elegir).pack(side="left", padx=(6, 0))
+        ttk.Button(fila, text=tr("Quitar"), width=8,
+                   command=lambda: var.set("")).pack(side="left", padx=(4, 0))
 
     def _voces_de_windows(self) -> list | None:
         """Las voces de SAPI instaladas. Se consultan al abrir, no al importar."""
@@ -2008,91 +2061,16 @@ class Panel(tk.Tk):
         self._filas_color.append((prefijo, (entrada, boton)))
 
     def _bloque_tema(self, nb):
-        from . import tema
+        """Generado desde `registro.TEMA`.
 
+        Cuarta pestaña migrada, 23% de excepciones. La cabecera con el selector
+        de archivo se queda como `Propio` --abre un dialogo, no es una fila-- y
+        declara la clave que toca para que la verificacion no la pierda.
+        """
         t = ttk.Frame(nb)
-        caja = self._seccion(t, tr("Colores del panel"))
-        self._row(caja, tr("Tema"), "ui_tema", tema.NOMBRES)
-        self._check(caja, tr("Pintar tambien este panel con el tema"), "ui_pintar_panel")
-        self._ayuda(
-            caja,
-            tr("Pintar el panel obliga a dibujar los controles por nuestra cuenta: Windows\n"
-            "no deja cambiarle el color a los suyos. El cambio se ve al instante."),
-        )
-        self._check(caja, tr("No animar los GIF (dejar el primer cuadro)"), "ui_sin_animacion")
-        self.vars["ui_sin_animacion"].trace_add("write", self._previa_redibujar)
-
-        # Los ocho hexadecimales, en su propia seccion y plegada. Elegir un tema
-        # lo hace cualquiera; escribir #0d0204 a mano lo hace quien fue a
-        # buscarlo. Juntos daban un desplegable util y ocho campos de codigos.
-        caja = self._seccion(t, tr("Colores a mano"), AVANZADO)
-        self._ayuda(caja, tr("Solo se usan con el tema 'personalizado'."))
-        for rol, etiqueta in ROLES_ETIQUETA:
-            self._fila_color(caja, "ui", rol, etiqueta)
-
-        caja = self._seccion(t, tr("Tipografia"), AVANZADO)
-        self._row(caja, tr("Fuente del panel"), "ui_fuente", tema.fuentes_disponibles())
-        self._row(caja, tr("Tamaño (0 = el de la fuente)"), "ui_fuente_tam")
-        self._row(caja, tr("Fuente del cartel"), "hud_fuente", tema.fuentes_disponibles())
-        self._row(caja, tr("Fuente de los subtitulos"), "sub_fuente", tema.fuentes_disponibles())
-        for clave in ("ui_fuente", "ui_fuente_tam", "hud_fuente", "sub_fuente"):
-            self.vars[clave].trace_add("write", self._previa_redibujar)
-
-        # Los ocho colores del cartel estuvieron un tiempo afuera de aca, con una
-        # razon buena: eran una segunda tanda identica a la de arriba, y para lo
-        # unico que servian era para que el cartel se viera distinto del panel,
-        # que ya se resuelve eligiendole otro tema.
-        #
-        # Vuelven porque el pedido es que todo se pueda tocar desde el panel, y
-        # porque el problema real era la pared de campos, no la funcion: en su
-        # propia seccion son cuatro lineas y no molestan a nadie que no las
-        # busque. Las claves siempre siguieron andando si se editaban a mano; lo
-        # que faltaba era poder llegar.
-        caja = self._seccion(t, tr("Colores del cartel flotante"), AVANZADO)
-        self._row(caja, tr("Tema del cartel"), "hud_tema", ["", *tema.NOMBRES])
-        for rol, etiqueta in ROLES_ETIQUETA:
-            self._fila_color(caja, "hud", rol, etiqueta)
-        self._ayuda(
-            caja,
-            tr("Vacio = el cartel usa el mismo tema que el panel, que es lo que\n"
-            "quiere casi todo el mundo. Los colores de abajo solo se usan con\n"
-            "el tema 'personalizado'."))
-
-        caja = self._seccion(t, tr("Cabecera del panel"), AVANZADO)
-        fila = ttk.Frame(caja)
-        fila.pack(fill="x", padx=12, pady=5)
-        ttk.Label(fila, text=tr("Imagen (PNG o GIF)"), width=24).pack(side="left")
-        var = tk.StringVar(value=str(self.cfg.get("ui_banner", "")))
-        self.vars["ui_banner"] = var
-        ttk.Entry(fila, textvariable=var).pack(side="left", fill="x", expand=True)
-
-        def elegir_banner():
-            from tkinter import filedialog
-
-            ruta = filedialog.askopenfilename(
-                title=tr("Imagen de cabecera"), parent=self,
-                filetypes=[("Imagenes y sprite sheets",
-                            "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp"),
-                       ("Todos", "*.*")],
-            )
-            if ruta:
-                var.set(ruta)
-
-        ttk.Button(fila, text="...", width=4,
-                   command=elegir_banner).pack(side="left", padx=(6, 0))
-        ttk.Button(fila, text=tr("Quitar"), width=8,
-                   command=lambda: var.set("")).pack(side="left", padx=(4, 0))
-        self._row(caja, tr("Opacidad (%)"), "ui_banner_opacidad")
-        self._ayuda(
-            caja,
-            tr("Se ve arriba de cada pestaña y se aplica al reabrir el panel. No hay fondo\n"
-            "para todo el panel: los controles de Windows pintan su propio fondo opaco\n"
-            "y lo taparian."),
-        )
-
-        for clave in ("ui_tema",):
-            self.vars[clave].trace_add("write", self._previa_redibujar)
+        self._pintar_registro(t, registro.TEMA)
         return t
+
 
     def _addon_revocar(self, nombre: str) -> None:
         """Saca la aprobacion y rearma la pestaña, para que se vea el cambio."""
