@@ -250,6 +250,20 @@ entiende, vos tampoco.
 `daniela-high` es la peor voz medida de todas, y es la única rioplatense de
 calidad `high`. Que una voz suene prometedora de nombre no dice nada.
 
+**El juez importa, y esa tabla no lo decía.** Re-medido con whisper `medium`
+como oyente, en una sola corrida y en la misma CPU:
+
+| voz | WER | RTF |
+|---|---:|---:|
+| `es_MX-claude-high` | **2.2%** | 0.113 |
+| `es_ES-sharvard-medium` | 6.0% | 0.145 |
+
+`sharvard` reproduce (6.4 → 6.0); `claude-high` no (6.8 → 2.2). La diferencia es
+el modelo que re-oye, no la voz: un juez mejor perdona menos y castiga distinto.
+**Las dos tablas solo son comparables adentro de sí mismas** — por eso el
+veredicto de abajo mide todo en la misma corrida en vez de comparar contra el
+número escrito.
+
 ---
 
 ## Lo que Eve recuerda
@@ -299,60 +313,66 @@ Un "no" medido es un resultado. Estos se descartaron con datos, no por gusto.
 | **Cliente MCP** | Los addons ya son el sistema de plugins y andan en los cuatro motores |
 | **pocket-tts** | Ver abajo |
 
-### pocket-tts: la puerta de plataforma ya no lo bloquea
+### pocket-tts: medido, y pierde
 
-**Corrección.** Este apartado decía que pocket-tts estaba bloqueado por `torch`.
-Eso valía para el camino oficial y ya no vale para el único que importa acá.
+**Doble corrección.** Este apartado dijo primero que pocket-tts estaba bloqueado
+por `torch`, y después que la puerta de plataforma se había caído. Las dos cosas
+eran ciertas a medias. Ahora está medido con el banco propio y la respuesta es
+clara.
 
-Lo bueno: código MIT, **pesos CC-BY-4.0** (son dos licencias distintas y conviene
-no confundirlas), ~200 ms al primer fragmento, y **clonado de voz desde ~20 s de
-audio**, que es algo que Piper no hace.
+**La puerta de plataforma sí se cayó.** El camino oficial pide `torch>=2.5.0`
+contra la última rueda de torch para macOS Intel, que es la 2.2.2 — pero no es el
+único camino. `sherpa-onnx` corre pocket-tts, publica rueda para **los cinco
+objetivos** (`macosx_10_15_x86_64` incluida), es Apache-2.0, pesa 10-18 MB por
+plataforma, y `onnxruntime` **ya viaja** en el proyecto. Comprobado cargando los
+dos modelos, no leyendo el README.
 
-El bloqueo original, real: la ruta oficial en Python pide **`torch>=2.5.0`**, y
-la última rueda de torch para **macOS Intel es la 2.2.2**. Ninguna versión
-satisface las dos, y torch sumaría 116 MB en Windows, 106 en mac ARM, 502 en
-Linux x64 y 407 en Linux ARM sobre instaladores de 133-229 MB.
+**Y no importa, porque el motor pierde en todo lo que se puede medir.** Las 24
+frases del banco, sintetizadas por cada motor y re-transcritas con whisper
+`medium` como juez:
 
-**Pero torch no es el único camino, y el proyecto ya lleva el otro adentro.** El
-propio repo de kyutai remite a `sherpa-onnx` para correr pocket-tts, y ahí los
-números cambian de categoría:
+| motor | WER | RTF |
+|---|---:|---:|
+| **piper `es_MX-claude-high`** | **2.2%** | **0.113** |
+| piper `es_ES-sharvard-medium` | 6.0% | 0.145 |
+| pocket-tts español int8 | **16.8%** | **0.800** |
 
-| | ruta torch | ruta sherpa-onnx |
-|---|---|---|
-| Licencia del runtime | BSD | Apache-2.0 |
-| mac Intel | **no existe** | `macosx_10_15_x86_64` ✅ |
-| Los cinco objetivos | no | **sí, los cinco** |
-| Peso por plataforma | 116-502 MB | **10-18 MB** |
-| Dependencia nativa nueva | torch | ninguna: `onnxruntime` **ya viaja** |
+**7.6 veces más errores y 7 veces más lento.** Y no es un grupo que lo hunde:
+pierde en los seis.
 
-O sea: la puerta que mató a mediapipe **no aplica por este lado**. Y `onnxruntime`
-ya es dependencia dura del proyecto —la usan silero y parakeet— así que el costo
-marginal es el binario de sherpa y los pesos, no un stack nuevo.
+| | lejos | limpio | propios | rápido | ruido | susurro |
+|---|---:|---:|---:|---:|---:|---:|
+| piper `claude-high` | 3.0 | 0.0 | **13.0** | 0.0 | 0.0 | 0.0 |
+| pocket-tts | 9.1 | 11.1 | **52.2** | 5.6 | 15.6 | 20.0 |
 
-**Lo que sí sigue sin medirse, y es ahora la única razón para no enviarlo:**
+El peor grupo es el que más importa: **nombres propios, 52.2%**. En órdenes
+cortas —`Abre Minecraft`, `Abre YouTube Kids`— devolvió **audio vacío**. Un
+asistente de voz dice justamente frases cortas con nombres propios.
 
-1. **No hay WER de la voz en español.** Piper está medido re-transcribiendo:
-   6.4%. pocket-tts tiene medidos RTF, latencia y tamaño — no calidad. Enviar un
-   motor sin ese número sería exactamente el error por el que se rechazó Kokoro,
-   al revés.
-2. **El modelo en español es `spanish_24l`, de 24 capas.** El RTF de 0.17 y los
-   100M parámetros son del inglés destilado de 6 capas. Cuatro veces las capas no
-   se comparan de arriba: hay que medirlo aparte.
-3. **Los pesos bajan en runtime** por `huggingface-hub`. Un asistente que arranca
-   sin red no puede depender de eso sin una ruta de respaldo.
+**Dos cosas más que aparecieron midiendo, y que ninguna hoja de datos dice:**
 
-**La condición de reapertura, corregida.** La vieja —"si el proyecto deja de
-soportar mac Intel"— era un disparador ajeno, que no depende del proyecto y que
-además habría hecho entrar torch en piloto automático años después. La condición
-buena es medible y propia:
+- **El RTF de 0.17 no es de esta máquina.** Acá da 0.800. Ese número venía de un
+  M4, y comparado contra el Piper medido el mismo día en la misma CPU, la
+  relación se da vuelta.
+- **`kyutai/pocket-tts` es un repo con acceso restringido.** Las ocho voces
+  predefinidas dan `401 GatedRepoError`: piden cuenta de Hugging Face con acceso
+  aprobado a mano. Es el mismo modo de falla que descartó a Porcupine — una
+  credencial de cuenta no se puede embeber en un instalador. Lo medido acá usa
+  clonado desde un wav local, que sí funciona sin cuenta.
 
-> Entra cuando el WER de la voz en español, medido con el mismo banco de 24 clips
-> y el mismo método de re-transcripción, quede por debajo del 6.4% de Piper; y su
-> RTF real de 24 capas se mida en esta CPU, no se herede del modelo inglés.
+También quedan corregidos dos datos que este documento tuvo mal: la voz `lola`
+**no existe** (las del bundle son `alba`, `azelma`, `cosette`, `eponine`,
+`fantine`, `javert`, `jean`, `marius`), y el español destilado tiene **6 capas**,
+no 24 — `spanish_24l` es la variante grande, aparte. Y la licencia son dos: el
+código es MIT, **los pesos CC-BY-4.0**.
 
-Y sobre el clonado de voz: en un asistente local de un solo usuario, clonar la
-voz propia no distribuye nada. La línea es no exportar ni guardar embeddings de
-voces ajenas.
+**Veredicto: no entra**, y ya no por una puerta de plataforma sino por el mismo
+criterio que dejó afuera a Kokoro y a `large-v3` — se midió y perdió. El clonado
+de voz es real y Piper no lo tiene, pero cuesta 7.6× el error, 7× el tiempo y 158
+MB contra 60, para una capacidad que se usa una vez.
+
+Se reabre si publican un modelo en español que **baje del 6.0%** con este mismo
+banco. El número, no la promesa.
 
 ---
 
