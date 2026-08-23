@@ -3622,9 +3622,18 @@ def test_parakeet_es_opcion_no_default():
     assert store.DEFAULTS["stt_provider"] == "faster-whisper", "no puede ser el default"
     assert store.DEFAULTS["parakeet_cuantizacion"] == "int8", "639 MB contra 2.4 GB"
 
-    gui = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "eve", "gui.py"),
-               encoding="utf-8").read()
-    assert '"parakeet"' in gui, "esta en el codigo pero no se puede elegir en el panel"
+    # Se le pregunta al registro, no al fuente: al migrar Voz, buscar el texto
+    # en `gui.py` empezo a dar que no aunque la opcion siguiera ofreciendose.
+    from eve import registro
+
+    ofrecidas = registro.opciones_de("stt_provider")
+    if ofrecidas is None:
+        gui = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "eve", "gui.py"), encoding="utf-8").read()
+        assert '"parakeet"' in gui, "esta en el codigo pero no se puede elegir en el panel"
+    else:
+        assert "parakeet" in ofrecidas, (
+            f"no se puede elegir en el panel; se ofrecen {ofrecidas}")
 
     # Sus dependencias tienen que ser cosas que el proyecto YA empaqueta. onnx-asr
     # es rueda pura; lo que importa es que no traiga nada nativo propio.
@@ -4618,12 +4627,20 @@ def test_los_botones_de_prueba_existen_y_prueban_el_camino_entero():
     # estructura y no texto, asi que se comprueba sobre los objetos.
     from eve import registro
 
+    def hay_boton(bloque, etiqueta) -> bool:
+        """El boton puede estar suelto o dentro de una `Fila`."""
+        for h in bloque:
+            if isinstance(h, registro.Boton) and h.etiqueta == etiqueta:
+                return True
+            if isinstance(h, registro.Fila) and hay_boton(h.hijos, etiqueta):
+                return True
+        return False
+
     def boton_en_seccion(bloque, titulo, etiqueta) -> bool:
         for item in bloque:
             if isinstance(item, registro.Seccion):
                 if item.titulo == titulo:
-                    return any(isinstance(h, registro.Boton) and h.etiqueta == etiqueta
-                               for h in item.hijos)
+                    return hay_boton(item.hijos, etiqueta)
                 if boton_en_seccion(item.hijos, titulo, etiqueta):
                     return True
         return False

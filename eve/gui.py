@@ -551,8 +551,24 @@ class Panel(tk.Tk):
                 fila.pack(fill="x", padx=12, pady=(4, 10))
                 self._pintar_registro(fila, item.hijos, en_fila=True)
             elif isinstance(item, registro.Campo):
-                self._row(padre, tr(item.etiqueta), item.clave,
-                          item.opciones, item.ancho)
+                # Las opciones pueden ser una lista, o el nombre de un metodo
+                # que las arma al abrir: las voces de Windows salen de consultar
+                # el sistema, y congelarlas al importar daria la lista de la
+                # maquina que compilo el paquete.
+                opciones = item.opciones
+                if isinstance(opciones, str):
+                    opciones = getattr(self, opciones)()
+                self._row(padre, tr(item.etiqueta), item.clave, opciones, item.ancho)
+            elif isinstance(item, registro.Salida):
+                # Etiqueta vacia que el panel llena despues; queda accesible por
+                # `self.<atributo>`, que es como la buscan los botones de prueba.
+                etiqueta = ttk.Label(padre, text="", style="Ayuda.TLabel",
+                                     justify="left")
+                if en_fila:
+                    etiqueta.pack(side="left", padx=8)
+                else:
+                    etiqueta.pack(anchor="w", padx=12, pady=(4, 8))
+                setattr(self, item.atributo, etiqueta)
             elif isinstance(item, registro.Interruptor):
                 self._check(padre, tr(item.etiqueta), item.clave)
             elif isinstance(item, registro.Ayuda):
@@ -576,6 +592,14 @@ class Panel(tk.Tk):
                 getattr(self, item.metodo)(padre)
             else:  # pragma: no cover - una entrada de un tipo que no existe
                 raise TypeError(f"el registro trae algo que no se dibujar: {item!r}")
+
+    def _voces_de_windows(self) -> list | None:
+        """Las voces de SAPI instaladas. Se consultan al abrir, no al importar."""
+        return voice.list_sapi_voices() or None
+
+    def _apps_al_abrir(self, _padre) -> None:
+        """Llena el conteo de programas sin salir a escanear el disco."""
+        self.refresh_apps(scan=False)
 
     def _seccion(self, padre, titulo: str, nivel: str = BASICO):
         """Una seccion plegable. Devuelve el cuerpo, donde va el contenido.
@@ -1867,192 +1891,19 @@ class Panel(tk.Tk):
         return t
 
     def _bloque_voz(self, nb):
-        """Voz, en secciones, y cada prueba al lado de lo que prueba."""
+        """Generado desde `registro.VOZ`.
+
+        La pestaña mas grande de las que se podian migrar: 48 llamadas
+        declarativas contra 13 a mano, o sea 21% de excepciones. El freno del
+        plan es un tercio, asi que entraba con margen.
+
+        Convivio con la escrita a mano hasta comprobar que las 26 claves daban
+        el mismo tipo y el mismo valor en las dos; recien ahi se borro la vieja.
+        """
         t = ttk.Frame(nb)
-
-        # --- reconocimiento ---------------------------------------------
-        oye = self._seccion(t, tr("Como te escucha"))
-        self._row(oye, tr("STT (reconocimiento)"), "stt_provider",
-                  ["faster-whisper", "parakeet", "openai"])
-        self._row(oye, tr("Modelo Whisper local"), "stt_model",
-                  ["tiny", "base", "small", "medium", "large-v3"])
-        self._row(oye, tr("Sensibilidad"), "stt_sensibilidad",
-                  ["auto", "normal", "ruido", "bajo", "manual"])
-        fila = ttk.Frame(oye)
-        fila.pack(fill="x", padx=12, pady=(4, 2))
-        ttk.Button(fila, text=tr("Probar que te escucha"),
-                   command=self.probar_stt).pack(side="left")
-        ttk.Button(fila, text=tr("Probar GPU"), command=self.gpu_probar).pack(side="left", padx=6)
-        self.gpu_label = ttk.Label(oye, text="", style="Ayuda.TLabel", justify="left")
-        self.gpu_label.pack(anchor="w", padx=12, pady=(4, 8))
-        self._ayuda(
-            oye,
-            tr("Probar recorre el camino entero y no una pieza suelta: graba de tu\n"
-               "microfono de verdad y transcribe con el modelo que tengas elegido.\n"
-               "\nSensibilidad: 'normal' para un cuarto tranquilo, 'ruido' si hay\n"
-               "musica o un juego atras, 'bajo' de madrugada. 'auto' la elige por\n"
-               "hora; las reglas y los numeros medidos estan en el ajuste fino."))
-
-        fino = self._seccion(t, tr("Ajuste fino del reconocimiento"), AVANZADO)
-        self._ayuda(
-            fino,
-            tr("Todo lo de aca esta medido sobre las mismas 24 grabaciones propias.\n"
-               "\nSensibilidad:\n"
-               "  normal  cuarto tranquilo         WER 10.9%  (con ruido 12.5%)\n"
-               "  ruido   musica o el juego atras  WER  8.7%  (con ruido  0.0%)\n"
-               "  bajo    de madrugada, voz suave  WER 12.0%  (con ruido 18.8%)\n"
-               "  manual  usa el umbral y el aire de mas abajo\n"
-               "\nQue modelo conviene:\n"
-               "  small     WER 10.9%   0.9s por orden en gpu,  3.3s en cpu\n"
-               "  medium    WER  4.9%   1.8s en gpu, 10.2s en cpu  <- pide gpu\n"
-               "  large-v3  WER  4.9%   2.7s en gpu, y PEOR en nombres propios\n"
-               "            (34.8% contra 17.4% de medium): mas grande no es\n"
-               "            mejor aca."))
-        self._row(fino, tr("Parakeet: cuantizacion"), "parakeet_cuantizacion", ["int8", ""])
-        self._ayuda(
-            fino,
-            tr("parakeet es el modelo de NVIDIA. Entro porque gano medido sobre las\n"
-            "mismas 24 grabaciones, con la misma cuenta:\n"
-            "  whisper small en gpu   WER 10.9%   RTF 0.27    464 MB\n"
-            "  whisper small en cpu   WER 10.9%   RTF 1.38    464 MB\n"
-            "  whisper medium en gpu  WER  5.4%   RTF 0.61    1.5 GB\n"
-            "  parakeet int8 en CPU   WER  7.1%   RTF 0.19    639 MB\n"
-            "Lo que importa no es el punto y medio de WER: es que ese 0.19 es EN\n"
-            "CPU. Whisper small tarda siete veces mas sin GPU, y la mayoria de las\n"
-            "instalaciones no tienen CUDA configurado.\n"
-            "\nDonde pierde: nombres propios, 30.4% contra 21.7%, que es justo el\n"
-            "grupo que decide si abre el programa correcto -- no acepta el sesgo\n"
-            "de vocabulario que si acepta whisper. Por eso no es el default.\n"
-            "Sin cuantizar mejora los nombres propios pero pesa 2.4 GB."))
-        self._row(fino, tr("Dispositivo"), "stt_device", ["cpu", "cuda"])
-        self._row(fino, tr("Tipo de computo"), "stt_computo",
-                  ["auto", "int8", "int8_float32", "int8_float16", "float16", "float32"])
-        self._ayuda(
-            fino,
-            tr("cuda necesita las librerias de NVIDIA instaladas; si faltan, cae a cpu\n"
-            "solo y avisa. Medido en una GTX 1660 SUPER: 3.42s por orden en cpu\n"
-            "contra 0.71s en gpu. 'auto' elige int8 en cpu e int8_float16 en gpu."))
-        self._check(fino, tr("Recortar silencios antes de transcribir (VAD)"), "stt_vad")
-        self._row(fino, tr("Reglas por horario"), "stt_horario", width=40)
-        self._ayuda(
-            fino,
-            tr("Van separadas por coma y solo pisan al modo 'auto':\n"
-            "  00:00-06:00=bajo, 20:00-23:59=ruido\n"
-            "Si eliges un modo a mano, el reloj no te lo cambia."))
-        self._row(fino, tr("Busqueda por haz (beam)"), "stt_beam", width=10)
-        self._ayuda(
-            fino,
-            tr("Cuantas ramas explora el reconocedor. Medido sobre una orden\n"
-            "tipica: beam 5 tarda 4.4s y beam 1 tarda 3.5s, con el MISMO texto.\n"
-            "Sirve para dictado largo, no para ordenes de ocho palabras."))
-        self._row(fino, tr("Umbral del detector"), "stt_vad_umbral", width=10)
-        self._row(fino, tr("Aire del detector (ms)"), "stt_vad_aire_ms", width=10)
-
-        # --- palabra clave ----------------------------------------------
-        puerta = self._seccion(t, tr("Despertarla diciendo su nombre"), AVANZADO)
-        self._check(puerta, tr("Activar diciendo una palabra (deja el microfono abierto)"),
-                    "wake_activo")
-        self._row(puerta, tr("Palabra para despertarla"), "wake_palabra", width=20)
-        self._row(puerta, tr("Modelo de la puerta"), "wake_modelo", ["tiny", "base", "small"])
-        fila = ttk.Frame(puerta)
-        fila.pack(fill="x", padx=12, pady=(4, 2))
-        ttk.Button(fila, text=tr("Probar la palabra"),
-                   command=self.probar_wake).pack(side="left")
-        self.wake_label = ttk.Label(fila, text="", style="Ayuda.TLabel", justify="left")
-        self.wake_label.pack(side="left", padx=8)
-        self._ayuda(
-            puerta,
-            tr("Apagado de fabrica: prenderlo deja el microfono abierto todo el\n"
-            "tiempo. Dile el nombre y la orden de un tiron, en la misma frase:\n"
-            "  \"Eve, abre Spotify\"\n"
-            "El nombre tiene que ir al principio. Aceptarlo en cualquier lado\n"
-            "convertiria en orden cualquier charla que te lo mencione.\n"
-            "\nNo corre ningun modelo de lenguaje en reposo: primero un detector\n"
-            "de voz de 1.2 MB que ya viaja en el paquete decide si hay alguien\n"
-            "hablando --medido, 0.20% de un core-- y recien sobre ese pedazo\n"
-            "corre el modelo de la puerta. Ese es chico a proposito: solo tiene\n"
-            "que reconocer una palabra que ya conoce.\n"
-            "\nLa palabra pesa mas que el modelo. Medido, 4 ordenes y 6 frases\n"
-            "de control que NO tienen que despertarla:\n"
-            "  Computadora  tiny   desperto 4/4    falsos 0/6\n"
-            "  Eve          small  desperto 3/4    falsos 0/6\n"
-            "  Eve          tiny   desperto 2/4    falsos 0/6\n"
-            "Tres letras no alcanzan para ser una puerta. Por eso se aceptan\n"
-            "variantes separadas por |, y de fabrica vienen las dos."))
-
-        # --- sintesis ----------------------------------------------------
-        habla = self._seccion(t, tr("Como te habla"))
-        self._row(habla, tr("TTS (voz)"), "tts_provider", ["sapi", "piper", "elevenlabs"])
-        self._row(habla, tr("Voz de Piper"), "piper_voice")
-        self._row(habla, tr("Velocidad"), "piper_velocidad")
-        self._row(habla, tr("Volumen"), "volumen")
-        self._ayuda(habla, tr("Velocidad 1.0 = normal, mas alto = mas lento. "
-                              "Volumen 1.0 = como sale del sintetizador."))
-        self._check(habla, tr("Leer las respuestas en voz alta"), "speak_replies")
-        fila = ttk.Frame(habla)
-        fila.pack(fill="x", padx=12, pady=(4, 8))
-        ttk.Button(fila, text=tr("Probar que te habla"),
-                   command=self.probar_tts).pack(side="left")
-
-        vfino = self._seccion(t, tr("Ajuste fino de la voz"), AVANZADO)
-        self._ayuda(
-            vfino,
-            tr("Que voz se entiende mejor. Medido sobre diez frases, sintetizando\n"
-               "y volviendo a transcribir --si el mejor reconocedor que hay no la\n"
-               "entiende, tu con el juego de fondo tampoco:\n"
-               "  es_ES-sharvard-medium   6.4%     es_ES-carlfm-x_low  10.0%\n"
-               "  es_MX-claude-high       6.8%     es_MX-ald-medium    10.4%\n"
-               "  es_ES-davefx-medium     8.4%     es_MX-ald-x_low     11.2%\n"
-               "                                   es_AR-daniela-high  20.5%\n"
-               "Es la media de tres corridas, y hacen falta las tres: Piper no es\n"
-               "determinista y una misma voz se mueve hasta 8 puntos. Con una sola\n"
-               "medicion casi todo este orden seria ruido.\n"
-               "Lo que sobrevive: es_AR-daniela-high es la peor por mucho y la mas\n"
-               "lenta por cinco veces. Por eso ninguna variante la sugiere: la voz\n"
-               "es el canal, no el acento del que habla. Si aun asi la quieres,\n"
-               "eligela a mano en Voz de Piper."))
-        self._row(vfino, tr("Hablante"), "piper_hablante")
-        self._ayuda(vfino, tr("Hablante solo sirve en las voces que traen varias."))
-        self._row(vfino, tr("Voz de Windows"), "tts_voice", voice.list_sapi_voices() or None)
-        self._row(vfino, tr("ElevenLabs voice_id"), "elevenlabs_voice_id")
-
-        hab = self._seccion(t, tr("Que espanol habla"))
-        self._row(hab, tr("Variante"), "dialecto",
-                  ["", "neutro", "colombiano", "mexicano", "rioplatense", "castellano"])
-        ttk.Button(hab, text=tr("Usar la voz que le corresponde"),
-                   command=self.voz_del_dialecto).pack(anchor="w", padx=12, pady=(2, 4))
-        self._ayuda(
-            hab,
-            tr("Cambia como ESCRIBE: tu contra vos, vale contra dale. La voz va\n"
-               "aparte, y el boton de arriba le pone la que le corresponde.\n"
-               "No hay voz colombiana en el catalogo de Piper, asi que esa variante\n"
-               "comparte la mexicana y cambia solo el vocabulario."))
-
-        pers = self._seccion(t, tr("Personalidad"))
-        self._row(pers, tr("Tono"), "persona_tono", width=44)
-        self._ayuda(
-            pers,
-            tr("Como habla, no que hace. Va al final del prompt y siempre pierde\n"
-            "contra el manual: no puede hacerla hablar de mas ni narrar en vez\n"
-            "de actuar. Vacio = sin personaje. Lo setea cada perfil."))
-
-        box = self._seccion(t, tr("Programas que Eve conoce"), AVANZADO)
-        self.apps_label = ttk.Label(box, text="", justify="left")
-        self.apps_label.pack(anchor="w", padx=12, pady=(6, 2))
-        self._row(box, tr("Vocabulario extra"), "stt_vocabulary", width=40)
-        self._ayuda(box, tr("Nombres que el reconocimiento suele errar, separados por comas."))
-        self._row(box, tr("Que catalogo viaja"), "catalogo_modo", ["usados", "completo"])
-        self._ayuda(
-            box,
-            tr("El catalogo de programas viaja en CADA llamada al modelo, y entero\n"
-            "es un tercio del prompt. 'usados' manda solo los que aparecen en tu\n"
-            "log de acciones, ordenados por frecuencia, y el resto se busca con\n"
-            "`E programa NOMBRE`. Medido: 1551 tokens menos por llamada, un 36%.\n"
-            "'completo' los manda todos, por si prefieres pagar y no buscar."))
-        ttk.Button(box, text=tr("Reescanear programas"), command=self.rescan_apps).pack(
-            anchor="w", padx=12, pady=(2, 8))
-        self.refresh_apps(scan=False)
+        self._pintar_registro(t, registro.VOZ)
         return t
+
 
     def refresh_apps(self, scan: bool):
         from . import apps
