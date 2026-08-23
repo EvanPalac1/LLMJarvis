@@ -234,7 +234,12 @@ def ejecutar(nombre: str, accion: str, args: list[str], cfg: dict) -> str:
     # evadia entera, y era la unica del programa que lo hacia.
     motivo = (getattr(modulo, "RIESGOS", {}) or {}).get(accion)
     if motivo and cfg.get("confirm_destructive", True):
-        from . import plataforma
+        # `..` y no `.`: esto vive en `eve/addons/__init__.py`, asi que un
+        # `from . import plataforma` busca `eve.addons.plataforma`, que no
+        # existe. La confirmacion reventaba con ImportError en vez de preguntar
+        # --falla cerrada, pero el usuario veia un crash-- y nadie lo noto
+        # porque ningun addon del repo declara RIESGOS y no habia test.
+        from .. import plataforma
 
         detalle = f"{nombre} {accion} {' '.join(map(str, args))}"[:400]
         if not plataforma.preguntar(f"{motivo}\n\n{detalle}",

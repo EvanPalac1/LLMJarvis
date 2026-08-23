@@ -1400,6 +1400,77 @@ def test_cola_y_pulso():
             voz.transcribe, voz.speak = voz_real
 
 
+def test_un_addon_riesgoso_pide_confirmacion():
+    """Una accion declarada riesgosa pasa por el mismo freno que todo lo demas.
+
+    Este camino existia desde que se metieron los addons bajo `safety`, y no se
+    habia ejecutado NUNCA: `RIESGOS` aparecia una sola vez en todo el repo, en el
+    codigo que la lee. Adentro habia un `from . import plataforma` que resuelve a
+    `eve.addons.plataforma` --no existe-- asi que confirmar reventaba con
+    ImportError en vez de preguntar. Fallaba cerrada, pero el usuario veia un
+    crash, y ningun addon del repo declara RIESGOS, asi que estaba latente.
+
+    Las tres ramas fallan por separado, asi que se prueban las tres.
+    """
+    import types
+
+    from eve import addons, plataforma
+
+    falso = types.ModuleType("falso")
+    falso.NOMBRE = "falso"
+    falso.RIESGOS = {"borrar": "Esto borra la carpeta entera"}
+    falso.estado = lambda cfg: (True, "")
+    corrio = []
+    falso.ejecutar = lambda accion, args, cfg: corrio.append(accion) or "hecho"
+
+    preguntas = []
+    real_preguntar = plataforma.preguntar
+    antes = dict(addons._cache)
+    try:
+        addons._cache.clear()
+        addons._cache["falso"] = falso
+        cfg = {**store.DEFAULTS, "confirm_destructive": True}
+
+        # 1. El usuario dice que si -> corre, y le mostraron el motivo.
+        corrio.clear(); preguntas.clear()
+        plataforma.preguntar = lambda msg, tit="": (preguntas.append(msg), True)[1]
+        assert addons.ejecutar("falso", "borrar", ["todo"], cfg) == "hecho"
+        assert corrio == ["borrar"]
+        assert "borra la carpeta entera" in preguntas[0], preguntas
+        # El detalle de lo que va a correr tambien: "seguro?" sin el que no sirve.
+        assert "todo" in preguntas[0], preguntas
+
+        # 2. El usuario dice que no -> NO corre, y queda escrito.
+        corrio.clear()
+        plataforma.preguntar = lambda msg, tit="": False
+        salida = addons.ejecutar("falso", "borrar", ["todo"], cfg)
+        assert corrio == [], "corrio igual despues de que el usuario dijera que no"
+        assert "no dejo" in salida, salida
+        assert any("DENEGADO" in str(f) for f in store.recent_actions(5)), \
+            "no quedo en el log de auditoria"
+
+        # 3. Con el freno apagado corre sin preguntar. Que 'permitir todo'
+        #    signifique permitir todo tambien aca, y no una excepcion escondida.
+        corrio.clear()
+
+        def no_preguntes(*_a, **_k):
+            raise AssertionError("pregunto con confirm_destructive apagado")
+
+        plataforma.preguntar = no_preguntes
+        assert addons.ejecutar("falso", "borrar", ["x"],
+                               {**cfg, "confirm_destructive": False}) == "hecho"
+        assert corrio == ["borrar"]
+
+        # 4. Una accion NO declarada riesgosa no pregunta nada.
+        corrio.clear()
+        assert addons.ejecutar("falso", "mirar", [], cfg) == "hecho"
+        assert corrio == ["mirar"]
+    finally:
+        plataforma.preguntar = real_preguntar
+        addons._cache.clear()
+        addons._cache.update(antes)
+
+
 def test_revocar_un_addon():
     """Aprobar tenia que poder deshacerse.
 
