@@ -5488,6 +5488,95 @@ def _corral():
     return corral
 
 
+def test_la_documentacion_nombra_todo_lo_que_existe():
+    """Las guias de `docs/` tienen que envejecer con el codigo, no aparte.
+
+    Es el Paso 8 aplicado a lo unico que lee un usuario final: si manana entra
+    un tipo de modulo nuevo o una prop nueva, el que no la escriba en la guia se
+    entera aca y no cuando alguien no encuentra como usarla. El README ya tuvo
+    "71 tests" cuando habia 119, y "tres motores" cuando habia cuatro.
+
+    Se comprueba en UNA sola direccion --que no falte nada-- y no en la otra: la
+    guia habla ademas de cosas que no son claves (Aseprite, LottieFiles, el modo
+    Edit), y prohibirle nombrar algo que no este en un diccionario la volveria
+    una lista de campos.
+    """
+    from eve import modulos
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    mods = open(os.path.join(raiz, "docs", "MODULOS.md"),
+                encoding="utf-8").read()
+
+    faltan = [t for t in modulos.TIPOS if "`" + t + "`" not in mods]
+    assert not faltan, f"tipos de modulo sin documentar: {faltan}"
+
+    comunes = set(modulos.COMUNES)
+    for tipo, props in modulos.TIPOS.items():
+        propias = [pr for pr in props if pr not in comunes]
+        faltan = [pr for pr in propias if "`" + pr + "`" not in mods]
+        assert not faltan, f"props de `{tipo}` sin documentar: {faltan}"
+
+    # Las comunes menos `tipo`, que es el tipo mismo y no una perilla.
+    faltan = [pr for pr in comunes - {"tipo"} if "`" + pr + "`" not in mods]
+    assert not faltan, f"props comunes sin documentar: {faltan}"
+
+    # La lista de acciones del boton es cerrada A PROPOSITO. Si alguien le
+    # agrega una, tiene que quedar escrito que existe.
+    faltan = [a for a in modulos.ACCIONES_BOTON if "`" + a + "`" not in mods]
+    assert not faltan, f"acciones de boton sin documentar: {faltan}"
+
+    # Y los formatos que el dialogo acepta: prometer uno que no entra, o callar
+    # uno que si, son las dos formas de que la guia mienta.
+    gui = open(os.path.join(raiz, "eve", "gui.py"), encoding="utf-8").read()
+    assert "*.png *.gif *.webp *.apng *.jpg *.jpeg *.bmp" in gui, (
+        "cambio el filtro de imagenes; docs/MODULOS.md lo lista uno por uno")
+
+
+def test_el_readme_dice_cuantos_tests_hay_de_verdad():
+    """La cifra ya envejecio dos veces: decia 71 con 111, y 119 con 121.
+
+    Es la incoherencia mas facil de dejar --nadie recuenta al agregar un test--
+    y la mas facil de atrapar. Se cuenta sobre el archivo, no sobre `globals()`,
+    para que valga tambien corriendo un test suelto.
+    """
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    fuente = open(os.path.abspath(__file__), encoding="utf-8").read()
+    cuantos = sum(1 for n in ast.parse(fuente).body
+                  if isinstance(n, ast.FunctionDef) and n.name.startswith("test_"))
+
+    readme = open(os.path.join(raiz, "README.md"), encoding="utf-8").read()
+    hallado = re.search(r"python test_eve\.py\s+# (\d+) tests", readme)
+    assert hallado, "el README dejo de decir cuantos tests hay"
+    assert int(hallado.group(1)) == cuantos, (
+        f"el README dice {hallado.group(1)} tests y hay {cuantos}")
+
+
+def test_la_doc_de_la_ia_nombra_los_cuatro_motores():
+    """Que ninguno quede sin decir, incluido el que se agrego ultimo.
+
+    El README dijo "tres motores" con `compat` ya adentro y comparado en una
+    tabla mas abajo. Un motor que no se nombra arriba es un motor que nadie
+    prueba.
+    """
+    from eve import compat_engine
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    ia = open(os.path.join(raiz, "docs", "IA.md"), encoding="utf-8").read()
+    readme = open(os.path.join(raiz, "README.md"), encoding="utf-8").read()
+
+    for motor in ("api", "claude-code", "ollama", "compat"):
+        assert "`" + motor + "`" in ia, f"docs/IA.md no nombra el motor {motor}"
+        assert "`" + motor + "`" in readme, f"README no nombra el motor {motor}"
+
+    faltan = [pv for pv in compat_engine.PROVEEDORES
+              if "`" + pv + "`" not in ia]
+    assert not faltan, f"proveedores de compat sin documentar: {faltan}"
+
+    # Los frenos son lo que un usuario necesita poder verificar sin leer codigo.
+    faltan = [c for c in store.NUNCA_POR_EVE if c not in ia]
+    assert not faltan, f"claves trabadas sin documentar: {faltan}"
+
+
 if __name__ == "__main__":
     _CORRAL = _corral()
     fallo = ""

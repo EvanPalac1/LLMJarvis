@@ -5,13 +5,14 @@ instruccion en tu PC: abrir programas, crear archivos, correr comandos, escribir
 
 La IA se llama **Eve** (Ivi) por defecto — el nombre se cambia desde el panel.
 
-**Tres motores a elegir**, incluido uno 100% local:
+**Cuatro motores a elegir**, incluido uno 100% local:
 
 | Motor | Necesita | Datos |
 |---|---|---|
 | `ollama` | Ollama corriendo | **nada sale de tu maquina** |
 | `claude-code` | suscripcion de Claude | van a Anthropic |
 | `api` | API key de Anthropic | van a Anthropic |
+| `compat` | clave de Gemini, OpenAI, Groq, DeepSeek... | van a ese proveedor |
 
 **Voz de entrada y salida tambien offline**: Whisper local para escuchar, y voces de
 la comunidad (Piper) para hablar. Con el motor `ollama`, Eve funciona sin internet.
@@ -25,6 +26,18 @@ la comunidad (Piper) para hablar. Con el motor `ollama`, Eve funciona sin intern
 Las integraciones de Windows avisan "solo funciona en Windows" en el resto en vez de
 romper. **macOS y Linux no estan probados en hardware real**: el codigo elige los caminos
 correctos y los tests lo verifican simulando el sistema, pero nadie lo corrio ahi todavia.
+
+## Documentacion
+
+| | Para que |
+|---|---|
+| [docs/MODULOS.md](docs/MODULOS.md) | **Armar la cara de Eve**: los 13 tipos de modulo, sus propiedades, y como hacer o importar cada asset (PNG, APNG, WebP, sprite sheets, particulas, Lottie) |
+| [docs/IA.md](docs/IA.md) | **Que hace la IA y cuanto cuesta**: los cuatro motores, que viaja en cada prompt medido en caracteres, que puede y que no puede hacer, y los benchmarks de voz y memoria |
+| [EVE.md](EVE.md) | El manual que lee la propia Eve |
+| [perfiles/README.md](perfiles/README.md) | Los perfiles de ejemplo |
+
+Este README es el registro tecnico: el **por que** de cada decision, con sus
+mediciones. Las dos guias de arriba son el **como**.
 
 ---
 
@@ -1590,7 +1603,7 @@ modelos de voz: bajarla en la primera ejecucion en vez de empaquetarla.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 119 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 122 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```
