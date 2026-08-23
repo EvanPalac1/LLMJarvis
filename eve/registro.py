@@ -619,7 +619,83 @@ GENERAL = (
 )
 
 
+CARTEL = (
+    Seccion(
+        "Cartel en pantalla",
+        (
+            Fila((Boton("Mostrar el cartel", "probar_overlay"),)),
+            Ayuda("Lo hace aparecer unos segundos aunque este en modo 'auto'. Es lo que\n"
+                  "separa 'el cartel esta mal configurado' de 'el cartel no arranca'."),
+            Campo("overlay_modo", "Cuando se ve", ["auto", "siempre", "nunca"]),
+            # El tema del cartel vive aca, junto a lo demas del cartel, y no
+            # mezclado con los colores del panel.
+            Campo("hud_tema", "Tema (vacio = el del panel)", "_temas_del_cartel"),
+            Ayuda("auto = aparece al hablarle y se va sola. Nunca se lleva el foco de lo que\n"
+                  "estes haciendo, y los clics la atraviesan."),
+            Campo("hud_titulo", "Titulo (vacio = nombre IA)"),
+            Campo("hud_subtitulo", "Segunda linea"),
+            Campo("hud_icono", "Icono", ["hexagono", "ninguno"]),
+            Campo("hud_contorno", "Contorno",
+                  ["ninguno", "linea", "esquinas", "doble", "hexagonal", "biselado"]),
+            Campo("hud_onda", "Onda",
+                  ["barras", "espejo", "linea", "puntos", "ninguna"]),
+            Campo("hud_escala", "Escala (%)"),
+            Campo("hud_opacidad", "Opacidad (%)"),
+            Ayuda("Menos de 10 se trata como 10: por debajo de eso el cartel no se ve\n"
+                  "y no habria forma de encontrarlo para subirlo de nuevo. La opacidad\n"
+                  "de cada modulo se MULTIPLICA con esta, asi que 20% de ventana por\n"
+                  "20% de modulo da 4% de verdad."),
+            Campo("overlay_pantalla", "Pantalla", "_pantallas"),
+            Campo("overlay_area", "Area", ["trabajo", "completa"]),
+            Ayuda("0 = donde lo dejes, sin restriccion, y puedes arrastrarlo de un\n"
+                  "monitor al otro. 1 en adelante lo fija a ese monitor y lo mantiene\n"
+                  "adentro aunque lo arrastres. Si desenchufas el que elegiste, vuelve\n"
+                  "al escritorio entero en vez de quedar en un lugar que no existe.\n"
+                  "'trabajo' descuenta la barra de tareas; solo cambia algo en Windows."),
+            Campo("overlay_clics", "Toma clics", ["nunca", "hover", "fijo"]),
+            Ayuda("El cartel normalmente deja pasar los clics al programa de atras.\n"
+                  "  nunca   nunca los toma\n"
+                  "  hover   solo mientras el puntero esta sobre un modulo marcado\n"
+                  "          como 'interactivo'; si no marcaste ninguno, es igual\n"
+                  "          que 'nunca'\n"
+                  "  fijo    siempre los toma, y siempre tapa lo que este debajo\n"
+                  "Se pregunta donde esta el puntero treinta veces por segundo en vez\n"
+                  "de escuchar eventos, porque una ventana que deja pasar los clics\n"
+                  "tampoco recibe los de movimiento: esperarlos seria esperar para\n"
+                  "siempre. Ese mismo poll es el que hace andar 'cuando = hover'."),
+            Campo("hud_forma", "Forma", ["caja", "recortado"]),
+            Ayuda("recortado = el cartel deja de ser un rectangulo y por las esquinas cortadas\n"
+                  "de los contornos hexagonal y biselado se ve lo que hay atras."),
+            Fila((
+                Boton("Elegir imagen del icono...", "_icono_elegir"),
+                Boton("Mover en pantalla", "_overlay_mover"),
+                Boton("Volver a la esquina", "_overlay_esquina"),
+            )),
+        ),
+    ),
+    Seccion(
+        "Marco del icono",
+        (
+            Ayuda("El marco es parametrico: eliges cuantos lados, cuanto gira y cuanto se\n"
+                  "redondean las puntas. Las formas de abajo son atajos que llenan esos\n"
+                  "numeros; despues los puedes tocar a mano."),
+            Propio("_atajos_de_forma"),
+            Campo("hud_marco_lados", "Lados (menos de 3 = circulo)"),
+            Campo("hud_marco_rot", "Giro (grados)"),
+            Campo("hud_marco_redondeo", "Redondeo de las puntas"),
+            Campo("hud_marco_grosor", "Grosor del trazo"),
+        ),
+        AVANZADO,
+    ),
+    Fondo("hud", "Fondo del cartel"),
+    Vivo(("hud_tema", "hud_titulo", "hud_subtitulo", "hud_icono", "hud_contorno",
+          "hud_onda", "hud_forma", "hud_marco_lados", "hud_marco_rot",
+          "hud_marco_redondeo", "hud_marco_grosor")),
+    Propio("_previa_primera_vez"),
+)
+
+
 # Todas las tablas migradas. Va al final porque nombra las de arriba, y existe
 # para que el chequeo de traduccion las recorra sin que nadie tenga que
 # acordarse de sumar cada pestaña nueva a mano.
-TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA, GENERAL)
+TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA, GENERAL, CARTEL)

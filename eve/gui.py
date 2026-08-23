@@ -600,6 +600,25 @@ class Panel(tk.Tk):
             else:  # pragma: no cover - una entrada de un tipo que no existe
                 raise TypeError(f"el registro trae algo que no se dibujar: {item!r}")
 
+    def _atajos_de_forma(self, padre) -> None:
+        """El desplegable de formas: no guarda una clave, LLENA otras cuatro.
+
+        Excepcion declarada: elegir "hexagono" escribe lados, giro y redondeo de
+        un saque. No tiene clave propia, asi que no es una fila.
+        """
+        fila = ttk.Frame(padre)
+        fila.pack(fill="x", padx=12, pady=(4, 8))
+        ttk.Label(fila, text=tr("Formas"), width=24).pack(side="left")
+        self.forma_var = tk.StringVar()
+        combo = ttk.Combobox(fila, textvariable=self.forma_var,
+                             values=sorted(overlay_formas()), state="readonly")
+        combo.pack(side="left", fill="x", expand=True)
+        combo.bind("<<ComboboxSelected>>", self._forma_elegida)
+
+    def _previa_primera_vez(self, _padre) -> None:
+        """Dibuja la vista previa una vez, ya con todos los campos puestos."""
+        self._previa_redibujar()
+
     def _modelos_api(self) -> list:
         return MODELS
 
@@ -2341,113 +2360,14 @@ class Panel(tk.Tk):
         self.estado.config(text=tr("listo: el cartel de siempre, ahora como modulos"))
 
     def _bloque_hud(self, nb):
-        from . import tema
+        """Generado desde `registro.CARTEL`.
 
+        Sexta y ultima pestaña bajo el freno del plan: 27% de excepciones.
+        """
         t = ttk.Frame(nb)
-        caja = self._seccion(t, tr("Cartel en pantalla"))
-        fila = ttk.Frame(caja)
-        fila.pack(fill="x", padx=12, pady=(8, 2))
-        ttk.Button(fila, text=tr("Mostrar el cartel"),
-                   command=self.probar_overlay).pack(side="left")
-        self._ayuda(
-            caja,
-            tr("Lo hace aparecer unos segundos aunque este en modo 'auto'. Es lo que\n"
-            "separa 'el cartel esta mal configurado' de 'el cartel no arranca'."))
-        self._row(caja, tr("Cuando se ve"), "overlay_modo", ["auto", "siempre", "nunca"])
-        # El tema del cartel vive aca, junto a lo demas del cartel, y no
-        # mezclado con los colores del panel.
-        self._row(caja, tr("Tema (vacio = el del panel)"), "hud_tema", ["", *tema.NOMBRES])
-        self.vars["hud_tema"].trace_add("write", self._previa_redibujar)
-        self._ayuda(
-            caja,
-            tr("auto = aparece al hablarle y se va sola. Nunca se lleva el foco de lo que\n"
-            "estes haciendo, y los clics la atraviesan."),
-        )
-        self._row(caja, tr("Titulo (vacio = nombre IA)"), "hud_titulo")
-        self._row(caja, tr("Segunda linea"), "hud_subtitulo")
-        self._row(caja, tr("Icono"), "hud_icono", ["hexagono", "ninguno"])
-        self._row(caja, tr("Contorno"), "hud_contorno",
-                  ["ninguno", "linea", "esquinas", "doble", "hexagonal", "biselado"])
-        self._row(caja, tr("Onda"), "hud_onda",
-                  ["barras", "espejo", "linea", "puntos", "ninguna"])
-        self._row(caja, tr("Escala (%)"), "hud_escala")
-        self._row(caja, tr("Opacidad (%)"), "hud_opacidad")
-        self._ayuda(
-            caja,
-            tr("Menos de 10 se trata como 10: por debajo de eso el cartel no se ve\n"
-            "y no habria forma de encontrarlo para subirlo de nuevo. La opacidad\n"
-            "de cada modulo se MULTIPLICA con esta, asi que 20% de ventana por\n"
-            "20% de modulo da 4% de verdad."))
-
-        self._row(caja, tr("Pantalla"), "overlay_pantalla", self._pantallas())
-        self._row(caja, tr("Area"), "overlay_area", ["trabajo", "completa"])
-        self._ayuda(
-            caja,
-            tr("0 = donde lo dejes, sin restriccion, y puedes arrastrarlo de un\n"
-            "monitor al otro. 1 en adelante lo fija a ese monitor y lo mantiene\n"
-            "adentro aunque lo arrastres. Si desenchufas el que elegiste, vuelve\n"
-            "al escritorio entero en vez de quedar en un lugar que no existe.\n"
-            "'trabajo' descuenta la barra de tareas; solo cambia algo en Windows."))
-
-        self._row(caja, tr("Toma clics"), "overlay_clics", ["nunca", "hover", "fijo"])
-        self._ayuda(
-            caja,
-            tr("El cartel normalmente deja pasar los clics al programa de atras.\n"
-            "  nunca   nunca los toma\n"
-            "  hover   solo mientras el puntero esta sobre un modulo marcado\n"
-            "          como 'interactivo'; si no marcaste ninguno, es igual\n"
-            "          que 'nunca'\n"
-            "  fijo    siempre los toma, y siempre tapa lo que este debajo\n"
-            "Se pregunta donde esta el puntero treinta veces por segundo en vez\n"
-            "de escuchar eventos, porque una ventana que deja pasar los clics\n"
-            "tampoco recibe los de movimiento: esperarlos seria esperar para\n"
-            "siempre. Ese mismo poll es el que hace andar 'cuando = hover'."))
-
-        self._row(caja, tr("Forma"), "hud_forma", ["caja", "recortado"])
-        self._ayuda(
-            caja,
-            tr("recortado = el cartel deja de ser un rectangulo y por las esquinas cortadas\n"
-            "de los contornos hexagonal y biselado se ve lo que hay atras."),
-        )
-
-        fila = ttk.Frame(caja)
-        fila.pack(fill="x", padx=12, pady=(6, 10))
-        ttk.Button(fila, text=tr("Elegir imagen del icono..."),
-                   command=self._icono_elegir).pack(side="left")
-        ttk.Button(fila, text=tr("Mover en pantalla"),
-                   command=self._overlay_mover).pack(side="left", padx=6)
-        ttk.Button(fila, text=tr("Volver a la esquina"),
-                   command=self._overlay_esquina).pack(side="left")
-
-        caja = self._seccion(t, tr("Marco del icono"))
-        self._ayuda(
-            caja,
-            tr("El marco es parametrico: eliges cuantos lados, cuanto gira y cuanto se\n"
-            "redondean las puntas. Las formas de abajo son atajos que llenan esos\n"
-            "numeros; despues los puedes tocar a mano."),
-        )
-        fila = ttk.Frame(caja)
-        fila.pack(fill="x", padx=12, pady=(4, 8))
-        ttk.Label(fila, text=tr("Formas"), width=24).pack(side="left")
-        self.forma_var = tk.StringVar()
-        combo = ttk.Combobox(fila, textvariable=self.forma_var,
-                             values=sorted(overlay_formas()), state="readonly")
-        combo.pack(side="left", fill="x", expand=True)
-        combo.bind("<<ComboboxSelected>>", self._forma_elegida)
-        self._row(caja, tr("Lados (menos de 3 = circulo)"), "hud_marco_lados")
-        self._row(caja, tr("Giro (grados)"), "hud_marco_rot")
-        self._row(caja, tr("Redondeo de las puntas"), "hud_marco_redondeo")
-        self._row(caja, tr("Grosor del trazo"), "hud_marco_grosor")
-        for clave in ("hud_marco_lados", "hud_marco_rot", "hud_marco_redondeo",
-                      "hud_marco_grosor"):
-            self.vars[clave].trace_add("write", self._previa_redibujar)
-
-        self._bloque_fondo(t, "hud", tr("Fondo del cartel"))
-        for clave in ("hud_titulo", "hud_subtitulo", "hud_icono", "hud_contorno",
-                      "hud_onda", "hud_forma"):
-            self.vars[clave].trace_add("write", self._previa_redibujar)
-        self._previa_redibujar()
+        self._pintar_registro(t, registro.CARTEL)
         return t
+
 
     def _forma_elegida(self, _evento=None):
         """Una forma del catalogo es un atajo que llena los cuatro numeros."""
