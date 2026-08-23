@@ -600,6 +600,62 @@ class Panel(tk.Tk):
             else:  # pragma: no cover - una entrada de un tipo que no existe
                 raise TypeError(f"el registro trae algo que no se dibujar: {item!r}")
 
+    def _modelos_api(self) -> list:
+        return MODELS
+
+    def _modelos_cc(self) -> list:
+        return CC_MODELS
+
+    def _permisos_cc(self) -> list:
+        return CC_MODES
+
+    def _niveles_de_effort(self) -> list:
+        return EFFORTS
+
+    def _proveedores_compat(self) -> list:
+        from .compat_engine import PROVEEDORES
+
+        return list(PROVEEDORES)
+
+    def _ayuda_compat(self, padre) -> None:
+        """La ayuda del motor compatible, que arma su texto con una lista.
+
+        Excepcion declarada: no toca ninguna clave, pero el texto se concatena
+        con los proveedores que tienen capa gratuita, y eso no es un literal.
+        """
+        from .compat_engine import GRATIS
+
+        self._ayuda(
+            padre,
+            tr("Los dos vacios = el modelo sugerido y la URL del proveedor.")
+            + "\n" + tr("Con capa gratuita: ") + ", ".join(GRATIS) + ".\n"
+            + tr("La clave de cada uno va en la pestaña Cuentas. 'propio' sirve para\n"
+                 "cualquier servidor que hable /chat/completions."))
+
+    def _rutas_permitidas(self, padre) -> None:
+        """El cuadro de rutas de trabajo. Excepcion: es un Text de varias lineas.
+
+        `Panel.save()` lo lee aparte, por eso no entra a `self.vars`.
+        """
+        ttk.Label(padre, text=tr("Rutas de trabajo permitidas (una por linea)")).pack(
+            anchor="w", padx=12, pady=(8, 2))
+        self.workdirs = tk.Text(padre, height=5)
+        self.workdirs.insert("1.0", "\n".join(self.cfg.get("workdirs", [])))
+        self.workdirs.pack(fill="x", padx=12)
+
+    def _selector_de_permisos(self, padre) -> None:
+        """El freno. Excepcion: guarda la NEGACION de su clave.
+
+        El desplegable dice "permitir todo" y la clave se llama
+        `confirm_destructive`, asi que no es una fila con una clave: es una
+        eleccion que `save()` traduce.
+        """
+        ttk.Label(padre, text=tr("Permisos")).pack(anchor="w", padx=12, pady=(12, 2))
+        self.perm_var = tk.StringVar(
+            value=PERM_ASK if self.cfg.get("confirm_destructive", True) else PERM_ALL)
+        ttk.Combobox(padre, textvariable=self.perm_var, values=[PERM_ASK, PERM_ALL],
+                     state="readonly", width=60).pack(anchor="w", padx=12)
+
     def _temas_disponibles(self) -> list:
         from . import tema
 
@@ -1356,112 +1412,10 @@ class Panel(tk.Tk):
         permisos. Son los frenos; esconderlos por prolijidad es lo mismo que
         apagarlos.
         """
-        from .compat_engine import GRATIS, PROVEEDORES
-
         t = ttk.Frame(nb)
-
-        quien = self._seccion(t, tr("Quien es Eve"))
-        self._row(quien, tr("Nombre de la IA"), "assistant_name")
-        self._row(quien, tr("Idioma en que te habla"), "language")
-        self._row(quien, tr("Tecla del keypad"), "hotkey")
-        fila = ttk.Frame(quien)
-        fila.pack(fill="x", padx=12, pady=(2, 8))
-        ttk.Button(fila, text=tr("Probar la tecla"), command=self.probar_tecla).pack(side="left")
-        self.tecla_label = ttk.Label(fila, text="", style="Ayuda.TLabel")
-        self.tecla_label.pack(side="left", padx=8)
-        self._ayuda(
-            quien,
-            tr("La tecla la escucha el asistente, no este panel: si el asistente no\n"
-            "esta corriendo, el boton te lo dice en vez de dejarte probando una\n"
-            "tecla que nadie escucha."))
-
-        motor = self._seccion(t, tr("Quien piensa por ella"))
-        self._row(motor, tr("Motor"), "engine", ["api", "claude-code", "ollama", "compat"])
-        self._ayuda(
-            motor,
-            tr("  api = Messages API, necesita tu ANTHROPIC_API_KEY.\n"
-            "  claude-code = CLI de Claude Code, usa tu suscripcion sin key (mas lento).\n"
-            "  ollama = modelo local, sin key ni nube. Peor encadenando varias tools.\n"
-            "  compat = cualquier servidor que hable el protocolo de OpenAI."))
-        self._row(motor, tr("Modelo (motor api)"), "model", MODELS)
-        self._row(motor, tr("Modelo (motor claude-code)"), "cc_model", CC_MODELS)
-        self._row(motor, tr("Permisos (motor claude-code)"), "cc_permission_mode", CC_MODES)
-        fila = ttk.Frame(motor)
-        fila.pack(fill="x", padx=12, pady=(2, 4))
-        ttk.Button(fila, text=tr("Probar el motor"), command=self.probar_motor).pack(side="left")
-        self.motor_label = ttk.Label(fila, text="", style="Ayuda.TLabel", justify="left")
-        self.motor_label.pack(side="left", padx=8)
-        self._ayuda(
-            motor,
-            tr("Le manda una pregunta trivial y muestra la respuesta y cuanto tardo.\n"
-            "Es la unica forma de saber que el motor esta bien configurado sin\n"
-            "tener que hablarle y quedarse esperando a ver si contesta."))
-
-        otros = self._seccion(t, tr("Otros motores"), AVANZADO)
-        self._row(otros, tr("compat: proveedor"), "compat_proveedor", list(PROVEEDORES))
-        self._row(otros, tr("compat: modelo"), "compat_modelo")
-        self._row(otros, tr("compat: URL propia"), "compat_url", width=40)
-        self._ayuda(
-            otros,
-            tr("Los dos vacios = el modelo sugerido y la URL del proveedor.")
-            + "\n" + tr("Con capa gratuita: ") + ", ".join(GRATIS) + ".\n"
-            + tr("La clave de cada uno va en la pestaña Cuentas. 'propio' sirve para\n"
-                 "cualquier servidor que hable /chat/completions."))
-        self._row(otros, tr("Ollama: host"), "ollama_host")
-        self._row(otros, tr("Ollama: modelo"), "ollama_model")
-
-        fino = self._seccion(t, tr("Ajuste fino del modelo"), AVANZADO)
-        self._row(fino, tr("Effort"), "effort", EFFORTS)
-        self._row(fino, tr("Max tokens"), "max_tokens")
-        self._row(fino, tr("Turnos de contexto"), "context_turns")
-        self._row(fino, tr("Minutos de contexto"), "context_minutes")
-
-        frenos = self._seccion(t, tr("Hasta donde puede meterse"))
-        ttk.Label(frenos, text=tr("Rutas de trabajo permitidas (una por linea)")).pack(
-            anchor="w", padx=12, pady=(8, 2)
-        )
-        self.workdirs = tk.Text(frenos, height=5)
-        self.workdirs.insert("1.0", "\n".join(self.cfg.get("workdirs", [])))
-        self.workdirs.pack(fill="x", padx=12)
-        ttk.Label(frenos, text=tr("Permisos")).pack(anchor="w", padx=12, pady=(12, 2))
-        self.perm_var = tk.StringVar(
-            value=PERM_ASK if self.cfg.get("confirm_destructive", True) else PERM_ALL
-        )
-        ttk.Combobox(
-            frenos, textvariable=self.perm_var, values=[PERM_ASK, PERM_ALL],
-            state="readonly", width=60
-        ).pack(anchor="w", padx=12)
-        self._ayuda(
-            frenos,
-            tr("'Permitir todo' desactiva la confirmacion y tambien los permisos internos\n"
-            "de Claude Code. Todo queda igual registrado en la pestaña Acciones."))
-
-        manda = self._seccion(t, tr("Quien manda sobre un ajuste"), AVANZADO)
-        self._row(manda, tr("Autoridad"), "autoridad", ["usuario", "eve", "preguntar"])
-        self._ayuda(
-            manda,
-            tr("usuario: lo que cambies a mano queda trabado y Eve no lo pisa.\n"
-            "eve: puede cambiar lo que quiera.  preguntar: pide permiso cada vez.\n"
-            "Para soltar lo trabado, dile 'destraba <clave>' o borra la lista abajo."))
-        self._row(manda, tr("Hasta donde arma sola"), "ayuda_alcance",
-                  ["nada", "datos", "codigo"])
-        self._ayuda(
-            manda,
-            tr("Cuando le pides algo hablando, hasta donde puede llegar:\n"
-            "  nada    no toca nada; es la voz y nada mas\n"
-            "  datos   modulos, ajustes y perfiles -- todo lo que ya es una\n"
-            "          clave de config y pasa por el mismo freno que el panel\n"
-            "  codigo  ademas puede DEJAR ESCRITO un addon .py, que igual no\n"
-            "          corre hasta que lo apruebes a mano en Addons\n"
-            "No hay un cuarto nivel donde apruebe sus propios addons, y no\n"
-            "deberia haberlo: la huella del contenido es lo unico que separa un\n"
-            "plugin de un agujero.\n"
-            "\nEs OTRO eje que 'Quien manda'. Aquel decide quien gana cuando los\n"
-            "dos quieren el mismo valor; este, que clase de cosa puede crear.\n"
-            "Con 'nada' el prompt tampoco lleva el vocabulario de modulos, que\n"
-            "son ~190 tokens por llamada."))
-        self._row(manda, tr("Claves que fijaste tu"), "claves_del_usuario", width=44)
+        self._pintar_registro(t, registro.GENERAL)
         return t
+
 
     def _bloque_claves(self, nb):
         t = ttk.Frame(nb)

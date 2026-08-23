@@ -518,7 +518,105 @@ TEMA = (
 )
 
 
+GENERAL = (
+    Seccion(
+        "Quien es Eve",
+        (
+            Campo("assistant_name", "Nombre de la IA"),
+            Campo("language", "Idioma en que te habla"),
+            Campo("hotkey", "Tecla del keypad"),
+            Fila((
+                Boton("Probar la tecla", "probar_tecla"),
+                Salida("tecla_label"),
+            )),
+            Ayuda("La tecla la escucha el asistente, no este panel: si el asistente no\n"
+                  "esta corriendo, el boton te lo dice en vez de dejarte probando una\n"
+                  "tecla que nadie escucha."),
+        ),
+    ),
+    Seccion(
+        "Quien piensa por ella",
+        (
+            Campo("engine", "Motor", ["api", "claude-code", "ollama", "compat"]),
+            Ayuda("  api = Messages API, necesita tu ANTHROPIC_API_KEY.\n"
+                  "  claude-code = CLI de Claude Code, usa tu suscripcion sin key (mas lento).\n"
+                  "  ollama = modelo local, sin key ni nube. Peor encadenando varias tools.\n"
+                  "  compat = cualquier servidor que hable el protocolo de OpenAI."),
+            Campo("model", "Modelo (motor api)", "_modelos_api"),
+            Campo("cc_model", "Modelo (motor claude-code)", "_modelos_cc"),
+            Campo("cc_permission_mode", "Permisos (motor claude-code)", "_permisos_cc"),
+            Fila((
+                Boton("Probar el motor", "probar_motor"),
+                Salida("motor_label"),
+            )),
+            Ayuda("Le manda una pregunta trivial y muestra la respuesta y cuanto tardo.\n"
+                  "Es la unica forma de saber que el motor esta bien configurado sin\n"
+                  "tener que hablarle y quedarse esperando a ver si contesta."),
+        ),
+    ),
+    Seccion(
+        "Otros motores",
+        (
+            Campo("compat_proveedor", "compat: proveedor", "_proveedores_compat"),
+            Campo("compat_modelo", "compat: modelo"),
+            Campo("compat_url", "compat: URL propia", None, 40),
+            Propio("_ayuda_compat"),
+            Campo("ollama_host", "Ollama: host"),
+            Campo("ollama_model", "Ollama: modelo"),
+        ),
+        AVANZADO,
+    ),
+    Seccion(
+        "Ajuste fino del modelo",
+        (
+            Campo("effort", "Effort", "_niveles_de_effort"),
+            Campo("max_tokens", "Max tokens"),
+            Campo("context_turns", "Turnos de contexto"),
+            Campo("context_minutes", "Minutos de contexto"),
+        ),
+        AVANZADO,
+    ),
+    Seccion(
+        "Hasta donde puede meterse",
+        (
+            # Los dos frenos van a mano: uno es un cuadro de texto de varias
+            # lineas y el otro un desplegable que guarda la NEGACION de su
+            # clave. Declaran lo que tocan para no salirse de la verificacion.
+            Propio("_rutas_permitidas", ("workdirs",)),
+            Propio("_selector_de_permisos", ("confirm_destructive",)),
+            Ayuda("'Permitir todo' desactiva la confirmacion y tambien los permisos internos\n"
+                  "de Claude Code. Todo queda igual registrado en la pestaña Acciones."),
+        ),
+    ),
+    Seccion(
+        "Quien manda sobre un ajuste",
+        (
+            Campo("autoridad", "Autoridad", ["usuario", "eve", "preguntar"]),
+            Ayuda("usuario: lo que cambies a mano queda trabado y Eve no lo pisa.\n"
+                  "eve: puede cambiar lo que quiera.  preguntar: pide permiso cada vez.\n"
+                  "Para soltar lo trabado, dile 'destraba <clave>' o borra la lista abajo."),
+            Campo("ayuda_alcance", "Hasta donde arma sola", ["nada", "datos", "codigo"]),
+            Ayuda("Cuando le pides algo hablando, hasta donde puede llegar:\n"
+                  "  nada    no toca nada; es la voz y nada mas\n"
+                  "  datos   modulos, ajustes y perfiles -- todo lo que ya es una\n"
+                  "          clave de config y pasa por el mismo freno que el panel\n"
+                  "  codigo  ademas puede DEJAR ESCRITO un addon .py, que igual no\n"
+                  "          corre hasta que lo apruebes a mano en Addons\n"
+                  "No hay un cuarto nivel donde apruebe sus propios addons, y no\n"
+                  "deberia haberlo: la huella del contenido es lo unico que separa un\n"
+                  "plugin de un agujero.\n"
+                  "\nEs OTRO eje que 'Quien manda'. Aquel decide quien gana cuando los\n"
+                  "dos quieren el mismo valor; este, que clase de cosa puede crear.\n"
+                  "Con 'nada' el prompt tampoco lleva el vocabulario de modulos, que\n"
+                  "son ~190 tokens por llamada."),
+            Campo("claves_del_usuario", "Claves que fijaste tu", None, 44),
+        ),
+        AVANZADO,
+    ),
+)
+
+
 # Todas las tablas migradas. Va al final porque nombra las de arriba, y existe
 # para que el chequeo de traduccion las recorra sin que nadie tenga que
 # acordarse de sumar cada pestaña nueva a mano.
-TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA)
+TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA, GENERAL)
