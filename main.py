@@ -47,6 +47,7 @@ IMPORTS_CRITICOS = [
     "piper",
     "onnxruntime",
     "onnx_asr",      # el reconocedor opcional de NVIDIA; rueda pura, sin deps nuevas
+    "rlottie_python",  # las animaciones vectoriales; import diferido en lienzo
     # El icono de bandeja. Sin el no hay forma de llegar al panel ni de salir:
     # el proceso queda corriendo sin nada en pantalla, que es indistinguible de
     # que Eve no arranco.

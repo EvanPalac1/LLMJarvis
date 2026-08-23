@@ -12,6 +12,17 @@ pillow>=10.0
 keyring>=25.0
 requests>=2.31
 
+# Animacion vectorial de After Effects (Lottie, via Bodymovin o LottieFiles).
+# Escala sin pixelarse y pasa el tope de 60 cuadros de un GIF, que es lo unico
+# que de verdad agrega sobre un APNG.
+#
+# Las dos puertas que la frenaban, medidas: la licencia es LGPL 2.1 --el paquete
+# ya envia pystray (LGPLv3) y piper-tts (GPL-3.0), asi que no cambia lo que se
+# distribuye-- y publica ruedas `cp37-abi3`, que valen para todo CPython 3.7+,
+# con archivo para los CINCO objetivos. Es lo que mato a mediapipe y aca da
+# que si. Pesa 0.7 MB y rasteriza un cuadro en 0.22 ms.
+rlottie-python>=1.3.8
+
 # Voces de la comunidad (Piper). Wheels para Windows, macOS Intel/ARM y Linux x64/ARM.
 # Es el unico TTS que funciona igual en los tres: SAPI solo existe en Windows.
 piper-tts>=1.7

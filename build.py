@@ -34,6 +34,11 @@ ARCH = "arm64" if _M in ("arm64", "aarch64") else "x64"
 OCULTOS = [
     "pystray._win32" if WINDOWS else "pystray._darwin" if MACOS else "pystray._appindicator",
     "comtypes", "piper", "onnxruntime", "onnx_asr",
+    # Solo lo importa `lienzo._pintar_lottie`, adentro de la funcion y envuelto
+    # en try: PyInstaller no ve un import diferido, y sin esto el modulo lottie
+    # quedaria en blanco en la version instalada y andando en desarrollo, que es
+    # la peor clase de falla.
+    "rlottie_python",
     # El puente PIL->tkinter. Nada lo importa a nivel de modulo, asi que
     # PyInstaller no lo ve solo, y sin el no hay compositor de modulos. Que
     # viaje se comprueba corriendo el binario (`_verificar_imports`), no

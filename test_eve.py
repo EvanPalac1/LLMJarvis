@@ -1401,6 +1401,132 @@ def test_cola_y_pulso():
             voz.transcribe, voz.speak = voz_real
 
 
+ANIM_LOTTIE = {
+    "v": "5.7.4", "fr": 30, "ip": 0, "op": 60, "w": 200, "h": 200,
+    "nm": "prueba", "ddd": 0, "assets": [],
+    "layers": [{
+        "ddd": 0, "ind": 1, "ty": 4, "nm": "cuadro", "sr": 1,
+        "ks": {"o": {"a": 0, "k": 100},
+               "r": {"a": 1, "k": [
+                   {"t": 0, "s": [0], "e": [360],
+                    "i": {"x": [0.5], "y": [1]}, "o": {"x": [0.5], "y": [0]}},
+                   {"t": 60, "s": [360]}]},
+               "p": {"a": 0, "k": [100, 100, 0]},
+               "a": {"a": 0, "k": [0, 0, 0]},
+               "s": {"a": 0, "k": [100, 100, 100]}},
+        "ao": 0,
+        "shapes": [{"ty": "gr", "it": [
+            {"ty": "rc", "d": 1, "s": {"a": 0, "k": [90, 90]},
+             "p": {"a": 0, "k": [0, 0]}, "r": {"a": 0, "k": 10}},
+            {"ty": "fl", "c": {"a": 0, "k": [1, 0.25, 0.4, 1]},
+             "o": {"a": 0, "k": 100}},
+            {"ty": "tr", "p": {"a": 0, "k": [0, 0]}, "a": {"a": 0, "k": [0, 0]},
+             "s": {"a": 0, "k": [100, 100]}, "r": {"a": 0, "k": 0},
+             "o": {"a": 0, "k": 100}}]}],
+        "ip": 0, "op": 60, "st": 0, "bm": 0}]}
+
+
+def test_lottie_dibuja_y_respeta_la_opacidad():
+    """El Paso 9 nivel 2: animacion vectorial como un modulo mas.
+
+    Lo que hay que comprobar no es que la libreria ande --eso es asunto suyo--
+    sino que entre por el MISMO camino que todo lo demas: un `PIL.Image` RGBA
+    del tamaño del modulo, con la opacidad del modulo aplicada. Si necesitara un
+    camino propio, seria un widget con pasos extra y no un modulo.
+    """
+    import json
+    import tempfile
+
+    from eve import lienzo, tema
+
+    try:
+        import rlottie_python  # noqa: F401
+    except ImportError:
+        print("    (salteado: rlottie-python no instalada)")
+        return
+
+    tmp = tempfile.mkdtemp()
+    ruta = os.path.join(tmp, "giro.json")
+    with open(ruta, "w", encoding="utf-8") as f:
+        json.dump(ANIM_LOTTIE, f)
+
+    cfg = dict(store.DEFAULTS)
+    pintor = lienzo.Lienzo.__new__(lienzo.Lienzo)
+    pintor.cfg = cfg
+    pintor.paleta = tema.resolver(cfg, "hud")
+    pintor._lotties = {}
+    pintor.por_punto = 1.3
+
+    def modulo(**extra):
+        base = {"id": "l", "tipo": "lottie", "archivo": ruta, "ancho": 120,
+                "alto": 120, "escala": 100, "opacidad": 100, "velocidad": 1.0,
+                "easing": "lineal", "fuente": "reloj", "cuadro": 0,
+                "x": 0, "y": 0, "tinte": "", "rotacion": 0, "color": "texto"}
+        base.update(extra)
+        return base
+
+    def opacos(img):
+        return sum(1 for p in img.convert("RGBA").getdata() if p[3] > 20)
+
+    entero = pintor.pintar(modulo(cuadro=15), {}, 0.0)
+    assert entero.mode == "RGBA" and entero.size == (120, 120)
+    dibujados = opacos(entero)
+    assert dibujados > 500, f"no dibujo nada: {dibujados} pixeles"
+
+    # La opacidad del modulo tiene que llegar al alpha, como en los demas tipos.
+    tenue = pintor.pintar(modulo(cuadro=15, opacidad=30), {}, 0.0)
+    assert opacos(tenue) < dibujados, "la opacidad del modulo no se aplico"
+
+    # Dos cuadros distintos dan dibujos distintos: esta animando, no congelado.
+    a = pintor.pintar(modulo(cuadro=0), {}, 0.0).tobytes()
+    b = pintor.pintar(modulo(cuadro=15), {}, 0.0).tobytes()
+    assert a != b, "todos los cuadros salen iguales"
+
+    # Y lo que NO puede pasar: que un archivo roto o ausente tumbe el cuadro.
+    roto = os.path.join(tmp, "roto.json")
+    with open(roto, "w", encoding="utf-8") as f:
+        f.write("{ esto no es un lottie")
+    pintor.pintar(modulo(archivo=roto), {}, 0.0)
+    pintor.pintar(modulo(archivo=os.path.join(tmp, "no_existe.json")), {}, 0.0)
+
+
+def test_lottie_cumple_las_dos_puertas_del_proyecto():
+    """Toda dependencia nueva pasa por lo mismo: licencia y ruedas.
+
+    Es lo que dejo afuera a mediapipe --no publica para los cinco objetivos-- y
+    lo que tuvo frenado a Lottie hasta que se midio. Se comprueba contra el
+    paquete instalado, no contra la red: un test que necesita internet falla los
+    dias que no hay.
+    """
+    import importlib.metadata as meta
+
+    try:
+        datos = meta.metadata("rlottie-python")
+    except meta.PackageNotFoundError:
+        print("    (salteado: rlottie-python no instalada)")
+        return
+
+    # LGPL: mas debil que la GPL-3.0 de piper-tts, que ya se distribuye. Si
+    # algun dia cambia a algo mas fuerte, esto lo dice antes que un abogado.
+    licencia = (datos.get("License") or "") + " ".join(
+        datos.get_all("Classifier") or [])
+    assert "Lesser General Public" in licencia or "LGPL" in licencia, (
+        f"la licencia dejo de ser LGPL: {licencia[:120]}")
+
+    # Y que no arrastre nada nativo propio: Pillow es un extra, no un requisito.
+    duras = [r for r in (meta.requires("rlottie-python") or [])
+             if "extra ==" not in r]
+    assert not duras, f"aparecieron dependencias duras nuevas: {duras}"
+
+    # Que este declarada donde el binario la va a buscar.
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(raiz, "requirements.txt"), encoding="utf-8") as f:
+        assert "rlottie-python" in f.read(), "no esta en requirements.txt"
+    with open(os.path.join(raiz, "build.py"), encoding="utf-8") as f:
+        assert "rlottie_python" in f.read(), (
+            "falta en OCULTOS; el import es diferido y PyInstaller no lo ve")
+
+
 def test_el_grafo_de_memoria_elige_mejor_que_mirar_solo_lo_reciente():
     """El Paso 6.4: al contexto va un subgrafo a 1-2 saltos, no la memoria entera.
 

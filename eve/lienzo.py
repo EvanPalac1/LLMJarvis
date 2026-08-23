@@ -21,6 +21,7 @@ ventana: ese afecta a todo por igual y se llevaria puesto el texto.
 """
 
 import math
+import os
 import time
 from collections import deque
 
@@ -153,6 +154,10 @@ class Lienzo:
         self._items = {}       # id -> [item, PhotoImage, firma, ancho, alto]
         self._particulas = {}
         self._fondos = {}
+        # Las animaciones de Lottie, cacheadas por ruta: `from_file`
+        # parsea el JSON entero y hacerlo treinta veces por segundo
+        # seria pagar el parseo para dibujar un cuadro.
+        self._lotties: dict = {}
         self._ondas = {}
         self._grafos = {}
         self._t0 = time.monotonic()
@@ -253,6 +258,11 @@ class Lienzo:
         if tipo == "boton":
             return base + (modulo.get("accion"), modulo.get("etiqueta"),
                            modulo.get("tam"))
+        if tipo == "lottie":
+            # El cuadro depende del reloj salvo que se haya fijado uno.
+            fijo = int(modulo.get("cuadro", -1) or -1)
+            return base + (modulo.get("archivo"),
+                           fijo if fijo >= 0 else round(ahora * 2, 1))
         if tipo == "documento":
             doc = estado.get("documento") or {}
             # El `ts` va en la firma para que reemplazar un documento por otro
@@ -348,6 +358,8 @@ class Lienzo:
             self._pintar_lector(dibujo, modulo, estado, ancho, alto, opac)
         elif tipo == "documento":
             self._pintar_documento(dibujo, modulo, estado, ancho, alto, opac)
+        elif tipo == "lottie":
+            self._pintar_lottie(img, modulo, ahora, ancho, alto, opac)
         elif tipo == "historial":
             self._pintar_parrafos(
                 dibujo, modulo, ancho, alto, opac,
@@ -558,6 +570,53 @@ class Lienzo:
             dibujo, modulo, ancho, alto, opac,
             texto=str(estado.get("pagina") or ""),
             vacio=tr("pidele que lea una pagina"))
+
+    def _pintar_lottie(self, img, modulo, ahora, ancho, alto, opac):
+        """Un cuadro de una animacion de Lottie, pegado sobre la capa.
+
+        Rasteriza a `PIL.Image` y entra por el mismo camino que todo lo demas.
+        La animacion se cachea por ruta: `LottieAnimation.from_file` parsea el
+        JSON entero, y hacerlo treinta veces por segundo seria pagar el parseo
+        para dibujar un cuadro.
+
+        El import va adentro y envuelto: `rlottie-python` solo la necesita quien
+        ponga un modulo de este tipo, y una libreria que falta no puede impedir
+        que Eve arranque --a lo sumo deja un modulo en blanco.
+        """
+        ruta = str(modulo.get("archivo") or "")
+        if not ruta or not os.path.exists(ruta):
+            return
+        anim = self._lotties.get(ruta)
+        if anim is None:
+            try:
+                from rlottie_python import LottieAnimation
+            except ImportError:
+                return
+            try:
+                anim = LottieAnimation.from_file(ruta)
+            except Exception:  # noqa: BLE001 - un .json roto no tumba el cuadro
+                self._lotties[ruta] = False
+                return
+            self._lotties[ruta] = anim
+        if anim is False:
+            return
+
+        try:
+            total = max(1, int(anim.lottie_animation_get_totalframe()))
+            fijo = int(modulo.get("cuadro", -1) or -1)
+            if fijo >= 0:
+                cuadro = min(fijo, total - 1)
+            else:
+                fps = float(anim.lottie_animation_get_framerate() or 30.0)
+                cuadro = int(ahora * fps * float(modulo.get("velocidad", 1.0))) % total
+            marco = anim.render_pillow_frame(frame_num=cuadro, width=ancho, height=alto)
+        except Exception:  # noqa: BLE001
+            return
+        marco = marco.convert("RGBA")
+        if opac < 100:
+            alfa = marco.getchannel("A").point(lambda v: int(v * opac / 100))
+            marco.putalpha(alfa)
+        img.alpha_composite(marco)
 
     def _pintar_documento(self, dibujo, modulo, estado, ancho, alto, opac):
         """Lo que Eve mostro con `E mostrar`: texto, un .txt, un .md o un HTML.

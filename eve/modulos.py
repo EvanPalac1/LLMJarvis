@@ -93,6 +93,11 @@ TIPOS = {
     # destructiva: un modulo que corriera cualquier comando seria un addon sin
     # el freno de los addons, y "limpiar historial" a un clic en un tablero es
     # un accidente esperando.
+    # Animacion vectorial de After Effects, via Bodymovin o LottieFiles. Escala
+    # sin pixelarse y pasa el tope de 60 cuadros de un GIF, que es lo unico que
+    # de verdad agrega sobre un APNG.
+    "lottie": {"archivo": ("", "ruta a un .json de Lottie"),
+               "cuadro": (-1, "-1 = animado; 0 o mas = ese cuadro fijo")},
     "boton": {"accion": ("panel", "que hace al tocarlo"),
               "etiqueta": ("", "que dice; vacio = el nombre de la accion"),
               "tam": (12, "puntos")},
