@@ -4750,8 +4750,90 @@ def test_el_boton_es_un_boton_y_su_lista_es_cerrada():
 
     # Y es interactivo de fabrica: un boton que hay que habilitar con una
     # casilla para que responda al clic es una trampa.
-    assert modulos.defecto_de("boton", "interactivo") is True
-    assert modulos.defecto_de("texto", "interactivo") is False
+    #
+    # Se comprueba sobre `leer()` y no solo sobre `defecto_de()`: la primera
+    # version tenia la funcion escrita y NADIE la llamaba, asi que un boton
+    # recien creado nacia con interactivo=False --exactamente la trampa que la
+    # funcion venia a evitar. Solo se vio haciendo un clic de verdad.
+    cfg = modulos.guardar({}, {"id": "b", "tipo": "boton", "superficie": "tablero"})
+    assert modulos.leer(cfg, "b")["interactivo"] is True, "nace sin responder al clic"
+    cfg = modulos.guardar({}, {"id": "t", "tipo": "texto", "superficie": "tablero"})
+    assert modulos.leer(cfg, "t")["interactivo"] is False
+    # Y apagarlo a mano sigue valiendo: el default no puede pisar una eleccion.
+    cfg = modulos.guardar({}, {"id": "b2", "tipo": "boton", "superficie": "tablero",
+                               "interactivo": False})
+    assert modulos.leer(cfg, "b2")["interactivo"] is False
+
+
+def test_lo_no_interactivo_deja_pasar_el_clic():
+    """Un boton debajo de un modulo grande se tiene que poder tocar igual.
+
+    `_en` devuelve el de mas arriba sea lo que sea, asi que un `documento` de
+    640x560 se comia todos los clics del tablero y el boton de abajo no se podia
+    tocar nunca --sin nada en pantalla que dijera por que.
+
+    Es la misma regla que el cartel ya usa: lo que no es interactivo deja pasar
+    el clic. En Edit NO se aplica, porque ahi se esta acomodando y hay que poder
+    agarrar justamente lo que no responde.
+    """
+    import gc
+    import os
+    import tempfile
+    import tkinter as tk
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+
+    from eve import consola, modulos
+
+    antes_cfg, antes_vivo = store.CONFIG_PATH, store.CONSOLA_VIVO_PATH
+    tmp = tempfile.mkdtemp()
+    c = None
+    try:
+        store.CONFIG_PATH = os.path.join(tmp, "config.json")
+        store.CONSOLA_VIVO_PATH = os.path.join(tmp, "consola-viva.json")
+        cfg = dict(store.DEFAULTS)
+        # El documento, grande y encima; el boton, chico y debajo.
+        cfg = modulos.guardar(cfg, {"id": "doc", "tipo": "documento",
+                                    "superficie": "tablero", "x": 0, "y": 0,
+                                    "ancho": 600, "alto": 400, "z": 5})
+        cfg = modulos.guardar(cfg, {"id": "bot", "tipo": "boton",
+                                    "superficie": "tablero", "x": 60, "y": 80,
+                                    "ancho": 240, "alto": 60, "z": 0})
+        store.save_config(cfg)
+
+        c = consola.Consola()
+        c.raiz.withdraw()
+        punto = (180, 110)   # adentro de los dos
+        assert c._en(*punto) == "doc", "el de arriba es el documento"
+        assert c._en(*punto, solo_interactivos=True) == "bot",             "el boton quedo tapado y no se puede tocar"
+
+        # Donde no hay boton, no hay nada que accionar.
+        assert c._en(500, 350, solo_interactivos=True) == ""
+
+        # Y el clic en Work dispara la accion del boton de abajo.
+        corridas = []
+        c._correr_accion = lambda accion: corridas.append(accion) or "ok"
+
+        class Evento:
+            state = 0
+            x, y = punto
+
+        c.modo.set("work")
+        c._clic(Evento())
+        for _ in range(50):
+            if corridas:
+                break
+            time.sleep(0.02)
+        assert corridas == ["cartel"] or corridas == ["panel"], corridas
+    finally:
+        if c is not None:
+            c.raiz.destroy()
+        store.CONFIG_PATH, store.CONSOLA_VIVO_PATH = antes_cfg, antes_vivo
+        gc.collect()
 
 
 def test_eve_dice_donde_quedo_su_icono():

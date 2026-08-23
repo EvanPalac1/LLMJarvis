@@ -56,6 +56,8 @@ class Consola:
         self._documento_cache = None
         self._historial_cache = None
         self._acciones_cache = None
+        # Lo que un hilo de boton dejo para que lo muestre el lazo de dibujo.
+        self._resultado = None
 
         store.consola_presente()
         self._armar()
@@ -171,9 +173,21 @@ class Consola:
             self._lista = modulos.listar(self.cfg, "tablero")
         return self._lista
 
-    def _en(self, x: int, y: int) -> str:
-        """Cual esta debajo del punto. De arriba hacia abajo por orden de dibujo."""
+    def _en(self, x: int, y: int, solo_interactivos: bool = False) -> str:
+        """Cual esta debajo del punto. De arriba hacia abajo por orden de dibujo.
+
+        Con `solo_interactivos`, lo que no recibe clics no los tapa tampoco. Es
+        la misma regla del cartel --ahi un modulo no interactivo deja pasar el
+        clic al programa de atras-- aplicada adentro de la ventana: sin esto un
+        `documento` de 640x560 se come todos los clics del tablero y un boton
+        debajo no se puede tocar nunca, sin nada que explique por que.
+
+        En Edit se usa SIN el filtro: ahi se esta acomodando, y hay que poder
+        agarrar justamente lo que no es interactivo.
+        """
         for m in reversed(self._modulos()):
+            if solo_interactivos and not m.get("interactivo"):
+                continue
             if m["x"] <= x < m["x"] + m["ancho"] and m["y"] <= y < m["y"] + m["alto"]:
                 return m["id"]
         return ""
@@ -198,13 +212,12 @@ class Consola:
                 texto = self._correr_accion(accion)
             except Exception as exc:  # noqa: BLE001 - la ventana no puede morir
                 texto = f"{type(exc).__name__}: {str(exc)[:120]}"
-            try:
-                self.raiz.after(0, lambda: self.aviso.config(text=texto))
-            except (tk.TclError, RuntimeError):
-                # RuntimeError tambien: si la ventana se cerro mientras la
-                # accion corria, tkinter tira "main thread is not in main loop"
-                # y no TclError. `gui._ui()` atrapa los dos por lo mismo.
-                pass
+            # Se DEJA el resultado; lo levanta el lazo de dibujo. Aca no se
+            # toca tkinter: `after()` desde otro hilo crea un comando Tcl desde
+            # el hilo equivocado, y si la ventana se cierra mientras esto corre
+            # el interprete se libera desde aca y el proceso ENTERO aborta con
+            # `Tcl_AsyncDelete`. Eso no se puede atrapar.
+            self._resultado = texto
 
         threading.Thread(target=trabajo, daemon=True).start()
 
@@ -258,7 +271,7 @@ class Consola:
             # En Work el clic no elige nada, pero SI acciona los botones: un
             # modulo `boton` que solo se pudiera tocar en modo edicion no seria
             # un boton, seria un dibujo de un boton.
-            self._tocar_boton(self._en(evento.x, evento.y))
+            self._tocar_boton(self._en(evento.x, evento.y, solo_interactivos=True))
             return
         ident = self._en(evento.x, evento.y)
         ctrl = bool(evento.state & 0x0004)
@@ -577,6 +590,10 @@ class Consola:
 
     def tick(self) -> None:
         self.cuadro += 1
+        # Lo que dejo el hilo de un boton, aplicado desde el hilo principal.
+        if self._resultado is not None:
+            self.aviso.config(text=self._resultado)
+            self._resultado = None
         # Que la ventana avise que existe. Sin esto `E mostrar` abriria una
         # ventana nueva cada vez en lugar de escribir en la que ya esta.
         if self.cuadro % 60 == 0:

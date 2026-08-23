@@ -261,7 +261,13 @@ def leer(cfg, ident):
     for prop, par in props_de(tipo).items():
         if prop == "tipo":
             continue
-        defecto = par[0]
+        # El default puede depender del TIPO y no solo de la prop: un `boton`
+        # nace interactivo. Sin esto `defecto_de` existia y no la llamaba nadie,
+        # asi que un boton recien creado no respondia al clic --justo la trampa
+        # que esa funcion venia a evitar.
+        defecto = defecto_de(tipo, prop)
+        if defecto is None:
+            defecto = par[0]
         valor = cfg.get(clave(ident, prop), defecto)
         # La config puede traer texto donde se espera numero: viene de un panel.
         if isinstance(defecto, bool):
