@@ -15,7 +15,7 @@ import threading
 import time
 import traceback
 
-from eve import safety, store
+from eve import memoria, safety, store
 
 
 def test_destructive():
@@ -1399,6 +1399,117 @@ def test_cola_y_pulso():
         finally:
             store.CONFIG_PATH, store.OVERLAY_PATH = reales
             voz.transcribe, voz.speak = voz_real
+
+
+def test_el_grafo_de_memoria_elige_mejor_que_mirar_solo_lo_reciente():
+    """El Paso 6.4: al contexto va un subgrafo a 1-2 saltos, no la memoria entera.
+
+    Caso con respuesta conocida. Eve viene hablando de Minecraft, y en la memoria
+    hay tres hechos que importan --uno lo nombra, uno liga Paper con el Router, y
+    uno es del Router-- mas cincuenta de relleno. Con un presupuesto que no
+    alcanza para todo, seguir los enlaces tiene que traer los tres y sacar ruido.
+
+    Medido: sin saltos entra 1 de 3 y 5 de ruido; con 2 saltos entran los 3 y 3
+    de ruido, en los mismos caracteres. Con 3 no cambia nada, porque el grafo de
+    una memoria real es chato.
+    """
+    directo = "El servidor de Minecraft corre en D:/Server con Paper 1.21.11"
+    puente = "Paper escucha en el puerto 25565 y el Router lo abre"
+    lejano = "El Router es un TP-Link y su panel esta en 192.168.0.1"
+    hechos = [directo, puente, lejano]
+    hechos += [f"Dato viejo numero {i} sobre AlgoAjeno{i} que no viene al caso"
+               for i in range(50)]
+    texto = "# Memoria\n\n" + "\n".join("- " + h for h in hechos)
+
+    with store.db() as con:
+        for _ in range(3):
+            con.execute("INSERT INTO turns (ts, role, text) VALUES (?,?,?)",
+                        (0, "user", "abri el server de Minecraft"))
+
+    def ruido(salida):
+        return sum(1 for h in hechos
+                   if h.startswith("Dato viejo") and h in salida)
+
+    sin_saltos = memoria.podar(texto, tope=400, saltos=0)
+    con_saltos = memoria.podar(texto, tope=400, saltos=2)
+
+    # Lo directo lo agarran los dos: eso no es merito del grafo.
+    assert directo in sin_saltos and directo in con_saltos
+
+    # Lo que SOLO se alcanza siguiendo enlaces.
+    assert puente not in sin_saltos, "el puente no deberia entrar sin saltos"
+    assert puente in con_saltos, "el grafo no trajo el hecho puente"
+    assert lejano in con_saltos, "el grafo no llego al hecho de dos saltos"
+
+    # Y no lo hace agrandando la respuesta: el presupuesto es el mismo, asi que
+    # meter lo relevante tiene que sacar ruido.
+    # El tope es DURO: el pie de "hay N datos mas" se descuenta antes de
+    # elegir. Se sumaba despues del corte, asi que `podar(tope=400)` devolvia
+    # 402 y con 800 devolvia 810.
+    assert len(con_saltos) <= 400, f"se paso del tope: {len(con_saltos)}"
+    assert len(sin_saltos) <= 400, f"se paso del tope: {len(sin_saltos)}"
+    assert ruido(con_saltos) < ruido(sin_saltos), (
+        f"no saco ruido: {ruido(con_saltos)} contra {ruido(sin_saltos)}")
+
+
+def test_el_grafo_no_empeora_una_memoria_densa():
+    """Con temas que se repiten, dos saltos alcanzan todo. No puede molestar.
+
+    Es el caso de riesgo: si el segundo salto llega al 100% del grafo, el
+    puntaje indirecto es igual para todos y deja de distinguir. Lo aceptable es
+    que se degrade a lo que habia --directo mas reciente-- y no que elija peor.
+    """
+    import random
+
+    random.seed(3)
+    temas = ["Minecraft", "Paper", "Router", "Discord", "Spotify", "Steam"]
+    hechos = [f"{a} y {b} se usan juntos en el caso {i}"
+              for i, (a, b) in enumerate(random.sample(temas, 2) for _ in range(120))]
+    texto = "# Memoria\n\n" + "\n".join("- " + h for h in hechos)
+    with store.db() as con:
+        con.execute("INSERT INTO turns (ts, role, text) VALUES (?,?,?)",
+                    (0, "user", "abri Minecraft"))
+
+    vecinos, _donde = memoria.grafo(hechos)
+    alcanza = memoria.cercanas({"minecraft"}, vecinos, 2)
+    assert len(alcanza) == len(vecinos), "este caso deja de ser el de riesgo"
+
+    sin_saltos = memoria.podar(texto, tope=400, saltos=0)
+    con_saltos = memoria.podar(texto, tope=400, saltos=2)
+    def elegidos(t):
+        return [h for h in hechos if h in t]
+
+    # Lo que se afirma es que NO empeora: con el segundo salto alcanzando todo,
+    # el puntaje indirecto es igual para todos y lo que decide vuelve a ser lo
+    # directo mas lo reciente. O sea, exactamente la misma seleccion de antes.
+    assert elegidos(con_saltos) == elegidos(sin_saltos), (
+        "con el grafo alcanzando el 100% la seleccion tendria que ser la misma")
+
+
+def test_el_grafo_de_memoria_es_barato_y_no_se_guarda():
+    """Se arma cada vez, a proposito, y por eso tiene que costar casi nada.
+
+    El plan pedia guardarlo en JSON. No se hace: se deriva de `MEMORIA.md` en un
+    recorrido lineal, asi que persistirlo seria mantener un cache que puede
+    quedar viejo a cambio de microsegundos. La desviacion es deliberada y este
+    test es lo que la sostiene --si algun dia armarlo se vuelve caro, el motivo
+    para no guardarlo desaparece y esto lo dice.
+    """
+    import time
+
+    hechos = [f"Cosa{i} se usa con {'Minecraft' if i % 3 else 'Discord'} en {i}"
+              for i in range(500)]
+    arranque = time.perf_counter()
+    vecinos, donde = memoria.grafo(hechos)
+    ms = (time.perf_counter() - arranque) * 1000
+    assert vecinos and donde
+    assert ms < 50, f"armar el grafo de 500 hechos tardo {ms:.1f} ms"
+
+    # Y no deja ningun archivo: lo que no se guarda no puede quedar viejo.
+    import os
+
+    assert not any(n.startswith("grafo") for n in os.listdir(store.BASE)), \
+        "aparecio un archivo de grafo; el motivo para no guardarlo era ese"
 
 
 def test_ninguna_clave_tiene_dos_controles():
