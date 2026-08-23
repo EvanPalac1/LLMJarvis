@@ -19,6 +19,7 @@ diseño, y esto tiene que seguir siendo una ventana de un asistente de voz.
 """
 
 import json
+import threading
 import time
 import tkinter as tk
 from collections import deque
@@ -52,7 +53,11 @@ class Consola:
         self._partes = None
         self._lista = None
         self._pagina_cache = None
+        self._documento_cache = None
+        self._historial_cache = None
+        self._acciones_cache = None
 
+        store.consola_presente()
         self._armar()
         self._aplicar_tema()
         self._refrescar_props()
@@ -173,8 +178,87 @@ class Consola:
                 return m["id"]
         return ""
 
+    def _tocar_boton(self, ident: str) -> None:
+        """Corre la accion de un modulo `boton`. Lista cerrada, nada destructivo.
+
+        Cada accion se hace en un hilo salvo las instantaneas: escuchar graba
+        tres segundos y hablar sintetiza, y hacer eso en el hilo de tkinter deja
+        la ventana dura justo mientras el usuario espera a ver si anduvo.
+        """
+        if not ident:
+            return
+        modulo = next((m for m in self._modulos() if m["id"] == ident), None)
+        if not modulo or modulo["tipo"] != "boton":
+            return
+        accion = str(modulo.get("accion", "panel"))
+        self.aviso.config(text=tr("ejecutando") + f": {accion}")
+
+        def trabajo():
+            try:
+                texto = self._correr_accion(accion)
+            except Exception as exc:  # noqa: BLE001 - la ventana no puede morir
+                texto = f"{type(exc).__name__}: {str(exc)[:120]}"
+            try:
+                self.raiz.after(0, lambda: self.aviso.config(text=texto))
+            except (tk.TclError, RuntimeError):
+                # RuntimeError tambien: si la ventana se cerro mientras la
+                # accion corria, tkinter tira "main thread is not in main loop"
+                # y no TclError. `gui._ui()` atrapa los dos por lo mismo.
+                pass
+
+        threading.Thread(target=trabajo, daemon=True).start()
+
+    def _correr_accion(self, accion: str) -> str:
+        """Lo que hace cada accion. Ninguna borra ni escribe nada del usuario."""
+        cfg = store.load_config()
+        if accion == "panel":
+            from . import tray
+
+            tray.open_panel()
+            return tr("panel abierto")
+        if accion == "cartel":
+            from . import overlay
+
+            overlay.asegurar(cfg)
+            store.emitir_overlay({
+                "estado": "hablando", "detalle": "PRUEBA DEL CARTEL", "nivel": 0.5,
+                "titulo": str(cfg.get("assistant_name", "Eve")).upper(),
+                "usuario": "probando el cartel",
+                "eve": "Si ves esto, el cartel anda.",
+            })
+            return tr("cartel mostrado unos segundos")
+        if accion == "hablar":
+            from . import voice
+
+            voice.speak("Hola, soy " + str(cfg.get("assistant_name", "Eve"))
+                        + ". Si escuchas esto, la voz anda.", cfg)
+            return tr("listo, hablo")
+        if accion == "escuchar":
+            import time as _t
+
+            import numpy as np
+
+            from . import voice
+
+            rec = voice.Recorder()
+            rec.start()
+            _t.sleep(3.0)
+            audio = rec.stop()
+            if audio.size < 1000:
+                return tr("no entro audio; el microfono puede estar tomado")
+            pico = 20 * np.log10(max(1e-9, float(np.abs(audio).max())))
+            dicho = voice.transcribe(audio, cfg)
+            if not dicho:
+                return tr("no entendi nada") + f" (pico {pico:.0f} dBFS)"
+            return f"{tr('te escuche')}: {dicho!r}"
+        return tr("accion desconocida") + f": {accion}"
+
     def _clic(self, evento) -> None:
         if self.modo.get() != "edit":
+            # En Work el clic no elige nada, pero SI acciona los botones: un
+            # modulo `boton` que solo se pudiera tocar en modo edicion no seria
+            # un boton, seria un dibujo de un boton.
+            self._tocar_boton(self._en(evento.x, evento.y))
             return
         ident = self._en(evento.x, evento.y)
         ctrl = bool(evento.state & 0x0004)
@@ -425,8 +509,78 @@ class Consola:
         self._pagina_cache = ((titulo + "\n\n") if titulo else "") + datos.get("texto", "")
         return self._pagina_cache
 
+    def _documento(self, lista) -> dict:
+        """Lo que Eve mostro con `E mostrar`, si hay un modulo que lo muestre.
+
+        Se relee cada 30 cuadros y no en cada uno: el archivo puede tener veinte
+        mil caracteres y nadie muestra un documento nuevo treinta veces por
+        segundo. Igual que la pagina del lector.
+        """
+        if not any(m["tipo"] == "documento" for m in lista):
+            return {}
+        if self.cuadro % 30 != 0 and self._documento_cache is not None:
+            return self._documento_cache
+        self._documento_cache = store.ultimo_documento()
+        return self._documento_cache
+
+    def _historial(self, lista) -> str:
+        """La conversacion, si hay un modulo que la muestre.
+
+        Cada 30 cuadros: pegarle a SQLite treinta veces por segundo para mostrar
+        veinte renglones que casi nunca cambian es gastar por gastar.
+        """
+        if not any(m["tipo"] == "historial" for m in lista):
+            return ""
+        if self.cuadro % 30 != 0 and self._historial_cache is not None:
+            return self._historial_cache
+        cuantos = max(1, max((int(m.get("cuantos", 20)) for m in lista
+                              if m["tipo"] == "historial"), default=20))
+        try:
+            filas = store.recent_turns(cuantos)
+        except Exception:  # noqa: BLE001 - sin base, el modulo queda vacio
+            filas = []
+        quien = {"user": "tu", "assistant": str(self.cfg.get("assistant_name", "Eve"))}
+        lineas = [f"{quien.get(rol, rol)}: {texto}"
+                  for _ts, rol, texto in reversed(filas)]
+        self._historial_cache = "\n".join(lineas)
+        return self._historial_cache
+
+    def _acciones(self, lista) -> str:
+        """El log de auditoria: que ejecuto Eve y como salio."""
+        if not any(m["tipo"] == "acciones" for m in lista):
+            return ""
+        if self.cuadro % 30 != 0 and self._acciones_cache is not None:
+            return self._acciones_cache
+        propios = [m for m in lista if m["tipo"] == "acciones"]
+        cuantas = max(1, max((int(m.get("cuantas", 20)) for m in propios), default=20))
+        con_resultado = any(m.get("resultado", True) for m in propios)
+        try:
+            filas = store.recent_actions(cuantas)
+        except Exception:  # noqa: BLE001
+            filas = []
+        # Con la fecha cuando NO es de hoy. Solo la hora hacia que una accion
+        # de hace diez dias se leyera como de esta noche: me paso mirando este
+        # mismo modulo y di por vivo un error que estaba muerto hacia una semana.
+        hoy = time.strftime("%Y-%m-%d")
+        lineas = []
+        for ts, tool, detalle, salida in reversed(filas):
+            local = time.localtime(ts)
+            hora = (time.strftime("%H:%M", local)
+                    if time.strftime("%Y-%m-%d", local) == hoy
+                    else time.strftime("%d/%m %H:%M", local))
+            linea = f"{hora}  {tool}  {detalle}"
+            if con_resultado and salida:
+                linea += f"  -> {salida}"
+            lineas.append(linea)
+        self._acciones_cache = "\n".join(lineas)
+        return self._acciones_cache
+
     def tick(self) -> None:
         self.cuadro += 1
+        # Que la ventana avise que existe. Sin esto `E mostrar` abriria una
+        # ventana nueva cada vez en lugar de escribir en la que ya esta.
+        if self.cuadro % 60 == 0:
+            store.consola_presente()
         if self.cuadro % CADA_LECTURA == 0:
             self.estado = store.estado_overlay(max_edad=8.0) or {}
             self._releer()
@@ -443,6 +597,9 @@ class Consola:
             "eve": self.estado.get("eve", ""),
             "partes": self._partes_del_prompt(lista),
             "pagina": self._pagina(lista),
+            "documento": self._documento(lista),
+            "historial": self._historial(lista),
+            "acciones": self._acciones(lista),
         }
         if editando:
             lista = [dict(m, cuando="siempre") for m in lista]
@@ -487,6 +644,18 @@ def _convertir(valor, defecto):
 def abrir() -> None:
     """La lanza como proceso aparte, igual que el cartel y el panel."""
     plataforma.lanzar(plataforma.comando_propio("--consola"))
+
+
+def asegurar() -> bool:
+    """La abre solo si no hay una. True si la lanzo.
+
+    Sin esto, cada `E mostrar` abriria una ventana nueva encima de la anterior:
+    seis ventanas y ninguna pista de cual mira el asistente.
+    """
+    if store.consola_ya_corre():
+        return False
+    abrir()
+    return True
 
 
 def main(argv=None) -> int:

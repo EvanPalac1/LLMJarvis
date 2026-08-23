@@ -67,7 +67,7 @@ def t(texto: str) -> str:
 # `main.py` esta un nivel arriba del paquete: el aviso de donde quedo el icono
 # de bandeja vive ahi, y es el primer texto que ve quien instala Eve.
 ARCHIVOS = ("gui.py", "consola.py", "tray.py", "overlay.py", "textos.py",
-            os.path.join("..", "main.py"))
+            "lienzo.py", os.path.join("..", "main.py"))
 
 
 def usados_en_el_codigo(carpeta: str = "") -> set:
@@ -142,6 +142,30 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Eve no ejecuto nada todavia":
+        "Eve has not run anything yet",
+    "accion desconocida":
+        "unknown action",
+    "cartel mostrado unos segundos":
+        "card shown for a few seconds",
+    "ejecutando":
+        "running",
+    "listo, hablo":
+        "done, it spoke",
+    "no entendi nada":
+        "I did not understand anything",
+    "no entro audio; el microfono puede estar tomado":
+        "no audio came in; the microphone may be taken",
+    "panel abierto":
+        "panel opened",
+    "pidele que lea una pagina":
+        "ask it to read a page",
+    "pidele que te muestre algo":
+        "ask it to show you something",
+    "te escuche":
+        "I heard you",
+    "todavia no hablaron":
+        "you have not talked yet",
     "Eve esta corriendo":
         "Eve is running",
     "Estoy en el desplegable de la flechita de la barra de tareas, con Steam y Discord. Arrastrame fuera para fijarme en la barra.":

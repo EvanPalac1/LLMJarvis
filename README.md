@@ -919,7 +919,14 @@ demas, y ese prefijo es lo que lo hace barato: una prop nueva entra sola a los p
 exportables y no rearma el motor al cambiar, asi que mover un modulo no corta la
 conversacion y un layout entero viaja en un `.eveperfil`.
 
-Tipos: `texto`, `icono`, `onda`, `particulas`, `reloj`, `contexto`, `grafo` y `lector`.
+Tipos: `texto`, `icono`, `onda`, `particulas`, `reloj`, `contexto`, `grafo`,
+`lector`, `documento`, `historial`, `acciones` y `boton`.
+
+Los cuatro ultimos existen porque el panel mostraba cosas que la ventana de
+actividad no podia: lo que Eve te muestra, la conversacion, el log de auditoria,
+y acciones que se disparan. Un tipo nuevo consigue su formulario en el panel
+**solo** --el registro es lo unico que hay que tocar-- y hay un test que lo
+comprueba sobre los cuatro, no sobre uno.
 
 Se arman en **Apariencia > Modulos**, y el formulario de ajustes no esta escrito: se
 genera recorriendo el esquema del tipo. Elegir una onda muestra `estilo` y `muestras`;
@@ -1094,6 +1101,44 @@ herramientas que se ejecutaron y los cuadrados los proyectos donde se ejecutaron
 aristas, lo que sale una detras de otra. Un proyecto es la primera carpeta que cuelga de
 un directorio permitido: no es arbitrario, es donde trabajas y lo unico que Eve puede
 tocar sin preguntar. Extraccion determinista, sin una sola llamada a un modelo.
+
+### `mostrar` va a la ventana, no al navegador
+
+`E mostrar` es la salida que hace posible la regla cero: lo que no entra en dos
+frases habladas va a pantalla y no al sintetizador. Antes escribia un HTML
+temporal y abria Chrome, que es salirse del programa para leer tres renglones
+--y dejaba a la unica salida larga de Eve fuera de la ventana que existe para
+eso.
+
+Ahora escribe en el modulo `documento` del tablero. Dos formas:
+
+```
+E mostrar --titulo "Informe" --texto "..."
+E mostrar --archivo D:\Server\notas.md
+```
+
+Con `--archivo` no hace falta pegar el contenido en el argumento. De un `.html`
+sale el **texto**: aca no hay motor web --la misma razon por la que el lector
+devuelve texto-- asi que se usa el mismo extractor, que ya sabe que `script` y
+`style` no son contenido. Y solo lee dentro de las rutas permitidas: pedirle un
+archivo de afuera devuelve un no, no el archivo.
+
+Si el tablero no tiene un modulo `documento`, se le pone uno. Escribir el texto
+en un archivo que nadie dibuja es exactamente lo mismo que no mostrarlo, y la
+ventana en blanco ya demostro ser indistinguible de un programa que no arranco.
+Se agrega **una** vez: si ya hay uno, no se toca ni su posicion ni su tamaño,
+que son del usuario.
+
+### Botones como modulos
+
+Un modulo `boton` corre una accion al tocarlo, en modo Work. La lista es
+**cerrada** --`panel`, `cartel`, `escuchar`, `hablar`-- y ninguna es
+destructiva. Un modulo que ejecutara un comando arbitrario seria un addon sin el
+freno de los addons; y "limpiar historial" a un clic de distancia en un tablero
+es un accidente esperando, no una funcion.
+
+Es `interactivo` de fabrica: un boton que hay que habilitar con una casilla para
+que responda al clic es una trampa, no una opcion.
 
 **El lector** no es un navegador y no pretende serlo. Renderizar un sitio arbitrario ES un
 motor web, y lo que hace falta no son pixeles: es texto que entre al contexto y que se

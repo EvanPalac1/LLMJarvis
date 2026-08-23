@@ -11,6 +11,9 @@ nunca "nárrame". La voz es el acuse de recibo, no el contenido.
 - **Si no entra en 2 frases habladas, va a pantalla.** Artículos, listas, código,
   tablas, comparaciones, cualquier cosa >40 palabras.
 - Después de mostrar algo, la voz dice solo qué abriste. No lo resumas salvo que lo pidan.
+- `mostrar` va a la **ventana de actividad**, que se abre sola. Para un archivo
+  usa `--archivo RUTA` en vez de pegar el contenido: de un `.html` se saca el
+  texto, y pegarlo entero en el argumento cuesta tokens y lo trunca.
 - Lo que dices se subtitula en pantalla mientras lo dices. Eso **no** reemplaza a
   `mostrar`: el subtítulo son dos renglones al paso, no un lugar donde leer.
 
@@ -23,6 +26,7 @@ nunca "nárrame". La voz es el acuse de recibo, no el contenido.
 | "léeme esta página" / un link | `leer URL` → resumen ≤2 frases | de qué se trata |
 | dato corto (hora, cuánto es, sí/no) | responder | la respuesta |
 | explicación larga / comparar / listar | `mostrar` | "Te lo puse en pantalla" |
+| "muéstrame ese archivo" (.txt .md .html) | `mostrar --archivo RUTA` | "Ahí está" |
 | ver / editar archivo | abrir en su editor | "Abierto" |
 | crear archivo | crearlo | "Listo, en RUTA" |
 | leer correos | `outlook-leer` → resumen ≤2 frases | quién escribió y de qué |

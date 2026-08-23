@@ -1116,6 +1116,15 @@ LATIDO_PATH = os.path.join(BASE, "latido.json")
 OVERLAY_PATH = os.path.join(BASE, "overlay.json")
 # El overlay avisa que ya hay uno corriendo, para no apilar dos ventanas.
 OVERLAY_VIVO_PATH = os.path.join(BASE, "overlay-vivo.json")
+# Lo mismo para la ventana de actividad. No lo tenia, asi que cada `mostrar`
+# habria abierto una ventana nueva encima de la anterior.
+CONSOLA_VIVO_PATH = os.path.join(BASE, "consola-viva.json")
+# Lo ultimo que Eve puso en pantalla con `E mostrar`. Archivo propio y no el
+# canal del cartel: ese lo pisa el listener varias veces por segundo.
+DOCUMENTO_PATH = os.path.join(BASE, "documento.json")
+# Lo que entra en la ventana. Mas que esto no lo lee nadie de un tiron, y el
+# archivo se relee una vez por segundo.
+TOPE_DOCUMENTO = 20000
 
 
 def _escribir_señal(ruta: str, datos: dict) -> None:
@@ -1167,6 +1176,42 @@ def overlay_ya_corre(max_edad: float = 6.0) -> bool:
 def overlay_presente() -> None:
     """Lo llama el propio overlay cada par de segundos."""
     _escribir_señal(OVERLAY_VIVO_PATH, {})
+
+
+def consola_ya_corre(max_edad: float = 6.0) -> bool:
+    """True si la ventana de actividad ya esta abierta en otro proceso.
+
+    Sin esto cada `E mostrar` abriria una ventana nueva encima de la anterior,
+    que es peor que no abrir ninguna: el usuario termina con seis y sin saber
+    cual mira el asistente.
+    """
+    vivo = _leer_señal(CONSOLA_VIVO_PATH, max_edad)
+    return bool(vivo and vivo.get("pid") != os.getpid())
+
+
+def consola_presente() -> None:
+    """Lo llama la propia ventana de actividad cada par de segundos."""
+    _escribir_señal(CONSOLA_VIVO_PATH, {})
+
+
+def guardar_documento(titulo: str, texto: str, origen: str = "") -> None:
+    """Deja lo que Eve quiere mostrar, para el modulo `documento`.
+
+    Atomico y no como las señales del overlay: esto se escribe una vez por
+    `mostrar` y se lee una vez por segundo, asi que la escritura partida no es
+    "un cuadro perdido de una animacion" sino medio documento.
+    """
+    _escribir_json(DOCUMENTO_PATH, {
+        "titulo": str(titulo or "")[:200],
+        "texto": str(texto or "")[:TOPE_DOCUMENTO],
+        "origen": str(origen or "")[:400],
+        "ts": time.time(),
+    })
+
+
+def ultimo_documento() -> dict:
+    datos = _leer_json(DOCUMENTO_PATH, {})
+    return datos if isinstance(datos, dict) else {}
 
 
 OVERLAY_SALIR_PATH = os.path.join(BASE, "overlay-salir")

@@ -28,6 +28,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from . import grafo as grafo_mod
+from .textos import t as tr
 from . import imagenes, modulos, plataforma, tema
 
 # Tope por modulo. Medido: con seis modulos animando 500 particulas cada uno el
@@ -242,6 +243,24 @@ class Lienzo:
             return base + (round(ahora, 2),)
         if tipo == "lector":
             return base + (str(estado.get("pagina", ""))[:80], modulo.get("tam"))
+        if tipo == "historial":
+            return base + (round(ahora, 1), modulo.get("tam"),
+                           modulo.get("lineas"), modulo.get("cuantos"))
+        if tipo == "acciones":
+            return base + (round(ahora, 1), modulo.get("tam"),
+                           modulo.get("lineas"), modulo.get("cuantas"),
+                           modulo.get("resultado"))
+        if tipo == "boton":
+            return base + (modulo.get("accion"), modulo.get("etiqueta"),
+                           modulo.get("tam"))
+        if tipo == "documento":
+            doc = estado.get("documento") or {}
+            # El `ts` va en la firma para que reemplazar un documento por otro
+            # del mismo largo tambien repinte: sin eso, mostrar dos textos
+            # parecidos seguidos dejaba el primero en pantalla.
+            return base + (doc.get("ts"), str(doc.get("texto", ""))[:80],
+                           modulo.get("tam"), modulo.get("lineas"),
+                           modulo.get("desplazar"), modulo.get("titulo"))
         if tipo == "icono":
             # Un GIF, APNG, WebP o sprite sheet cambia solo; una imagen fija no.
             #
@@ -327,6 +346,20 @@ class Lienzo:
             self._pintar_grafo(dibujo, modulo, ancho, alto, opac)
         elif tipo == "lector":
             self._pintar_lector(dibujo, modulo, estado, ancho, alto, opac)
+        elif tipo == "documento":
+            self._pintar_documento(dibujo, modulo, estado, ancho, alto, opac)
+        elif tipo == "historial":
+            self._pintar_parrafos(
+                dibujo, modulo, ancho, alto, opac,
+                texto=str(estado.get("historial") or ""),
+                vacio=tr("todavia no hablaron"))
+        elif tipo == "acciones":
+            self._pintar_parrafos(
+                dibujo, modulo, ancho, alto, opac,
+                texto=str(estado.get("acciones") or ""),
+                vacio=tr("Eve no ejecuto nada todavia"))
+        elif tipo == "boton":
+            self._pintar_boton(dibujo, modulo, ancho, alto, opac)
 
         if modulo.get("rotacion"):
             img = img.rotate(-float(modulo["rotacion"]), expand=False,
@@ -521,18 +554,88 @@ class Lienzo:
 
     def _pintar_lector(self, dibujo, modulo, estado, ancho, alto, opac):
         """El texto de la ultima pagina leida, cortado al ancho del modulo."""
-        pagina = str(estado.get("pagina") or "")
-        if not pagina:
-            dibujo.text((0, 0), "pedile que lea una pagina",
-                        font=self._fuente_pt(10),
+        self._pintar_parrafos(
+            dibujo, modulo, ancho, alto, opac,
+            texto=str(estado.get("pagina") or ""),
+            vacio=tr("pidele que lea una pagina"))
+
+    def _pintar_documento(self, dibujo, modulo, estado, ancho, alto, opac):
+        """Lo que Eve mostro con `E mostrar`: texto, un .txt, un .md o un HTML.
+
+        Mismo cortado de lineas que el lector --son el mismo problema-- y ademas
+        el titulo arriba, con el acento, porque un documento sin titulo obliga a
+        leer tres renglones para saber que estas mirando.
+        """
+        doc = estado.get("documento") or {}
+        texto = str(doc.get("texto") or "")
+        titulo = str(doc.get("titulo") or "") if modulo.get("titulo", True) else ""
+        self._pintar_parrafos(
+            dibujo, modulo, ancho, alto, opac, texto=texto, titulo=titulo,
+            desde=int(modulo.get("desplazar", 0) or 0),
+            vacio=tr("pidele que te muestre algo"))
+
+    def _pintar_boton(self, dibujo, modulo, ancho, alto, opac):
+        """Un boton: marco redondeado y la etiqueta centrada.
+
+        Se dibuja con borde y no relleno para que se lea encima de cualquier
+        fondo --el tablero puede tener una imagen debajo-- y para que se note
+        que es algo que se toca y no un cartel mas.
+        """
+        from . import modulos as mods
+
+        accion = str(modulo.get("accion", "panel"))
+        etiqueta = str(modulo.get("etiqueta") or "").strip()
+        if not etiqueta:
+            etiqueta = mods.ACCIONES_BOTON.get(accion, accion)
+        borde = _rgba(self.paleta["acento"], opac)
+        radio = max(2, min(12, alto // 4))
+        try:
+            dibujo.rounded_rectangle([0, 0, ancho - 1, alto - 1], radius=radio,
+                                     outline=borde, width=2)
+        except AttributeError:  # Pillow viejo, sin esquinas redondeadas
+            dibujo.rectangle([0, 0, ancho - 1, alto - 1], outline=borde, width=2)
+        fuente = self._fuente_pt(modulo.get("tam", 12))
+        caja = dibujo.textbbox((0, 0), etiqueta, font=fuente)
+        x = max(4, (ancho - (caja[2] - caja[0])) // 2)
+        y = max(2, (alto - (caja[3] - caja[1])) // 2 - caja[1])
+        dibujo.text((x, y), etiqueta, font=fuente,
+                    fill=_rgba(self.paleta["texto"], opac))
+
+    def _pintar_parrafos(self, dibujo, modulo, ancho, alto, opac, texto,
+                         vacio, titulo="", desde=0):
+        """Texto largo cortado al ancho del modulo. Lo comparten dos tipos.
+
+        El lector y el documento son el mismo problema --parrafos que hay que
+        partir y recortar-- y tenerlo dos veces significaba arreglar el corte de
+        lineas dos veces.
+        """
+        if not texto:
+            dibujo.text((0, 0), vacio, font=self._fuente_pt(10),
                         fill=_rgba(self.paleta["texto_tenue"], opac))
             return
-        fuente = self._fuente_pt(modulo.get("tam", 12))
-        alto_linea = max(10, int(float(modulo.get("tam", 12)) * self.por_punto * 1.4))
-        maximo = int(modulo.get("lineas", 14))
+        puntos = float(modulo.get("tam", 12))
+        fuente = self._fuente_pt(puntos)
+        alto_linea = max(10, int(puntos * self.por_punto * 1.4))
         y = 0
-        for cruda in pagina.splitlines():
+        if titulo:
+            grande = self._fuente_pt(puntos + 2)
+            for linea in _cortar(titulo, grande, ancho, dibujo):
+                if y + alto_linea > alto:
+                    return
+                dibujo.text((0, y), linea, font=grande,
+                            fill=_rgba(self.paleta["acento"], opac))
+                y += alto_linea + 2
+            y += 4
+
+        maximo = int(modulo.get("lineas", 14))
+        saltar = max(0, int(desde))
+        for cruda in texto.splitlines():
             for linea in _cortar(cruda, fuente, ancho, dibujo):
+                # Desplazar cuenta lineas YA CORTADAS y no renglones del
+                # archivo: es lo que se ve, que es contra lo que uno ajusta.
+                if saltar > 0:
+                    saltar -= 1
+                    continue
                 if y + alto_linea > alto or maximo <= 0:
                     return
                 dibujo.text((0, y), linea, font=fuente,

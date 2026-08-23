@@ -4553,6 +4553,183 @@ def test_la_ventana_vacia_dice_que_esta_vacia():
         gc.collect()
 
 
+def test_mostrar_va_a_la_ventana_y_no_al_navegador():
+    """`E mostrar` escribe en la ventana de actividad, no abre Chrome.
+
+    Abrir el navegador para leer tres renglones es salirse del programa, y
+    dejaba a la unica salida larga de Eve fuera de la ventana que existe
+    justamente para eso.
+
+    Se comprueban las cuatro mitades que fallan por separado: que guarde el
+    documento, que el tablero tenga DONDE dibujarlo, que no apile un modulo por
+    cada llamada, y que pida abrir la ventana.
+    """
+    import tempfile
+
+    from eve import consola, integrations, modulos
+
+    base, cfg_path, doc_path = store.BASE, store.CONFIG_PATH, store.DOCUMENTO_PATH
+    abrir_real = consola.asegurar
+    tmp = tempfile.mkdtemp()
+    aperturas = []
+    try:
+        store.BASE = tmp
+        store.CONFIG_PATH = os.path.join(tmp, "config.json")
+        store.DOCUMENTO_PATH = os.path.join(tmp, "documento.json")
+        trabajo = os.path.join(tmp, "trabajo")
+        os.makedirs(trabajo)
+        store.save_config({**store.DEFAULTS, "workdirs": [trabajo]})
+        consola.asegurar = lambda: aperturas.append(1) or True
+
+        salida = integrations.mostrar("Prueba", "hola\nque tal")
+        assert "ventana de actividad" in salida, salida
+        doc = store.ultimo_documento()
+        assert doc["titulo"] == "Prueba" and "que tal" in doc["texto"]
+
+        docs = [m for m in modulos.listar(store.load_config(), "tablero")
+                if m["tipo"] == "documento"]
+        assert len(docs) == 1, "sin modulo, el texto se escribe donde nadie lo dibuja"
+
+        # Dos veces no son dos modulos: la posicion y el tamaño son del usuario.
+        integrations.mostrar("Otra", "segundo")
+        docs = [m for m in modulos.listar(store.load_config(), "tablero")
+                if m["tipo"] == "documento"]
+        assert len(docs) == 1, f"apilo {len(docs)} modulos documento"
+        assert store.ultimo_documento()["texto"] == "segundo"
+        assert len(aperturas) == 2
+    finally:
+        consola.asegurar = abrir_real
+        store.BASE, store.CONFIG_PATH, store.DOCUMENTO_PATH = base, cfg_path, doc_path
+
+
+def test_mostrar_un_html_no_muestra_las_etiquetas():
+    """De un .html sale el TEXTO. Aca no hay motor web.
+
+    Y de paso: ni el `script` ni el `style` son contenido. Mostrarlos seria
+    peor que no mostrar nada, porque el usuario los leeria como parte del
+    documento.
+    """
+    import tempfile
+
+    from eve import consola, integrations
+
+    base, cfg_path, doc_path = store.BASE, store.CONFIG_PATH, store.DOCUMENTO_PATH
+    abrir_real = consola.asegurar
+    tmp = tempfile.mkdtemp()
+    try:
+        store.BASE = tmp
+        store.CONFIG_PATH = os.path.join(tmp, "config.json")
+        store.DOCUMENTO_PATH = os.path.join(tmp, "documento.json")
+        trabajo = os.path.join(tmp, "trabajo")
+        os.makedirs(trabajo)
+        store.save_config({**store.DEFAULTS, "workdirs": [trabajo]})
+        consola.asegurar = lambda: True
+
+        ruta = os.path.join(trabajo, "pagina.html")
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write("<html><head><title>Informe</title>"
+                    "<style>p{color:red}</style></head><body>"
+                    "<h1>Titulo</h1><p>Primer parrafo.</p>"
+                    "<script>alert('no')</script><p>Segundo.</p></body></html>")
+        integrations.mostrar("", "", ruta)
+        doc = store.ultimo_documento()
+        assert doc["titulo"] == "Informe", doc["titulo"]
+        assert "Primer parrafo." in doc["texto"] and "Segundo." in doc["texto"]
+        assert "<" not in doc["texto"], "quedaron etiquetas"
+        assert "alert" not in doc["texto"] and "color:red" not in doc["texto"], \
+            "el script o el style entraron como contenido"
+        assert doc["origen"] == ruta
+
+        # Un .txt sale tal cual.
+        txt = os.path.join(trabajo, "notas.txt")
+        with open(txt, "w", encoding="utf-8") as f:
+            f.write("linea uno\nlinea dos\n")
+        integrations.mostrar("", "", txt)
+        assert store.ultimo_documento()["texto"] == "linea uno\nlinea dos\n"
+
+        # Y fuera de las rutas permitidas no se lee NADA, aunque exista.
+        fuera = os.path.join(tmp, "secreto.txt")
+        with open(fuera, "w", encoding="utf-8") as f:
+            f.write("no se puede")
+        salida = integrations.mostrar("", "", fuera)
+        assert "fuera de las rutas permitidas" in salida, salida
+        assert store.ultimo_documento()["origen"] == txt, "leyo lo que no debia"
+    finally:
+        consola.asegurar = abrir_real
+        store.BASE, store.CONFIG_PATH, store.DOCUMENTO_PATH = base, cfg_path, doc_path
+
+
+def test_los_modulos_nuevos_se_configuran_desde_el_panel():
+    """Un tipo nuevo tiene que conseguir su formulario SOLO.
+
+    Es la razon de ser del registro: si agregar un tipo obligara a escribir
+    controles a mano en `gui.py`, seria un widget con pasos extra y no un
+    modulo. Se comprueba sobre los cuatro nuevos, no sobre uno.
+    """
+    import gc
+    import tkinter as tk
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+
+    import tempfile
+
+    from eve import gui, modulos
+
+    antes = store.CONFIG_PATH
+    tmp = tempfile.mkdtemp()
+    panel = None
+    try:
+        store.CONFIG_PATH = os.path.join(tmp, "config.json")
+        cfg = dict(store.DEFAULTS)
+        for tipo in ("documento", "historial", "acciones", "boton"):
+            cfg = modulos.guardar(cfg, {"id": "m" + tipo, "tipo": tipo,
+                                        "superficie": "tablero"})
+        store.save_config(cfg)
+
+        panel = gui.Panel()
+        panel.withdraw()
+        for tipo in ("documento", "historial", "acciones", "boton"):
+            panel._mods_props("m" + tipo)
+            panel.update_idletasks()
+            esperadas = set(modulos.props_de(tipo)) - {"tipo"}
+            faltan = sorted(esperadas - set(panel.mod_vars))
+            assert not faltan, f"{tipo}: props sin control en el panel: {faltan}"
+    finally:
+        if panel is not None:
+            panel.destroy()
+        store.CONFIG_PATH = antes
+        gc.collect()
+
+
+def test_el_boton_es_un_boton_y_su_lista_es_cerrada():
+    """Un modulo `boton` corre su accion, y solo las de la lista.
+
+    La lista es cerrada a proposito: un modulo que ejecutara un comando
+    arbitrario seria un addon sin el freno de los addons. Y ninguna de las
+    acciones borra nada --"limpiar historial" a un clic de distancia en un
+    tablero es un accidente esperando, no una funcion.
+    """
+    from eve import modulos
+
+    assert set(modulos.ACCIONES_BOTON) == {"panel", "cartel", "escuchar", "hablar"}
+    for prohibida in ("limpiar", "borrar", "salir", "ejecutar", "cmd", "shell"):
+        assert prohibida not in modulos.ACCIONES_BOTON, \
+            f"{prohibida} no puede estar a un clic en un tablero"
+
+    # El combo del panel sale de la misma lista: si se agregara una accion sin
+    # ponerla ahi, el usuario no podria elegirla.
+    assert modulos.OPCIONES["accion"] == list(modulos.ACCIONES_BOTON)
+
+    # Y es interactivo de fabrica: un boton que hay que habilitar con una
+    # casilla para que responda al clic es una trampa.
+    assert modulos.defecto_de("boton", "interactivo") is True
+    assert modulos.defecto_de("texto", "interactivo") is False
+
+
 def test_eve_dice_donde_quedo_su_icono():
     """Una vez, y solo una, y sin poder impedir que Eve arranque.
 

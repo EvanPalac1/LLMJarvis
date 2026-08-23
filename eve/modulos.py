@@ -72,6 +72,38 @@ TIPOS = {
               "etiquetas": (True, "escribir el nombre de cada nodo")},
     # El texto de una pagina que se pidio leer. Se llena con `E leer URL`.
     "lector": {"tam": (12, "puntos"), "lineas": (14, "cuantas entran")},
+    # Lo que Eve pone en pantalla con `E mostrar`: texto, un .txt, un .md o un
+    # HTML del que se saca el texto. Es la salida que hace posible la regla
+    # cero --lo que no entra en dos frases habladas va a la ventana-- y antes
+    # abria el navegador, que es salirse del programa para leer tres renglones.
+    "documento": {"tam": (13, "puntos"),
+                  "lineas": (24, "cuantas entran"),
+                  "titulo": (True, "escribir el titulo arriba"),
+                  "desplazar": (0, "desde que linea se empieza a leer")},
+    # La conversacion, lo mismo que muestra el panel en Actividad.
+    "historial": {"tam": (11, "puntos"),
+                  "lineas": (18, "cuantas entran"),
+                  "cuantos": (20, "turnos hacia atras")},
+    # El log de auditoria: que ejecuto Eve y como salio.
+    "acciones": {"tam": (10, "puntos"),
+                 "lineas": (18, "cuantas entran"),
+                 "cuantas": (20, "acciones hacia atras"),
+                 "resultado": (True, "mostrar tambien como salio")},
+    # Un boton que dispara algo, con lista CERRADA de acciones. Ninguna es
+    # destructiva: un modulo que corriera cualquier comando seria un addon sin
+    # el freno de los addons, y "limpiar historial" a un clic en un tablero es
+    # un accidente esperando.
+    "boton": {"accion": ("panel", "que hace al tocarlo"),
+              "etiqueta": ("", "que dice; vacio = el nombre de la accion"),
+              "tam": (12, "puntos")},
+}
+
+# Lo unico que un modulo `boton` puede disparar. Cerrada a proposito.
+ACCIONES_BOTON = {
+    "panel": "Abrir el panel",
+    "cartel": "Mostrar el cartel",
+    "escuchar": "Probar que te escucha",
+    "hablar": "Probar que te habla",
 }
 
 # Props que son de eleccion cerrada. Es lo que hace que el panel se GENERE en
@@ -87,6 +119,7 @@ OPCIONES = {
     "estilo": ["barras", "espejo", "linea", "puntos"],
     "detalle": ["barra", "numeros"],
     "origen": ["fijo", "nombre", "detalle", "usuario", "eve"],
+    "accion": list(ACCIONES_BOTON),
     "color": ["texto", "texto_tenue", "acento", "acento2", "borde", "alerta"],
 }
 
@@ -323,11 +356,30 @@ def por_defecto_tablero():
         # Lo ultimo que se le pidio leer de la web.
         "tlector": {"tipo": "lector", "superficie": "tablero", "x": 700, "y": 350,
                     "ancho": 360, "alto": 220, "tam": 11, "cuando": "siempre", "z": 1},
+        # Donde cae lo que Eve muestra con `E mostrar`. Viene en el tablero de
+        # arranque y no solo cuando hace falta: que la primera vez que pidas
+        # "mostrame X" el texto tenga donde aparecer, ya colocado y del tamaño
+        # que le corresponde, en vez de caer en un modulo puesto al vuelo.
+        "tdoc": {"tipo": "documento", "superficie": "tablero", "x": 40, "y": 470,
+                 "ancho": 620, "alto": 200, "tam": 12, "lineas": 12,
+                 "cuando": "siempre", "z": 1},
     }
 
 
 # Palabras que `hud_icono` acepta ademas de una ruta a una imagen.
 FORMAS_ICONO = {"ninguno": None, "circulo": 0, "hexagono": 6, "cuadrado": 4}
+
+
+def defecto_de(tipo: str, prop: str):
+    """El valor de fabrica de una prop PARA ESE TIPO.
+
+    Existe por el boton: es interactivo por definicion, y pedirle al usuario que
+    tilde una casilla para que un boton responda al clic es una trampa.
+    """
+    if tipo == "boton" and prop == "interactivo":
+        return True
+    par = props_de(tipo).get(prop)
+    return par[0] if par else None
 
 
 def por_defecto(cfg=None):

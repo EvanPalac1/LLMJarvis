@@ -27,7 +27,7 @@ import urllib.parse
 # imports absolutos y no relativos.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from eve import plataforma, store  # noqa: E402
+from eve import plataforma, safety, store  # noqa: E402
 
 
 def cli() -> str:
@@ -120,6 +120,9 @@ def prompt_section() -> str:
 Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
 
   E mostrar --titulo "T" --texto "..."   todo lo que no entre en 2 frases habladas
+  E mostrar --archivo RUTA               un .txt, .md o .html; del HTML sale el texto
+      Los dos van a la VENTANA DE ACTIVIDAD, que se abre sola. Con --archivo no
+      hace falta pegar el contenido en el argumento.
   E recordar "dato reutilizable"
   E recordado TEMA                       lo que ya sabes de algo, si no entro arriba
   E componer --app whatsapp|telegram|discord|mail --to DEST --text "MSJ"
@@ -353,32 +356,89 @@ def _leer_web(a) -> str:  # noqa: ANN001
     return envolver_ajeno(cabeza + datos["texto"])
 
 
-def mostrar(titulo: str, texto: str) -> str:
-    """Pone texto en pantalla en vez de leerlo en voz alta.
+# Extensiones de las que se saca texto en vez de mostrarse crudas.
+COMO_HTML = (".html", ".htm", ".xhtml")
+
+
+def _texto_de_archivo(ruta: str) -> tuple[str, str]:
+    """(titulo, texto) de un archivo. El HTML pierde las etiquetas.
+
+    Aca no hay motor web --es la misma razon por la que el lector devuelve
+    texto-- asi que mostrar `<div class="x">` no es mostrar el documento. Se usa
+    el mismo extractor, que ya sabe que `script` y `style` no son contenido.
+    """
+    with open(ruta, encoding="utf-8", errors="replace") as f:
+        crudo = f.read(store.TOPE_DOCUMENTO * 4)
+    nombre = os.path.basename(ruta)
+    if ruta.lower().endswith(COMO_HTML):
+        from . import lector
+
+        titulo, texto = lector.extraer(crudo)
+        return (titulo or nombre), texto
+    return nombre, crudo
+
+
+def mostrar(titulo: str, texto: str = "", archivo: str = "") -> str:
+    """Pone texto en la VENTANA DE ACTIVIDAD en vez de leerlo en voz alta.
 
     Es la salida que hace posible la regla cero: lo que no entra en dos frases
     habladas va a una ventana, no al sintetizador.
+
+    Antes escribia un HTML temporal y abria el navegador. Abrir Chrome para leer
+    tres renglones es salirse del programa, y ademas dejaba a la unica salida
+    larga de Eve fuera de la ventana que existe para eso.
+
+    Si el tablero no tiene un modulo `documento`, se le pone uno: escribir el
+    texto en un archivo que nadie dibuja es lo mismo que no mostrarlo.
     """
-    import html
-    import tempfile
-    import webbrowser
+    from . import consola
 
-    pagina = f"""<!doctype html><meta charset="utf-8">
-<title>{html.escape(titulo)}</title>
-<style>
- body{{font:16px/1.6 system-ui,Segoe UI,sans-serif;max-width:46rem;margin:3rem auto;
- padding:0 1.5rem;background:#141416;color:#e8e8ea}}
- h1{{font-size:1.4rem;color:#8ab4ff;border-bottom:1px solid #2c2c31;padding-bottom:.5rem}}
- pre{{white-space:pre-wrap;word-wrap:break-word;font:inherit;margin:0}}
- @media(prefers-color-scheme:light){{body{{background:#fff;color:#1a1a1c}}h1{{color:#1a56c4}}}}
-</style>
-<h1>{html.escape(titulo)}</h1><pre>{html.escape(texto)}</pre>"""
+    origen = ""
+    if archivo:
+        ruta = os.path.abspath(os.path.expanduser(archivo))
+        cfg = store.load_config()
+        if not safety.path_allowed(ruta, cfg.get("workdirs", [])):
+            return (f"No puedo leer {ruta}: esta fuera de las rutas permitidas. "
+                    "Agregala en el panel, en General.")
+        if not os.path.isfile(ruta):
+            return f"No existe el archivo {ruta}."
+        try:
+            leido, texto_archivo = _texto_de_archivo(ruta)
+        except OSError as exc:
+            return f"No pude leer {ruta}: {exc}"
+        titulo = titulo or leido
+        texto = texto_archivo
+        origen = ruta
 
-    ruta = os.path.join(tempfile.gettempdir(), "eve_mostrar.html")
-    with open(ruta, "w", encoding="utf-8") as f:
-        f.write(pagina)
-    webbrowser.open(f"file:///{ruta.replace(os.sep, '/')}")
-    return f"Mostrado en pantalla: {titulo}. Deci en voz alta solo que lo abriste."
+    if not str(texto).strip():
+        return "No hay nada que mostrar: falta --texto o --archivo."
+
+    store.guardar_documento(titulo, texto, origen)
+    _asegurar_modulo_documento()
+    consola.asegurar()
+    return (f"Mostrado en la ventana de actividad: {titulo}. "
+            "Di en voz alta solo que lo abriste.")
+
+
+def _asegurar_modulo_documento() -> None:
+    """Que el tablero tenga donde dibujar lo que se acaba de guardar.
+
+    Sin esto `mostrar` escribe un archivo que nadie lee y la ventana sigue
+    vacia, que es indistinguible de que el comando no anduvo. Se agrega UNA vez:
+    si ya hay un modulo `documento` en el tablero, no se toca nada --ni su
+    posicion ni su tamaño, que son del usuario.
+    """
+    from . import modulos
+
+    cfg = store.load_config()
+    if any(m["tipo"] == "documento" for m in modulos.listar(cfg, "tablero")):
+        return
+    cfg = modulos.guardar(cfg, {
+        "id": "documento", "tipo": "documento", "superficie": "tablero",
+        "x": 40, "y": 40, "ancho": 640, "alto": 560,
+        "tam": 13, "lineas": 30, "z": 5,
+    })
+    store.save_config(cfg)
 
 
 def recordar(hecho: str) -> str:
@@ -1237,9 +1297,14 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="python -m eve.integrations")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    m = sub.add_parser("mostrar", help="pone texto en pantalla en vez de hablarlo")
+    m = sub.add_parser("mostrar",
+                       help="pone texto en la ventana de actividad en vez de hablarlo")
     m.add_argument("--titulo", default="Eve")
-    m.add_argument("--texto", required=True)
+    # Ya no es obligatorio: se puede mandar el texto, o un archivo del que
+    # sacarlo. `mostrar()` avisa si no vino ninguno de los dos.
+    m.add_argument("--texto", default="")
+    m.add_argument("--archivo", default="",
+                   help="ruta a un .txt, .md o .html; del HTML se saca el texto")
 
     rec = sub.add_parser("recordar", help="agrega un dato a la memoria de EVE.md")
     rec.add_argument("hecho")
@@ -1343,7 +1408,7 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     try:
         if a.cmd == "mostrar":
-            print(mostrar(a.titulo, a.texto))
+            print(mostrar(a.titulo, a.texto, getattr(a, "archivo", "")))
         elif a.cmd == "recordar":
             print(recordar(a.hecho))
         elif a.cmd == "contacto":
