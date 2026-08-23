@@ -64,6 +64,28 @@ def datos_usuario() -> str:
     return ruta
 
 
+def fps_sugerido() -> int:
+    """Cuadros por segundo razonables para esta maquina.
+
+    30 en x86, 20 en ARM. No es una medicion de esta maquina --hacerla en cada
+    arranque costaria mas que lo que ahorra-- sino el punto de partida: quien
+    quiera otro numero lo pone en `ui_fps`, que para eso existe.
+    """
+    import platform
+
+    return 20 if platform.machine().lower() in ("arm64", "aarch64") else 30
+
+
+def fps(cfg: dict | None = None) -> int:
+    """Los fps efectivos: lo que diga la config, o lo que sugiera la maquina."""
+    pedidos = int((cfg or {}).get("ui_fps", 0) or 0)
+    if pedidos <= 0:
+        return fps_sugerido()
+    # Un tope por arriba y por abajo: 120 fps de un cartel no los ve nadie, y
+    # menos de 5 deja la onda a tirones sin que se entienda por que.
+    return max(5, min(120, pedidos))
+
+
 def recursos() -> str:
     """Carpeta de solo lectura con lo que viaja junto al programa (EVE.md, iconos).
 

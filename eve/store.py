@@ -227,6 +227,15 @@ DEFAULTS = {
     # porque no tienen por que coincidir --alguien puede querer el panel en
     # ingles y que Eve le hable en espanol, o al reves.
     "ui_idioma": "es",     # ver textos.IDIOMAS
+    # Cuadros por segundo del cartel y de la ventana de actividad.
+    #
+    # Medido en el escritorio donde se desarrolla: componer 1100x700 con seis
+    # capas y quinientas particulas cuesta 21.6 ms de mediana y 23.1 de p95, asi
+    # que a 30 fps quedan 11 ms de margen. En una maquina lenta --el plan
+    # estimaba 60-90 ms en linux-arm64-- eso no alcanza, y sin esta clave no
+    # habria forma de bajarlo salvo recompilando. `plataforma.fps_sugerido()`
+    # arranca mas bajo en ARM.
+    "ui_fps": 0,           # 0 = el que sugiera la plataforma
     # Cuanto se muestra del panel de una. `esencial` deja a la vista lo que usa
     # cualquiera y esconde las secciones de ajuste fino; `completo` muestra todo.
     # No hay una tercera opcion "experto" con cosas ocultas: si una opcion existe

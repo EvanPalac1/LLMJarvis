@@ -28,7 +28,9 @@ from tkinter import ttk
 from . import lienzo, modulos, plataforma, store, tema, textos
 from .textos import t as tr
 
-CUADRO = 33          # ms entre cuadros, ~30 fps
+# ms entre cuadros. Sale de `ui_fps`, que de fabrica es lo que sugiera la
+# plataforma: 30 en x86 y 20 en ARM. Estaba fijo en 33.
+CUADRO = 33
 CADA_LECTURA = 3     # el estado se relee a 10 Hz, como en el cartel
 PASOS_DESHACER = 20
 ANCHO, ALTO = 1100, 700
@@ -37,6 +39,8 @@ ANCHO, ALTO = 1100, 700
 class Consola:
     def __init__(self):
         self.cfg = store.load_config()
+        global CUADRO
+        CUADRO = max(1, round(1000 / plataforma.fps(self.cfg)))
         textos.desde_config(self.cfg)
         self.raiz = tk.Tk()
         self.raiz.title(f"{self.cfg.get('assistant_name', 'Eve')} — {tr('actividad')}")

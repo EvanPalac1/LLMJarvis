@@ -504,6 +504,20 @@ TEMA = (
         AVANZADO,
     ),
     Seccion(
+        "Fluidez",
+        (
+            Campo("ui_fps", "Cuadros por segundo"),
+            Ayuda("Vale para el cartel y para la ventana de actividad. 0 = el que\n"
+                  "sugiere tu maquina: 30 en un PC normal, 20 en ARM.\n"
+                  "\nMedido en un escritorio x64: componer la ventana entera con seis\n"
+                  "capas y quinientas particulas cuesta 21.6 ms de mediana y 23.1 de\n"
+                  "p95, asi que a 30 cuadros quedan 11 ms de margen. Si ves tirones,\n"
+                  "bajalo antes que apagar modulos: 20 cuadros con todo puesto se ve\n"
+                  "mejor que 30 a medias."),
+        ),
+        AVANZADO,
+    ),
+    Seccion(
         "Cabecera del panel",
         (
             Propio("_cabecera_del_panel", ("ui_banner",)),

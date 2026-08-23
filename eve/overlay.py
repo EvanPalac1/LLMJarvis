@@ -22,7 +22,9 @@ from . import imagenes, lienzo, modulos, plataforma, store, tema
 # puede ser uno que alguien elija para su tema.
 MAGICO = "#010203"
 
-CUADRO = 33          # ms entre cuadros, ~30 por segundo
+# ms entre cuadros. Sale de `ui_fps` al arrancar; 33 es el valor de arranque
+# hasta que se lee la config.
+CUADRO = 33
 CADA_LECTURA = 3     # leer el estado 1 de cada N cuadros: 10 Hz alcanza
 MUESTRAS = 56        # barras de la onda
 DESVANECER = 2.5     # segundos sin actividad antes de esconderse en modo auto
@@ -626,6 +628,10 @@ class Overlay:
         self.raiz = tk.Tk()
         self.raiz.withdraw()
         self.cfg = store.load_config()
+        # Los cuadros por segundo salen de `ui_fps`; 0 = lo que sugiera la
+        # plataforma. Estaban fijos en 33 y no habia forma de bajarlos.
+        global CUADRO
+        CUADRO = max(1, round(1000 / plataforma.fps(self.cfg)))
         self.paleta = tema.resolver(self.cfg, "hud")
         self.hud = Hud(self.raiz, self.cfg, self.paleta)
         self.sub = Subtitulos(self.raiz, self.cfg, self.paleta)

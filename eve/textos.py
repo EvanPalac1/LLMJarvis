@@ -162,6 +162,26 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Cuadros por segundo":
+        "Frames per second",
+    "Fluidez":
+        "Smoothness",
+    "Vale para el cartel y para la ventana de actividad. 0 = el que\n"
+    "sugiere tu maquina: 30 en un PC normal, 20 en ARM.\n"
+    "\n"
+    "Medido en un escritorio x64: componer la ventana entera con seis\n"
+    "capas y quinientas particulas cuesta 21.6 ms de mediana y 23.1 de\n"
+    "p95, asi que a 30 cuadros quedan 11 ms de margen. Si ves tirones,\n"
+    "bajalo antes que apagar modulos: 20 cuadros con todo puesto se ve\n"
+    "mejor que 30 a medias.":
+        "Applies to the card and to the activity window. 0 = whatever your\n"
+        "machine suggests: 30 on a normal PC, 20 on ARM.\n"
+        "\n"
+        "Measured on an x64 desktop: compositing the whole window with six\n"
+        "layers and five hundred particles costs 21.6 ms median and 23.1 at\n"
+        "p95, so at 30 frames there are 11 ms of headroom. If you see stutter,\n"
+        "lower this before turning modules off: 20 frames with everything on\n"
+        "looks better than 30 with half of it.",
     "Acento":
         "Accent",
     "Acento apagado":
