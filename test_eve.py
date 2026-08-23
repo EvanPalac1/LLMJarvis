@@ -4633,6 +4633,10 @@ def test_mostrar_un_html_no_muestra_las_etiquetas():
                     "<script>alert('no')</script><p>Segundo.</p></body></html>")
         integrations.mostrar("", "", ruta)
         doc = store.ultimo_documento()
+        # El <title> del archivo tiene que ganarle al default del parser. Con
+        # `--titulo` valiendo "Eve" cuando no se pasa, un `titulo or leido`
+        # tomaba SIEMPRE "Eve" y el titulo del HTML no llegaba nunca. Solo se
+        # vio corriendo el binario de verdad.
         assert doc["titulo"] == "Informe", doc["titulo"]
         assert "Primer parrafo." in doc["texto"] and "Segundo." in doc["texto"]
         assert "<" not in doc["texto"], "quedaron etiquetas"
@@ -4647,13 +4651,33 @@ def test_mostrar_un_html_no_muestra_las_etiquetas():
         integrations.mostrar("", "", txt)
         assert store.ultimo_documento()["texto"] == "linea uno\nlinea dos\n"
 
+        # Un archivo con BOM --que es como guardan PowerShell y el Bloc de
+        # notas-- no puede meter los tres bytes adentro del texto. Leido como
+        # "utf-8" a secas salian dibujados en el primer renglon.
+        import codecs
+
+        conbom = os.path.join(trabajo, "conbom.html")
+        with open(conbom, "wb") as f:
+            f.write(codecs.BOM_UTF8)
+            f.write(b"<html><head><title>Con BOM</title></head>"
+                    b"<body><p>Contenido.</p></body></html>")
+        integrations.mostrar("", "", conbom)
+        doc = store.ultimo_documento()
+        assert "﻿" not in doc["texto"], "el BOM entro al texto"
+        assert "﻿" not in doc["titulo"], "el BOM entro al titulo"
+        assert doc["titulo"] == "Con BOM", doc["titulo"]
+
+        # Y un titulo pedido a mano le gana al del archivo.
+        integrations.mostrar("Mi titulo", "", conbom)
+        assert store.ultimo_documento()["titulo"] == "Mi titulo"
+
         # Y fuera de las rutas permitidas no se lee NADA, aunque exista.
         fuera = os.path.join(tmp, "secreto.txt")
         with open(fuera, "w", encoding="utf-8") as f:
             f.write("no se puede")
         salida = integrations.mostrar("", "", fuera)
         assert "fuera de las rutas permitidas" in salida, salida
-        assert store.ultimo_documento()["origen"] == txt, "leyo lo que no debia"
+        assert store.ultimo_documento()["origen"] == conbom, "leyo lo que no debia"
     finally:
         consola.asegurar = abrir_real
         store.BASE, store.CONFIG_PATH, store.DOCUMENTO_PATH = base, cfg_path, doc_path

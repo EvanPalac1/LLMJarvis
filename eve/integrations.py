@@ -367,7 +367,11 @@ def _texto_de_archivo(ruta: str) -> tuple[str, str]:
     texto-- asi que mostrar `<div class="x">` no es mostrar el documento. Se usa
     el mismo extractor, que ya sabe que `script` y `style` no son contenido.
     """
-    with open(ruta, encoding="utf-8", errors="replace") as f:
+    # `utf-8-sig` y no `utf-8`: PowerShell, el Bloc de notas y media Windows
+    # guardan UTF-8 CON BOM, y leidos como utf-8 esos tres bytes entran al
+    # documento como un `\ufeff` que se dibuja en el primer renglon. Con -sig
+    # se descarta si esta y no cambia nada si no.
+    with open(ruta, encoding="utf-8-sig", errors="replace") as f:
         crudo = f.read(store.TOPE_DOCUMENTO * 4)
     nombre = os.path.basename(ruta)
     if ruta.lower().endswith(COMO_HTML):
@@ -406,14 +410,18 @@ def mostrar(titulo: str, texto: str = "", archivo: str = "") -> str:
             leido, texto_archivo = _texto_de_archivo(ruta)
         except OSError as exc:
             return f"No pude leer {ruta}: {exc}"
-        titulo = titulo or leido
+        # El titulo del archivo gana sobre el default del parser. `--titulo`
+        # vale "Eve" cuando no se pasa, asi que `titulo or leido` tomaba
+        # SIEMPRE "Eve" y el <title> del HTML no llegaba nunca.
+        if titulo in ("", "Eve"):
+            titulo = leido
         texto = texto_archivo
         origen = ruta
 
     if not str(texto).strip():
         return "No hay nada que mostrar: falta --texto o --archivo."
 
-    store.guardar_documento(titulo, texto, origen)
+    store.guardar_documento(titulo or "Eve", texto, origen)
     _asegurar_modulo_documento()
     consola.asegurar()
     return (f"Mostrado en la ventana de actividad: {titulo}. "
@@ -1299,7 +1307,8 @@ def main(argv=None) -> int:
 
     m = sub.add_parser("mostrar",
                        help="pone texto en la ventana de actividad en vez de hablarlo")
-    m.add_argument("--titulo", default="Eve")
+    m.add_argument("--titulo", default="",
+                   help="vacio = el <title> del HTML, o el nombre del archivo")
     # Ya no es obligatorio: se puede mandar el texto, o un archivo del que
     # sacarlo. `mostrar()` avisa si no vino ninguno de los dos.
     m.add_argument("--texto", default="")
