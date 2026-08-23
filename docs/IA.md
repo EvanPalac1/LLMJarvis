@@ -299,26 +299,60 @@ Un "no" medido es un resultado. Estos se descartaron con datos, no por gusto.
 | **Cliente MCP** | Los addons ya son el sistema de plugins y andan en los cuatro motores |
 | **pocket-tts** | Ver abajo |
 
-### pocket-tts, en detalle
+### pocket-tts: la puerta de plataforma ya no lo bloquea
 
-Es tentador y **está bloqueado por una sola cosa**.
+**Corrección.** Este apartado decía que pocket-tts estaba bloqueado por `torch`.
+Eso valía para el camino oficial y ya no vale para el único que importa acá.
 
-Lo bueno, medido: MIT, voz en español (`lola`), 100M parámetros, rueda
-`py3-none-any` de **0.6 MB**, ~6× tiempo real en CPU (RTF ~0.17 contra 0.30 de
-Piper), ~200 ms al primer fragmento, y **clonado de voz desde ~20 s de audio**,
-que es algo que Piper no hace.
+Lo bueno: código MIT, **pesos CC-BY-4.0** (son dos licencias distintas y conviene
+no confundirlas), ~200 ms al primer fragmento, y **clonado de voz desde ~20 s de
+audio**, que es algo que Piper no hace.
 
-El bloqueo: pide **`torch>=2.5.0`**, y la última rueda de torch para **macOS
-Intel es la 2.2.2**. No existe ninguna versión que satisfaga las dos cosas — la
-misma puerta exacta que dejó afuera a mediapipe. Y aunque se resolviera, torch
-suma 116 MB en Windows, 106 en mac ARM, 502 en Linux x64 y 407 en Linux ARM,
-sobre instaladores que hoy pesan 133-229 MB.
+El bloqueo original, real: la ruta oficial en Python pide **`torch>=2.5.0`**, y
+la última rueda de torch para **macOS Intel es la 2.2.2**. Ninguna versión
+satisface las dos, y torch sumaría 116 MB en Windows, 106 en mac ARM, 502 en
+Linux x64 y 407 en Linux ARM sobre instaladores de 133-229 MB.
 
-**Reabrirlo tiene una condición clara**, la misma que mediapipe: si algún día se
-deja de publicar para mac Intel —cosa que onnxruntime, mediapipe y jaxlib ya
-hicieron— pocket-tts cubre los cuatro restantes y esto pasa de "no" a
-"discutible". El clonado de voz es un argumento de peso; el peso de torch,
-también.
+**Pero torch no es el único camino, y el proyecto ya lleva el otro adentro.** El
+propio repo de kyutai remite a `sherpa-onnx` para correr pocket-tts, y ahí los
+números cambian de categoría:
+
+| | ruta torch | ruta sherpa-onnx |
+|---|---|---|
+| Licencia del runtime | BSD | Apache-2.0 |
+| mac Intel | **no existe** | `macosx_10_15_x86_64` ✅ |
+| Los cinco objetivos | no | **sí, los cinco** |
+| Peso por plataforma | 116-502 MB | **10-18 MB** |
+| Dependencia nativa nueva | torch | ninguna: `onnxruntime` **ya viaja** |
+
+O sea: la puerta que mató a mediapipe **no aplica por este lado**. Y `onnxruntime`
+ya es dependencia dura del proyecto —la usan silero y parakeet— así que el costo
+marginal es el binario de sherpa y los pesos, no un stack nuevo.
+
+**Lo que sí sigue sin medirse, y es ahora la única razón para no enviarlo:**
+
+1. **No hay WER de la voz en español.** Piper está medido re-transcribiendo:
+   6.4%. pocket-tts tiene medidos RTF, latencia y tamaño — no calidad. Enviar un
+   motor sin ese número sería exactamente el error por el que se rechazó Kokoro,
+   al revés.
+2. **El modelo en español es `spanish_24l`, de 24 capas.** El RTF de 0.17 y los
+   100M parámetros son del inglés destilado de 6 capas. Cuatro veces las capas no
+   se comparan de arriba: hay que medirlo aparte.
+3. **Los pesos bajan en runtime** por `huggingface-hub`. Un asistente que arranca
+   sin red no puede depender de eso sin una ruta de respaldo.
+
+**La condición de reapertura, corregida.** La vieja —"si el proyecto deja de
+soportar mac Intel"— era un disparador ajeno, que no depende del proyecto y que
+además habría hecho entrar torch en piloto automático años después. La condición
+buena es medible y propia:
+
+> Entra cuando el WER de la voz en español, medido con el mismo banco de 24 clips
+> y el mismo método de re-transcripción, quede por debajo del 6.4% de Piper; y su
+> RTF real de 24 capas se mida en esta CPU, no se herede del modelo inglés.
+
+Y sobre el clonado de voz: en un asistente local de un solo usuario, clonar la
+voz propia no distribuye nada. La línea es no exportar ni guardar embeddings de
+voces ajenas.
 
 ---
 
