@@ -492,7 +492,10 @@ TEMA = (
     Seccion(
         "Colores del cartel flotante",
         (
-            Campo("hud_tema", "Tema del cartel", "_temas_del_cartel"),
+            # El tema del cartel NO va aca: vive en la pestaña Cartel, junto a
+            # lo demas del cartel. Estuvo en los dos lados y el de aca era un
+            # combo muerto --se podia tocar y no guardaba, porque `self.vars`
+            # es un dict y la segunda asignacion pisaba a la primera.
             Colores("hud"),
             Ayuda("Vacio = el cartel usa el mismo tema que el panel, que es lo que\n"
                   "quiere casi todo el mundo. Los colores de abajo solo se usan con\n"

@@ -1150,8 +1150,6 @@ EN = {
         "Theme",
     "Tema (vacio = el del panel)":
         "Theme (empty = the panel's)",
-    "Tema del cartel":
-        "Card theme",
     "Tinte con el acento (%)":
         "Accent tint (%)",
     "Tipo de computo":

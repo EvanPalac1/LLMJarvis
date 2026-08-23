@@ -6,6 +6,7 @@ seguridad y la ventana de contexto. Sin dependencias externas.
 
 import gc
 import json
+import ast
 import os
 import re
 import sys
@@ -1398,6 +1399,56 @@ def test_cola_y_pulso():
         finally:
             store.CONFIG_PATH, store.OVERLAY_PATH = reales
             voz.transcribe, voz.speak = voz_real
+
+
+def test_ninguna_clave_tiene_dos_controles():
+    """Dos controles para la misma clave dejan uno muerto, y no se nota.
+
+    `self.vars` es un dict: la segunda asignacion pisa a la primera, asi que el
+    primer widget queda atado a una variable que nadie lee. Se puede escribir en
+    el, se ve como cualquier otro, y no guarda nada.
+
+    Paso de verdad con `hud_tema`: estaba en Apariencia > Tema y otra vez en
+    Apariencia > Cartel. El de Tema era un combo muerto, y ningun test lo veia
+    porque el de cobertura solo pregunta si la clave TIENE control, no cuantos.
+
+    Se cuenta sobre la declaracion --el registro mas los `_row`/`_check` que
+    quedan escritos a mano-- y no sobre los widgets: asi tambien vale para las
+    pestañas que este test no llega a abrir.
+    """
+    import collections
+
+    from eve import registro
+
+    cuenta = collections.Counter()
+    donde = collections.defaultdict(list)
+
+    for nombre in ("SUBTITULOS", "VENTANA", "VOZ", "TEMA", "GENERAL"):
+        tabla = getattr(registro, nombre)
+        for clave in registro.claves(tabla):
+            cuenta[clave] += 1
+            donde[clave].append(nombre)
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(raiz, "eve", "gui.py"), encoding="utf-8") as f:
+        arbol = ast.parse(f.read())
+    for n in ast.walk(arbol):
+        if not (isinstance(n, ast.FunctionDef) and n.name.startswith("_bloque_")):
+            continue
+        for c in ast.walk(n):
+            if not isinstance(c, ast.Call):
+                continue
+            nom = (c.func.attr if isinstance(c.func, ast.Attribute)
+                   else getattr(c.func, "id", ""))
+            if nom in ("_row", "_check") and len(c.args) > 2 \
+                    and isinstance(c.args[2], ast.Constant):
+                cuenta[c.args[2].value] += 1
+                donde[c.args[2].value].append(n.name)
+
+    repetidas = {k: donde[k] for k, v in cuenta.items() if v > 1}
+    assert not repetidas, (
+        "claves con mas de un control; el primero queda muerto: "
+        + "; ".join(f"{k} en {d}" for k, d in sorted(repetidas.items())))
 
 
 def test_la_pestana_generada_cubre_lo_mismo_que_la_config():
