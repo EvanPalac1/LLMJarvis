@@ -1324,9 +1324,43 @@ def _proceso_vivo(pid: int) -> bool:
     matarla a la fuerza o un cuelgue no ejecutan ese `finally`. Sin comprobar el
     proceso, cerrarla mal la dejaba sin poder arrancar durante veinte segundos,
     diciendo que ya estaba corriendo cuando no habia nada.
+
+    **En Windows `os.kill(pid, 0)` no pregunta si el proceso existe.** Alla
+    `CTRL_C_EVENT` vale 0, asi que Python lee la señal 0 como "manda Ctrl+C al
+    grupo de consola de ese pid" en vez de como el sondeo de POSIX. Para un
+    proceso sin consola --o sea, para Eve, que corre sin ventana-- eso falla
+    siempre con WinError 87, y la funcion devolvia False sobre un proceso vivo.
+
+    Medido: con dos Eve abiertas a proposito, `_proceso_vivo` daba False para
+    las dos. `otro_asistente()` devolvia 0 siempre, y la guarda de una sola Eve
+    --que existe desde la v1.4.3-- nunca corrio en el sistema donde mas importa.
+    Cada doble clic dejaba otro listener con su propio hook global sobre F12.
+
+    El test no lo agarro porque comprobaba contra `os.getppid()`, que es el
+    unico proceso ajeno que SI esta en el mismo grupo de consola. Elegido para
+    arreglar otra cosa, y de paso volvio el caso real intesteable.
     """
     if pid <= 0:
         return False
+    if plataforma.WINDOWS:
+        import ctypes
+
+        k32 = ctypes.windll.kernel32
+        # QUERY_LIMITED_INFORMATION y no ALL_ACCESS: alcanza para preguntar y es
+        # el unico que abre procesos de otra integridad sin pedir permisos.
+        h = k32.OpenProcess(0x1000, False, pid)
+        if not h:
+            return False
+        try:
+            codigo = ctypes.c_ulong()
+            if k32.GetExitCodeProcess(h, ctypes.byref(codigo)):
+                # 259 es STILL_ACTIVE. Un proceso que termino con ese codigo
+                # exacto se leeria como vivo; es el precio conocido de esta API
+                # y no hay forma de distinguirlo sin abrir un handle de espera.
+                return codigo.value == 259
+            return True
+        finally:
+            k32.CloseHandle(h)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

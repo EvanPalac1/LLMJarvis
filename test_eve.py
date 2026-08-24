@@ -2475,6 +2475,53 @@ def test_compat_reintenta():
         compat_engine.time.sleep = real_sleep
 
 
+def test_proceso_vivo_ve_un_proceso_SIN_CONSOLA():
+    """El caso real: un proceso ajeno que no comparte consola con nosotros.
+
+    `test_una_sola_eve` comprobaba contra `os.getppid()`, y en Windows el padre
+    es el unico proceso ajeno que esta en el MISMO grupo de consola. Justo el
+    caso donde `os.kill(pid, 0)` no falla. Todos los demas --incluida una Eve
+    lanzada desde el Explorador, que es como la abre el usuario-- daban
+    WinError 87 y se leian como muertos.
+
+    Aca el hijo se lanza DESPEGADO de la consola a proposito. Sin eso, este test
+    pasa con la implementacion rota.
+    """
+    import subprocess
+
+    banderas = 0
+    if sys.platform == "win32":
+        # DETACHED_PROCESS | CREATE_NO_WINDOW: fuera de nuestro grupo de consola,
+        # que es la condicion exacta que rompia la comprobacion.
+        banderas = 0x00000008 | 0x08000000
+
+    hijo = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                            creationflags=banderas)
+    try:
+        assert store._proceso_vivo(hijo.pid), (
+            f"un proceso vivo sin consola (pid {hijo.pid}) se leyo como muerto")
+
+        # Y que la guarda entera lo use: latido ajeno + proceso vivo = no arranca.
+        with tempfile.TemporaryDirectory() as raiz:
+            real = store.LATIDO_PATH
+            store.LATIDO_PATH = os.path.join(raiz, "latido.json")
+            try:
+                with open(store.LATIDO_PATH, "w", encoding="utf-8") as f:
+                    json.dump({"ts": time.time(), "pid": hijo.pid}, f)
+                assert store.otro_asistente() == hijo.pid, (
+                    "otro_asistente no vio al otro; cada doble clic deja "
+                    "un listener mas con su hook sobre la misma tecla")
+            finally:
+                store.LATIDO_PATH = real
+    finally:
+        hijo.kill()
+        hijo.wait(timeout=10)
+
+    # Muerto y cosechado: ahora tiene que decir que no esta.
+    assert not store._proceso_vivo(hijo.pid), (
+        "un proceso muerto se leyo como vivo; Eve no arrancaria mas")
+
+
 def test_una_sola_eve():
     """Arrancar Eve dos veces no deja dos listeners.
 

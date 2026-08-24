@@ -88,6 +88,52 @@ def _icono() -> list[str]:
     return []
 
 
+def _version_windows(nombre: str) -> list[str]:
+    """Nombre y version adentro del .exe, para que el proceso se pueda mirar.
+
+    Sin esto los tres binarios salen con TODOS los campos de version vacios, y
+    el Administrador de tareas no tiene mas remedio que listarlos con el nombre
+    del archivo pelado, sin descripcion ni empresa. Eve corre sin ventana y con
+    el icono en el desplegable de la flechita, asi que esa fila era la unica
+    forma de confirmar que estaba andando -- y no decia nada.
+
+    Se genera aca y no como archivo fijo en el repositorio porque lleva la
+    version adentro: un `.txt` suelto se olvida de actualizar y termina
+    afirmando una version que no es. Escrito en la carpeta de trabajo, no en el
+    repositorio: es un intermedio de compilacion.
+    """
+    if not WINDOWS:
+        return []
+    partes = [int(x) for x in VERSION.split(".")[:3]] + [0]
+    coma = ", ".join(str(x) for x in partes[:4])
+    descripciones = {
+        "Eve": "Eve - asistente de voz",
+        "Eve-config": "Eve - panel de configuracion",
+        "Eve-debug": "Eve - consola de diagnostico",
+    }
+    texto = f"""VSVersionInfo(
+  ffi=FixedFileInfo(filevers=({coma}), prodvers=({coma}), mask=0x3f, flags=0x0,
+                    OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040a04b0', [
+      StringStruct('CompanyName', 'LLMJarvis'),
+      StringStruct('FileDescription', '{descripciones.get(nombre, nombre)}'),
+      StringStruct('FileVersion', '{VERSION}'),
+      StringStruct('InternalName', '{nombre}'),
+      StringStruct('OriginalFilename', '{nombre}.exe'),
+      StringStruct('ProductName', 'LLMJarvis'),
+      StringStruct('ProductVersion', '{VERSION}')])]),
+    VarFileInfo([VarStruct('Translation', [1034, 1200])])
+  ]
+)
+"""
+    os.makedirs(os.path.join(RAIZ, "build"), exist_ok=True)
+    ruta = os.path.join(RAIZ, "build", f"version_{nombre}.txt")
+    with open(ruta, "w", encoding="utf-8") as f:
+        f.write(texto)
+    return ["--version-file", ruta]
+
+
 def _construir(nombre: str, ventana: bool, extra: list[str]) -> None:
     sep = ";" if WINDOWS else ":"
     cmd = [
@@ -114,6 +160,7 @@ def _construir(nombre: str, ventana: bool, extra: list[str]) -> None:
     # analisis estatico de PyInstaller no los ve y quedarian afuera: el addon
     # existiria corriendo desde el codigo y faltaria en la version instalada.
     cmd += ["--collect-submodules", "eve.addons"]
+    cmd += _version_windows(nombre)
     cmd += _icono() + extra + [os.path.join(RAIZ, "main.py")]
 
     print(f"\n=== {nombre} ===")

@@ -335,7 +335,23 @@ def main() -> int:
     # tecla. Va antes de lanzar el cartel para no dejar procesos sueltos.
     otro = store.otro_asistente()
     if otro:
+        # El `print` solo no alcanza: `Eve.exe` se arma sin consola, asi que en
+        # la version instalada esta linea no la lee nadie. Desde afuera, hacer
+        # doble clic y que no pase nada visible es indistinguible de que el
+        # programa no arranco -- que es exactamente como se reporto tres veces.
+        # El dialogo dice ademas DONDE esta, porque el icono de bandeja lo manda
+        # Windows 11 al desplegable de la flechita: medido en esta maquina, 1 de
+        # 91 iconos registrados esta fijo, y es de Microsoft.
         print(f"Eve ya esta corriendo (pid {otro}). Usa el icono de la bandeja.")
+        from eve import plataforma, textos
+        from eve.textos import t as tr
+
+        textos.desde_config(cfg)
+        plataforma.avisar(
+            tr("Eve ya esta corriendo. Su icono esta en el desplegable de la "
+               "flechita de la barra de tareas: arrastralo afuera para fijarlo."),
+            tr("Eve ya esta abierta"),
+        )
         return 0
 
     # El cartel se lanza ANTES de armar el motor: no depende de el, y armarlo
