@@ -335,23 +335,27 @@ def main() -> int:
     # tecla. Va antes de lanzar el cartel para no dejar procesos sueltos.
     otro = store.otro_asistente()
     if otro:
-        # El `print` solo no alcanza: `Eve.exe` se arma sin consola, asi que en
-        # la version instalada esta linea no la lee nadie. Desde afuera, hacer
-        # doble clic y que no pase nada visible es indistinguible de que el
-        # programa no arranco -- que es exactamente como se reporto tres veces.
-        # El dialogo dice ademas DONDE esta, porque el icono de bandeja lo manda
-        # Windows 11 al desplegable de la flechita: medido en esta maquina, 1 de
-        # 91 iconos registrados esta fijo, y es de Microsoft.
-        print(f"Eve ya esta corriendo (pid {otro}). Usa el icono de la bandeja.")
-        from eve import plataforma, textos
-        from eve.textos import t as tr
-
-        textos.desde_config(cfg)
-        plataforma.avisar(
-            tr("Eve ya esta corriendo. Su icono esta en el desplegable de la "
-               "flechita de la barra de tareas: arrastralo afuera para fijarlo."),
-            tr("Eve ya esta abierta"),
-        )
+        # Volver a abrir Eve estando ya abierta ABRE EL PANEL, no se va en
+        # silencio. Es lo que hace cualquier programa de bandeja: doble clic
+        # sobre Steam abierto te trae su ventana.
+        #
+        # Por que importa tanto: el instalador deja `Eve.lnk` en la carpeta de
+        # Inicio, asi que despues de prender la PC ya hay una Eve corriendo
+        # SIEMPRE. Cada doble clic caia aca. Y como `Eve.exe` se arma sin
+        # consola, el `print` de abajo no lo lee nadie: no pasaba nada visible.
+        # Con `Eve-debug.exe` --el mismo codigo pero con consola-- si aparecia
+        # una ventana con el mensaje, asi que el sintoma se reporto como "el de
+        # debug abre y el normal no". Los dos hacian exactamente lo mismo.
+        #
+        # No es un MessageBox: `MessageBoxW` medido en esta maquina devuelve
+        # IDOK al instante sin dibujarse cuando el proceso no tiene escritorio
+        # interactivo, o sea que el aviso puede no existir y nadie se entera.
+        # Una ventana de verdad no se puede confundir con nada.
+        print(f"Eve ya esta corriendo (pid {otro}). Abro el panel.")
+        try:
+            tray.open_panel()
+        except Exception as exc:  # noqa: BLE001 - salir no puede fallar por esto
+            print(f"no pude abrir el panel: {exc}")
         return 0
 
     # El cartel se lanza ANTES de armar el motor: no depende de el, y armarlo

@@ -100,6 +100,38 @@ class Consola:
         self.panel = ttk.Frame(cuerpo, width=260)
         self.panel.pack(side="right", fill="y")
         self.panel.pack_propagate(False)
+
+        # Que hay y como se agrega. Sin esto el modo Edit solo servia para
+        # acomodar lo que YA existia, y solo si se podia hacer clic encima: un
+        # modulo con opacidad 0, con `cuando=trabajando`, tapado por otro o
+        # arrastrado fuera de la ventana no se podia elegir de ninguna forma, y
+        # no habia manera de crear uno sin volver al panel de control.
+        alta = ttk.Frame(self.panel)
+        alta.pack(fill="x", padx=8, pady=(8, 2))
+        self.tipo_nuevo = tk.StringVar(value="texto")
+        ttk.Combobox(alta, textvariable=self.tipo_nuevo, values=list(modulos.TIPOS),
+                     state="readonly", width=11).pack(side="left")
+        ttk.Button(alta, text=tr("Agregar"), command=self._agregar).pack(
+            side="left", padx=4)
+
+        # Listbox y no Treeview: hace falta multiseleccion y nada mas, y el
+        # modelo de seleccion de la ventana ya es una lista de ids.
+        caja = ttk.Frame(self.panel)
+        caja.pack(fill="x", padx=8, pady=(2, 6))
+        self.lista_mods = tk.Listbox(caja, height=9, exportselection=False,
+                                     selectmode="extended", activestyle="none",
+                                     highlightthickness=0, borderwidth=1)
+        self.lista_mods.pack(side="left", fill="both", expand=True)
+        # Con la barra y no sin ella: el tablero de fabrica ya trae nueve
+        # modulos, asi que en cuanto agregas uno los ultimos quedan abajo del
+        # corte y para el usuario no existen.
+        barra_lista = ttk.Scrollbar(caja, orient="vertical",
+                                    command=self.lista_mods.yview)
+        barra_lista.pack(side="right", fill="y")
+        self.lista_mods.configure(yscrollcommand=barra_lista.set)
+        self.lista_mods.bind("<<ListboxSelect>>", self._elegir_de_lista)
+        self._ids_en_lista: list = []
+
         self.props = ttk.Frame(self.panel)
         self.props.pack(fill="both", expand=True)
         self.vars: dict = {}
@@ -154,6 +186,18 @@ class Consola:
             tema.aplicar_ttk(estilo, paleta)
             self.raiz.configure(background=paleta["fondo"])
         self.lienzo.configure(bg=paleta["fondo"])
+        # `tk.Listbox` no es un widget de ttk, asi que el tema no lo toca: con
+        # el panel oscuro quedaba una caja blanca con pinta de estar rota. Los
+        # colores se ponen a mano, con los mismos de la paleta.
+        if getattr(self, "lista_mods", None) is not None:
+            # `fondo` y no `panel`: `panel` es un color de relleno elegible
+            # --en el tema de esta maquina es un violeta #400080-- y usarlo de
+            # fondo de texto deja renglones ilegibles. El lienzo usa `fondo` por
+            # la misma razon.
+            self.lista_mods.configure(
+                background=paleta["fondo"], foreground=paleta["texto"],
+                selectbackground=paleta["acento"], selectforeground=paleta["fondo"],
+                highlightbackground=paleta["borde"])
 
     # --- modos ------------------------------------------------------------
 
@@ -163,6 +207,9 @@ class Consola:
             self.botones_edit.pack(side="right", padx=6)
             self.panel.pack(side="right", fill="y")
             self.aviso.config(text=tr("clic para elegir · Ctrl suma · Shift agrega un rango · arrastra para mover"))
+            # Al entrar a Edit hay que poblar la lista: sin esto arranca vacia y
+            # parece que el tablero no tiene nada hasta el primer clic.
+            self._refrescar_props()
         else:
             self.botones_edit.pack_forget()
             self.panel.pack_forget()
@@ -367,7 +414,67 @@ class Consola:
             salida[prop] = (defecto, ayuda, valores.pop() if len(valores) == 1 else None)
         return salida
 
-    def _refrescar_props(self) -> None:
+    def _refrescar_lista(self) -> None:
+        """Lo que hay en el tablero, en el orden en que se dibuja.
+
+        El orden importa y es el mismo que usa el rango con Shift: si la lista
+        mostrara los modulos alfabeticos, elegir un rango en la lista y elegirlo
+        en el lienzo darian conjuntos distintos.
+        """
+        self.lista_mods.delete(0, "end")
+        self._ids_en_lista = []
+        for m in self._modulos():
+            self._ids_en_lista.append(m["id"])
+            # El tipo va al lado del id porque el id lo pone quien lo crea y
+            # puede no decir nada: `m3` no se sabe si es una onda o un reloj.
+            marca = "" if int(m.get("opacidad", 100)) > 0 else "  (opacidad 0)"
+            if str(m.get("cuando", "siempre")) != "siempre":
+                marca += f"  ({m['cuando']})"
+            self.lista_mods.insert("end", f"{m['id']} · {m['tipo']}{marca}")
+        for i, ident in enumerate(self._ids_en_lista):
+            if ident in self.seleccion:
+                self.lista_mods.selection_set(i)
+
+    def _elegir_de_lista(self, _evento=None) -> None:
+        elegidos = [self._ids_en_lista[i] for i in self.lista_mods.curselection()
+                    if i < len(self._ids_en_lista)]
+        if elegidos == self.seleccion:
+            return
+        self.seleccion = elegidos
+        self._dibujar_seleccion()
+        # Sin `_refrescar_lista` adentro: reescribir la lista mientras se elige
+        # en ella se come el clic siguiente.
+        self._refrescar_props(tocar_lista=False)
+
+    def _agregar(self) -> None:
+        """Un modulo nuevo del tipo elegido, en el tablero y visible.
+
+        Va en cascada y no siempre en el mismo punto: apilados en 40,40 el
+        segundo tapa al primero y parece que el boton no hizo nada.
+        """
+        self._anotar()
+        cfg = store.load_config()
+        tipo = self.tipo_nuevo.get()
+        usados = set(modulos.identificadores(cfg))
+        n = 1
+        while f"{tipo}{n}" in usados:
+            n += 1
+        ident = f"{tipo}{n}"
+        paso = 24 * (len(self._modulos()) % 8)
+        # `superficie` explicita: de fabrica vale "overlay", asi que sin esto el
+        # modulo nuevo aparece en el cartel y no en la ventana donde se lo creo.
+        cfg = modulos.guardar(cfg, {"id": ident, "tipo": tipo,
+                                    "superficie": "tablero",
+                                    "x": 40 + paso, "y": 40 + paso})
+        self._guardar(cfg)
+        self.seleccion = [ident]
+        self._dibujar_seleccion()
+        self._refrescar_props()
+        self.aviso.config(text=f"{tr('agregado')}: {ident} · {tipo}")
+
+    def _refrescar_props(self, tocar_lista: bool = True) -> None:
+        if tocar_lista:
+            self._refrescar_lista()
         for hijo in self.props.winfo_children():
             hijo.destroy()
         self.vars = {}
@@ -500,6 +607,11 @@ class Consola:
         self.pintor.aplicar(self.cfg)
         self._aplicar_tema()
         self._dibujar_seleccion()
+        # El panel de control y `E modulo crear` escriben el mismo config.json:
+        # si la lista no se rearma, muestra modulos que ya no estan y esconde
+        # los que se acaban de crear desde afuera.
+        if self.modo.get() == "edit":
+            self._refrescar_props()
 
     def _partes_del_prompt(self, lista) -> dict:
         if not any(m["tipo"] == "contexto" for m in lista):

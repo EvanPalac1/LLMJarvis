@@ -222,11 +222,8 @@ EN = {
         "you have not talked yet",
     "Eve esta corriendo":
         "Eve is running",
-    "Eve ya esta abierta":
-        "Eve is already open",
-    "Eve ya esta corriendo. Su icono esta en el desplegable de la flechita de la barra de tareas: arrastralo afuera para fijarlo.":
-        "Eve is already running. Its icon is in the flyout behind the arrow on "
-        "the taskbar: drag it out to pin it.",
+    "agregado":
+        "added",
     "Estoy en el desplegable de la flechita de la barra de tareas, con Steam y Discord. Arrastrame fuera para fijarme en la barra.":
         "I am in the flyout behind the arrow on the taskbar, with Steam and Discord. Drag me out to pin me to the taskbar.",
     "Buscar un ajuste...   (Ctrl+F)":

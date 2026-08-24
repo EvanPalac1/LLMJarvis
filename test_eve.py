@@ -701,6 +701,100 @@ def test_discord_destino_visible():
         store.load_contacts = orig
 
 
+def test_edit_lista_los_modulos_y_deja_agregar():
+    """Lo unico que hacia falta para que Edit sirva sin adivinar.
+
+    Antes solo se podia editar lo que se lograra CLICKEAR en el lienzo. Un
+    modulo con opacidad 0, con `cuando=trabajando`, tapado por otro o arrastrado
+    fuera de la ventana no se podia elegir de ninguna forma, y crear uno obligaba
+    a volver al panel de control. Se comprueban las tres cosas que eso implica:
+    que la lista los muestre TODOS, que elegir en la lista sea elegir de verdad,
+    y que agregar deje un modulo visible en el tablero.
+    """
+    import tkinter as tk
+
+    from eve import consola, modulos as mods
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (salteado: sin display)")
+        return
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        ventana = None
+        try:
+            cfg = dict(store.DEFAULTS)
+            # El segundo es justo el que NO se puede clickear: invisible y
+            # debajo del primero. Es el caso que motiva la lista.
+            cfg = mods.guardar(cfg, {"id": "visible", "tipo": "texto",
+                                     "superficie": "tablero", "x": 10, "y": 10,
+                                     "ancho": 400, "alto": 300})
+            cfg = mods.guardar(cfg, {"id": "tapado", "tipo": "reloj",
+                                     "superficie": "tablero", "x": 20, "y": 20,
+                                     "ancho": 80, "alto": 30, "opacidad": 0})
+            store.save_config(cfg)
+
+            ventana = consola.Consola()
+            ventana.raiz.withdraw()
+            ventana.modo.set("edit")
+            ventana._cambio_modo()
+
+            filas = list(ventana.lista_mods.get(0, "end"))
+            assert len(filas) == 2, f"la lista no muestra los dos: {filas}"
+            # El orden es el del lienzo y no el alfabetico ni el de creacion:
+            # es el mismo que usa el rango con Shift, asi que elegir un rango en
+            # la lista y elegirlo en el lienzo tienen que dar lo mismo.
+            assert ventana._ids_en_lista == [m["id"] for m in ventana._modulos()], (
+                f"la lista no sigue el orden de dibujo: {ventana._ids_en_lista}")
+            fila_tapado = filas[ventana._ids_en_lista.index("tapado")]
+            # El tipo va al lado del id: `m3` no dice si es una onda o un reloj.
+            assert "reloj" in fila_tapado, fila_tapado
+            # Y avisa por que no se ve, en vez de dejarte buscandolo.
+            assert "opacidad 0" in fila_tapado, fila_tapado
+
+            # Elegir en la lista elige de verdad, incluido lo que no se puede
+            # clickear. Ese es el punto entero.
+            ventana.lista_mods.selection_clear(0, "end")
+            ventana.lista_mods.selection_set(ventana._ids_en_lista.index("tapado"))
+            ventana._elegir_de_lista()
+            assert ventana.seleccion == ["tapado"], ventana.seleccion
+            assert ventana.vars, "elegir de la lista no abrio las props"
+
+            # Agregar: del tipo elegido, en el TABLERO, y visible.
+            ventana.tipo_nuevo.set("onda")
+            ventana._agregar()
+            assert len(ventana.seleccion) == 1
+            nuevo = ventana.seleccion[0]
+            assert nuevo.startswith("onda"), nuevo
+            puesto = mods.leer(store.load_config(), nuevo)
+            assert puesto["tipo"] == "onda"
+            # De fabrica `superficie` vale "overlay": sin ponerla a mano el
+            # modulo nuevo aparecia en el cartel y no en la ventana donde se
+            # lo creo, que desde afuera es identico a que el boton no ande.
+            assert puesto["superficie"] == "tablero", puesto["superficie"]
+            assert int(puesto["opacidad"]) > 0 and int(puesto["ancho"]) > 0
+            assert nuevo in ventana._ids_en_lista, "el agregado no entro a la lista"
+
+            # Dos seguidos no se apilan en el mismo punto: apilados, el segundo
+            # tapa al primero y parece que el boton no hizo nada.
+            ventana._agregar()
+            otro = ventana.seleccion[0]
+            assert otro != nuevo, "el segundo reuso el id del primero"
+            a, b = mods.leer(store.load_config(), nuevo), mods.leer(store.load_config(), otro)
+            assert (a["x"], a["y"]) != (b["x"], b["y"]), "los dos cayeron encima"
+
+            # Y deshacer alcanza a lo agregado.
+            ventana._deshacer()
+            assert otro not in mods.identificadores(store.load_config())
+        finally:
+            if ventana is not None:
+                ventana.raiz.destroy()
+            store.CONFIG_PATH = real
+
+
 def test_consola_agrupa_y_edita_lo_compartido():
     """Modo Edit: elegir, agrupar y cambiar lo que los elegidos tienen en comun.
 
