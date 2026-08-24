@@ -5718,6 +5718,79 @@ def test_la_doc_de_la_ia_nombra_los_cuatro_motores():
     assert not faltan, f"claves trabadas sin documentar: {faltan}"
 
 
+def test_el_cli_de_claude_se_encuentra_con_el_path_congelado():
+    """Eve arranca desde la carpeta de Inicio y hereda un PATH viejo.
+
+    El entorno de `explorer.exe` se congela al iniciar sesion: si instalaste el
+    CLI despues de prender la PC, su carpeta no esta en ese PATH hasta cerrar
+    sesion. `which("claude")` devolvia None, el motor no se podia armar, y Eve
+    se iba dejando el panel abierto. Desde una terminal andaba, que es lo que
+    hacia imposible de creer el reporte.
+    """
+    import tempfile
+
+    from eve import cc_engine
+
+    real = os.environ.get("PATH", "")
+    casa = tempfile.mkdtemp()
+    fingido = os.path.join(casa, ".local", "bin")
+    os.makedirs(fingido, exist_ok=True)
+    exe = os.path.join(fingido, "claude.exe" if sys.platform == "win32" else "claude")
+    with open(exe, "w", encoding="utf-8") as f:
+        f.write("")
+    if sys.platform != "win32":
+        os.chmod(exe, 0o755)
+
+    casa_real = os.path.expanduser
+    try:
+        os.environ["PATH"] = ""            # el PATH del arranque automatico
+        os.path.expanduser = lambda r: casa if r == "~" else casa_real(r)
+        assert cc_engine.ruta_del_cli() == exe, (
+            "con el PATH vacio no encontro el CLI que SI esta instalado")
+        assert cc_engine._claude_available()
+
+        # Y que no lo invente: si de verdad no esta, tiene que decir que no esta.
+        os.remove(exe)
+        assert cc_engine.ruta_del_cli() == "", "dijo que hay CLI y no hay"
+    finally:
+        os.environ["PATH"] = real
+        os.path.expanduser = casa_real
+
+
+def test_un_motor_mal_configurado_no_deja_ventanas_huerfanas():
+    """El orden del arranque, que es lo que producia el sintoma reportado.
+
+    El cartel y la ventana de actividad se lanzaban ANTES de armar el motor. Si
+    el motor fallaba, Eve se iba y los dos hijos quedaban en pantalla hablando
+    con nadie, mas el panel abierto encima. Desde afuera: "me abre el panel y
+    actividad pero no me sale el segundo plano".
+
+    Se comprueba sobre el TEXTO del arranque y no corriendolo, porque correrlo
+    abre ventanas de verdad y en un runner sin pantalla eso no se puede. Lo que
+    importa es el orden, y el orden se lee.
+    """
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(raiz, "main.py"), encoding="utf-8") as f:
+        fuente = f.read()
+
+    arma = fuente.index("lis = listener_mod.Listener(cfg)")
+    cartel = fuente.index("overlay.asegurar(cfg)")
+    consola = fuente.index('consola_modo", "nunca")) == "con_eve"')
+
+    assert arma < cartel, (
+        "el cartel se lanza antes de armar el motor: si el motor falla queda "
+        "una ventana huerfana")
+    assert arma < consola, (
+        "la ventana de actividad se lanza antes de armar el motor")
+
+    # Y que esa rama no se vaya muda: tiene que avisar Y dejar rastro. El `print`
+    # no cuenta -- `Eve.exe` se arma windowed y no tiene stdout por ningun lado.
+    rama = fuente[fuente.index("except RuntimeError as exc:"):]
+    rama = rama[:rama.index("overlay.asegurar")]
+    assert "plataforma.avisar" in rama, "el error de arranque no se ve"
+    assert "log_action" in rama, "el error de arranque no queda escrito"
+
+
 if __name__ == "__main__":
     _CORRAL = _corral()
     fallo = ""

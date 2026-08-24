@@ -102,7 +102,10 @@ class ClaudeCodeEve:
         )
         pedido = text if retoma else self._preambulo() + text
         cmd = [
-            "claude",
+            # La ruta resuelta y no el nombre pelado: encontrarlo al comprobar y
+            # despues invocarlo por nombre deja el mismo agujero que arreglamos,
+            # solo que un paso mas tarde y con el error peor.
+            ruta_del_cli() or "claude",
             "-p",
             pedido,
             "--output-format",
@@ -172,7 +175,42 @@ class ClaudeCodeEve:
         return reply
 
 
-def _claude_available() -> bool:
+def ruta_del_cli() -> str:
+    """Donde esta el CLI de Claude Code, o "" si de verdad no esta.
+
+    No alcanza con `which`. Eve arranca desde la carpeta de Inicio de Windows,
+    o sea que hereda el entorno de `explorer.exe`, y ese entorno se congela al
+    iniciar sesion: si instalaste el CLI despues de prender la PC, su carpeta no
+    esta en ese PATH hasta que cierres sesion. Desde una terminal `claude` se
+    encuentra y desde Eve no, que es la clase de diferencia que hace perder una
+    tarde.
+
+    Medido en esta maquina: el CLI vive en `~/.local/bin`, que figura en el PATH
+    del registro pero no necesariamente en el del proceso que lanzo Eve.
+
+    Por eso, si el PATH falla, se miran los lugares donde el instalador oficial
+    lo deja. Buscar en carpetas conocidas es preferible a decirle al usuario que
+    no tiene instalado algo que si tiene.
+    """
     from shutil import which
 
-    return which("claude") is not None
+    hallado = which("claude")
+    if hallado:
+        return hallado
+
+    candidatos = []
+    casa = os.path.expanduser("~")
+    for base in (os.path.join(casa, ".local", "bin"),
+                 os.path.join(casa, ".claude", "local"),
+                 os.path.join(casa, "AppData", "Local", "Programs", "claude"),
+                 "/usr/local/bin", "/opt/homebrew/bin"):
+        for nombre in ("claude.exe", "claude.cmd", "claude"):
+            candidatos.append(os.path.join(base, nombre))
+    for ruta in candidatos:
+        if os.path.isfile(ruta):
+            return ruta
+    return ""
+
+
+def _claude_available() -> bool:
+    return bool(ruta_del_cli())

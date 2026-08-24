@@ -358,9 +358,37 @@ def main() -> int:
             print(f"no pude abrir el panel: {exc}")
         return 0
 
-    # El cartel se lanza ANTES de armar el motor: no depende de el, y armarlo
-    # tarda varios segundos. Medido, asi tardaba nueve en aparecer, y en esa
-    # ventana apretar la tecla no mostraba nada.
+    # El motor se arma ANTES de lanzar las ventanas hijas. Estaba al reves --el
+    # cartel primero, porque armarlo tarda y asi aparecia antes-- y eso convertia
+    # una config mala en el sintoma mas confuso del proyecto: el cartel y la
+    # ventana de actividad ya estaban en pantalla cuando el motor fallaba, Eve se
+    # iba, y quedaban los dos hijos HUERFANOS hablando con nadie, mas el panel
+    # abierto. Desde afuera se ve como "me abre el panel y actividad pero no me
+    # sale el segundo plano", que es textual como se reporto tres veces.
+    #
+    # Se paga que el cartel tarde un poco mas en aparecer. Es barato al lado de
+    # dejar dos ventanas sueltas cada vez que el motor no esta configurado.
+    try:
+        lis = listener_mod.Listener(cfg)
+    except RuntimeError as exc:
+        # `print` no alcanza: `Eve.exe` se arma windowed y no tiene stdout por
+        # ningun camino. Este error tiene que VERSE y quedar ESCRITO. Que la
+        # unica rama que se va sin dejar rastro sea justamente la que falla es
+        # lo que hizo que esto se reportara tres veces sin poder diagnosticarse.
+        print(f"ERROR: {exc}")
+        from eve import plataforma
+
+        try:
+            store.log_action("eve", "arranque-fallido", str(exc)[:300])
+        except Exception:  # noqa: BLE001 - el log no puede tapar el error real
+            pass
+        plataforma.avisar(
+            str(exc) + "\n\nAbro el panel para que lo configures.",
+            "Eve no pudo arrancar", error=True)
+        tray.open_panel()
+        return 1
+
+    # Recien ahora, con el motor armado, se lanzan las ventanas hijas.
     from eve import overlay
 
     overlay.asegurar(cfg)  # corre aparte y se cierra solo cuando Eve sale
@@ -371,14 +399,6 @@ def main() -> int:
         from eve import consola
 
         consola.abrir()
-
-    try:
-        lis = listener_mod.Listener(cfg)
-    except RuntimeError as exc:
-        print(f"ERROR: {exc}")
-        print("Abriendo el panel de configuracion...")
-        tray.open_panel()
-        return 1
 
     lis.start()
     icono = tray.build(lis)
