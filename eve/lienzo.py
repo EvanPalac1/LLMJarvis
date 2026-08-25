@@ -24,6 +24,26 @@ cuestan ~90 ms hagan lo que hagan adentro. Optimizar el dibujo no mueve ese
 numero: la unica forma de bajarlo es no pasar por el puente, que es lo que hace
 `lienzo_skia.py` escribiendo directo en el framebuffer de la GPU.
 
+Y UNA SEGUNDA COSA, PEOR Y SIN EXPLICAR TODAVIA: el cuadro no cuesta lo mismo al
+principio que despues. Con seis modulos animando arranca en ~78 ms y a los
+cincuenta cuadros --menos de dos segundos de uso-- se planta en ~505, y ahi se
+queda. Seis veces y media, sin volver.
+
+Lo que YA se descarto, midiendo:
+
+    el bucle apretado del banco   pasa igual a 30 fps con pausas
+    la ventana tapada             pasa igual al frente y con foco
+    que algo se acumule           los items quedan en 6, las imagenes de Tcl en 10,
+                                  y los caches internos no crecen
+
+El 91% del cuadro se va en `_tkinter.tkapp.call`, o sea del lado de Tcl, pero no
+se encontro QUE crece ahi. Queda anotado como reproducible y sin causa, que es
+mejor que una explicacion inventada:
+
+    python main.py --bench-dibujo pillow
+
+El camino de Skia no lo tiene: 1.96 ms de punta a punta, sin rampa.
+
 De yapa, un item de canvas por modulo es lo que el modo Edit necesita igual para
 saber en cual se hizo clic y para el orden de dibujo.
 

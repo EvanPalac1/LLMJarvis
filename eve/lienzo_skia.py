@@ -22,7 +22,7 @@ import math
 
 # Los tipos que este modulo sabe dibujar. Lo consulta `lienzo.py` antes de
 # mandarle nada: lo que no este aca lo dibuja Pillow, sin ruido.
-PORTADOS = ("onda",)
+PORTADOS = ("onda", "particulas")
 
 
 def _barras(lienzo, sup, modulo, muestras, ancho, alto, pincel):
@@ -112,6 +112,56 @@ def pintar_onda(sup, modulo, estado, ahora, ancho, alto, rgba):
     dibujar(lienzo, sup, modulo, muestras, ancho, alto, pincel)
 
 
+# Cuantos grupos de transparencia para las particulas. Skia dibuja en lote con
+# UN pincel, y el pincel tiene un solo alpha, asi que para que se apaguen con la
+# edad hay que agrupar. Ocho es donde deja de notarse el escalon: con cuatro se
+# ve el salto, con dieciseis se pagan el doble de llamadas sin ganar nada.
+GRUPOS_ALFA = 8
+
+
+def pintar_particulas(sup, modulo, sistema, ancho, alto, rgba):
+    """Las particulas, en lote y como circulos de verdad.
+
+    El camino de Pillow pinta UN PIXEL por particula --es lo unico que sale
+    barato sobre la CPU-- y por eso se ven como polvo. Aca son circulos con
+    tamaño, que es la diferencia que se nota a simple vista y la razon principal
+    para tener este camino.
+
+    Se dibujan en LOTE: `drawPoints` con el cap redondo manda las N posiciones
+    de una. Quinientas llamadas sueltas a `drawCircle` costarian quinientas
+    idas al driver, que es justo lo que se venia a evitar.
+
+    La fisica no se toca: es `lienzo.Particulas`, la misma de numpy que ya
+    estaba. Tener dos simuladores seria tener dos comportamientos.
+    """
+    import numpy as np
+
+    lienzo = sup.lienzo
+    pos = sistema.pos
+    edad = sistema.edad
+    if not len(pos):
+        return
+
+    tam = max(1.5, min(ancho, alto) / 60.0)
+    # Un pincel por grupo de transparencia, y `drawPoints` por grupo. Ocho
+    # llamadas en vez de quinientas.
+    grupo = np.clip(((1.0 - edad) * GRUPOS_ALFA).astype(int), 0, GRUPOS_ALFA - 1)
+    for g in range(GRUPOS_ALFA):
+        cuales = pos[grupo == g]
+        if not len(cuales):
+            continue
+        alfa = int(rgba[3] * (g + 1) / GRUPOS_ALFA)
+        if alfa <= 2:
+            continue
+        pincel = sup.pincel((rgba[0], rgba[1], rgba[2], alfa))
+        pincel.setStrokeWidth(tam)
+        pincel.setStrokeCap(sup.skia.Paint.kRound_Cap)
+        lienzo.drawPoints(
+            sup.skia.Canvas.kPoints_PointMode,
+            [sup.skia.Point(float(x), float(y)) for x, y in cuales],
+            pincel)
+
+
 class LienzoSkia:
     """Dibuja una lista de modulos sobre UNA superficie de GPU.
 
@@ -131,6 +181,9 @@ class LienzoSkia:
         self.sup = superficie
         self.cfg = cfg
         self.paleta = paleta
+        # Un simulador por modulo, igual que en el camino de Pillow: las
+        # particulas tienen estado y perderlo en cada cuadro las haria titilar.
+        self._sistemas: dict = {}
 
     def aplicar(self, cfg, paleta):
         self.cfg = cfg
@@ -149,6 +202,28 @@ class LienzoSkia:
             r, g, b = 255, 255, 255
         opac = max(0, min(100, int(modulo.get("opacidad", 100) or 100)))
         return (r, g, b, int(255 * opac / 100))
+
+    def _sistema(self, modulo, ancho, alto):
+        """El simulador de este modulo, creado una vez y avanzado por cuadro."""
+        from .lienzo import Particulas
+
+        ident = modulo["id"]
+        cuantas = int(modulo.get("cantidad", 120) or 120)
+        firma = (ancho, alto, cuantas)
+        guardado = self._sistemas.get(ident)
+        if guardado is None or guardado[0] != firma:
+            # Se rehace solo si cambio el tamaño o la cantidad. Rehacerlo por
+            # cuadro haria titilar las particulas, y guardar uno por firma sin
+            # borrar el anterior dejaria basura cada vez que se redimensiona.
+            sistema = Particulas(cuantas, ancho, alto)
+            self._sistemas[ident] = (firma, sistema)
+        else:
+            sistema = guardado[1]
+        sistema.avanzar(1 / 60.0,
+                        float(modulo.get("vida", 1.0) or 1.0),
+                        float(modulo.get("gravedad", 40) or 40),
+                        0.0)
+        return sistema
 
     def dibujar(self, lista, estado, ahora=None):
         """Un cuadro entero. Devuelve cuantos modulos dibujo de verdad.
@@ -183,8 +258,13 @@ class LienzoSkia:
             lienzo.translate(float(modulo.get("x", 0) or 0),
                              float(modulo.get("y", 0) or 0))
             lienzo.clipRect(self.sup.skia.Rect(0, 0, ancho, alto))
-            pintar_onda(self.sup, modulo, estado, ahora, ancho, alto,
-                        self._rgba(modulo))
+            if modulo["tipo"] == "particulas":
+                pintar_particulas(self.sup, modulo,
+                                  self._sistema(modulo, ancho, alto),
+                                  ancho, alto, self._rgba(modulo))
+            else:
+                pintar_onda(self.sup, modulo, estado, ahora, ancho, alto,
+                            self._rgba(modulo))
             lienzo.restore()
             hechos += 1
         self.sup.presentar()

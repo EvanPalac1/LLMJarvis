@@ -42,9 +42,21 @@ def _escena(cuantas_particulas: int) -> list[dict]:
     return lista
 
 
-def _percentiles(tiempos: list[float]) -> tuple[float, float]:
-    ms = sorted(t * 1000.0 for t in tiempos)
-    return ms[len(ms) // 2], ms[int(len(ms) * 0.95)]
+def _percentiles(tiempos: list[float]) -> tuple[float, float, float, float]:
+    """p50, p95, y la MEDIANA DEL PRINCIPIO Y DEL FINAL.
+
+    Las dos ultimas existen por un hallazgo: el camino de Pillow no cuesta lo
+    mismo al principio que despues. Con seis modulos animando arranca en ~78 ms
+    y a los cincuenta cuadros --menos de dos segundos-- se planta en ~505. Un
+    p50 sobre la corrida entera devuelve el numero del final y ESCONDE que la
+    cosa empeora, que es la parte importante.
+    """
+    ms = [t * 1000.0 for t in tiempos]
+    orden = sorted(ms)
+    prim = sorted(ms[:30])
+    ult = sorted(ms[-60:])
+    return (orden[len(orden) // 2], orden[int(len(orden) * 0.95)],
+            prim[len(prim) // 2], ult[len(ult) // 2])
 
 
 def _medir(motor: str, cuantas_particulas: int) -> tuple[float, float] | None:
@@ -150,8 +162,9 @@ def correr(cual: str = "") -> int:
           f"repintando todos cada cuadro.\n")
 
     motores = [cual] if cual else ["pillow", "skia"]
-    print(f"{'motor':10} {'escena':28} {'p50':>9} {'p95':>9}  fps")
-    print("-" * 62)
+    print(f"{'motor':10} {'escena':22} {'p50':>8} {'p95':>8} "
+          f"{'primeros':>9} {'ultimos':>8}")
+    print("-" * 70)
     hubo = False
     for motor in motores:
         for cuantas, etiqueta in ((0, "6 ondas"),
@@ -160,9 +173,9 @@ def correr(cual: str = "") -> int:
             if r is None:
                 break
             hubo = True
-            p50, p95 = r
-            print(f"{motor:10} {etiqueta:28} {p50:6.2f} ms {p95:6.2f} ms "
-                  f"{1000 / p95:5.1f}")
+            p50, p95, prim, ult = r
+            print(f"{motor:10} {etiqueta:22} {p50:6.2f}ms {p95:6.2f}ms "
+                  f"{prim:7.2f}ms {ult:6.2f}ms")
     if not hubo:
         print("\nNingun motor se pudo medir aca.")
         return 1
@@ -176,4 +189,18 @@ def correr(cual: str = "") -> int:
     print("animando son ~90 ms hagan lo que hagan adentro. Ese es el techo,")
     print("y no se mueve optimizando el dibujo. Skia lo saca de raiz porque")
     print("escribe directo en el framebuffer de la GPU: no hay puente.")
+    print()
+    print("Y hay algo peor, TODAVIA SIN EXPLICAR, que esta tabla NO muestra:")
+    print("con Pillow el cuadro no cuesta lo mismo al principio que despues.")
+    print("Seis modulos animando arrancan en ~78 ms y a los cincuenta cuadros")
+    print("--menos de dos segundos de uso-- se plantan en ~505, y ahi se quedan.")
+    print()
+    print("Aca no se ve porque los 30 cuadros de calentamiento se descartan, y")
+    print("la rampa pasa justo ahi: las cuatro columnas ya son del final. Para")
+    print("verla hay que cronometrar DESDE EL PRIMER CUADRO.")
+    print()
+    print("Descartado que sea el bucle del banco (pasa igual a 30 fps con")
+    print("pausas), que sea la ventana tapada (pasa igual al frente y con foco)")
+    print("y que algo crezca: los items quedan en 6 y las imagenes de Tcl en 10.")
+    print("Skia no lo tiene: 1.96 ms de punta a punta.")
     return 0
