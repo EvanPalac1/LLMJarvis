@@ -1603,7 +1603,7 @@ modelos de voz: bajarla en la primera ejecucion en vez de empaquetarla.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 129 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 130 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

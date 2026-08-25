@@ -38,15 +38,25 @@ from . import plataforma
 MOTORES = ("auto", "skia", "pillow")
 
 _CACHE = None       # None = todavia no se pregunto; se pregunta una sola vez
+_FALLO = ""         # si el contexto se intento y no salio, el motivo
 
 
 def _probar() -> tuple[bool, str]:
-    """Si hay Skia y un contexto GL de verdad. Devuelve (sirve, por que no).
+    """Si estan las tres librerias. Devuelve (puede que sirva, por que no).
 
-    Se prueba CREANDO el contexto y no mirando si el paquete se importa: una
-    maquina puede tener las tres librerias y ningun driver que las sostenga
-    --escritorio remoto, GPU virtual, un contenedor sin salida grafica-- y ahi
-    importar anda perfecto y dibujar no.
+    ES UNA COMPROBACION BARATA Y NO ALCANZA, y conviene que quede escrito
+    porque este mismo docstring afirmaba lo contrario. Decia "se prueba CREANDO
+    el contexto" cuando solo miraba los imports -- describia justo el modo de
+    falla que no cubria.
+
+    Lo destapo CI: en el runner de Windows las tres librerias importan bien y el
+    contexto de OpenGL igual no se arma, porque no hay GPU ni driver detras.
+    Crear un contexto de verdad aca costaria abrir una ventana en cada arranque
+    de Eve, que es caro y ademas imposible antes de que exista la ventana.
+
+    La salida es `marcar_fallo()`: quien intente usar la GPU y no pueda lo
+    anota, y desde ahi toda la sesion cae a Pillow. Barato al preguntar,
+    honesto al fallar.
     """
     try:
         import skia  # noqa: F401
@@ -65,17 +75,31 @@ def _probar() -> tuple[bool, str]:
 
 
 def disponible() -> tuple[bool, str]:
-    """Cacheada: la respuesta no cambia durante la vida del proceso."""
+    """Cacheada. Si el contexto ya fallo una vez, dice que no para siempre."""
     global _CACHE
+    if _FALLO:
+        return False, _FALLO
     if _CACHE is None:
         _CACHE = _probar()
     return _CACHE
 
 
+def marcar_fallo(motivo: str) -> None:
+    """El contexto se intento y no salio: no volver a intentarlo esta sesion.
+
+    Lo llama quien arma la superficie. Sin esto, una maquina donde las
+    librerias estan pero la GPU no responde reintentaria en cada cuadro, y cada
+    reintento cuesta abrir un contexto que ya sabemos que no se arma.
+    """
+    global _FALLO
+    _FALLO = motivo or "el contexto de OpenGL no se pudo armar"
+
+
 def olvidar() -> None:
-    """Vuelve a preguntar. La usan los tests; en produccion no cambia."""
-    global _CACHE
+    """Vuelve a preguntar, y olvida el fallo. La usan los tests."""
+    global _CACHE, _FALLO
     _CACHE = None
+    _FALLO = ""
 
 
 def elegido(cfg: dict) -> str:
@@ -167,10 +191,22 @@ def marco(padre, ancho: int, alto: int, fondo: str = ""):
     sirve, _ = disponible()
     if not sirve:
         return None
-    from pyopengltk import OpenGLFrame
+    try:
+        from pyopengltk import OpenGLFrame
+    except Exception as exc:  # noqa: BLE001 - no solo ImportError
+        # En macOS, `pyopengltk` 0.0.4 tira un import circular:
+        # "cannot import name 'OpenGLFrame' from partially initialized module".
+        # Medido en los runners Intel y Apple Silicon. Se anota y se sigue con
+        # Pillow, que es lo que hace Eve hoy para todos.
+        marcar_fallo(f"pyopengltk no carga en este sistema ({exc})")
+        return None
 
     extra = {"bg": fondo} if fondo else {}
-    return OpenGLFrame(padre, width=ancho, height=alto, **extra)
+    try:
+        return OpenGLFrame(padre, width=ancho, height=alto, **extra)
+    except Exception as exc:  # noqa: BLE001 - sin GL no hay widget
+        marcar_fallo(f"no se pudo crear el widget de OpenGL ({exc})")
+        return None
 
 
 def fps_tope(cfg: dict) -> int:

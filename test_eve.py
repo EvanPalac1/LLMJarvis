@@ -5869,6 +5869,42 @@ def test_el_lienzo_de_skia_solo_dibuja_los_tipos_portados():
         f"faltan estilos: {set(modulos.OPCIONES['estilo']) - set(lienzo_skia.ESTILOS)}")
 
 
+def test_si_el_contexto_de_gpu_falla_se_deja_de_intentar():
+    """Que las librerias importen NO quiere decir que la GPU responda.
+
+    Lo destapo CI corriendo `--probar-gpu` en los cinco objetivos: en el runner
+    de Windows las tres librerias importan bien y el contexto igual no se arma,
+    porque no hay GPU detras. Y en los dos de macOS `pyopengltk` 0.0.4 ni
+    siquiera importa --tira un import circular.
+
+    Peor todavia: el docstring de `_probar` afirmaba que probaba CREANDO el
+    contexto, y solo miraba los imports. Describia justo el modo de falla que no
+    cubria. Este test existe para que esa diferencia no vuelva a ser invisible.
+    """
+    from eve import gpu
+
+    gpu.olvidar()
+    try:
+        gpu.marcar_fallo("la GPU no responde en esta maquina")
+        sirve, motivo = gpu.disponible()
+        assert not sirve, "despues de fallar el contexto sigue diciendo que si"
+        assert "no responde" in motivo, f"perdio el motivo real: {motivo}"
+
+        for pedido in ("auto", "skia"):
+            assert gpu.elegido({"motor_dibujo": pedido}) == "pillow", (
+                f"con motor_dibujo={pedido} y el contexto fallado sigue en skia")
+        assert "no responde" in gpu.por_que({"motor_dibujo": "skia"}), (
+            "el panel no dice por que quedo en Pillow")
+
+        # Y que `marco()` no reviente: tiene que devolver None, no propagar.
+        assert gpu.marco(None, 10, 10) is None
+    finally:
+        gpu.olvidar()
+
+    # Olvidar tiene que limpiar el fallo, o los tests se contaminan entre si.
+    assert not gpu.disponible()[1].endswith("no responde en esta maquina")
+
+
 if __name__ == "__main__":
     _CORRAL = _corral()
     fallo = ""
