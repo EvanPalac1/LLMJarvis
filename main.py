@@ -325,6 +325,15 @@ def main() -> int:
         if flag == "--probar-imports":
             return _probar_imports()
 
+        if flag == "--bench-dibujo":
+            # Mide los dos motores de dibujo sobre la misma escena, adentro de
+            # Eve. Vive aca y no en un script suelto porque los bancos sueltos
+            # ya dieron tres numeros falsos: medir el motor de verdad es lo
+            # unico que no se puede falsear sin querer.
+            from eve import bench_dibujo
+
+            return bench_dibujo.correr(resto[0] if resto else "")
+
     from eve import listener as listener_mod
     from eve import store, tray
 

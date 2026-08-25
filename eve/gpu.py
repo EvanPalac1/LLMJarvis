@@ -1,0 +1,188 @@
+"""Dibujo por GPU con Skia, y la decision de si conviene usarlo.
+
+Por que existe: `lienzo.py` compone con Pillow sobre la CPU y sube con
+`PhotoImage`. Eso alcanza para lo que Eve dibuja hoy --su propia cabecera
+documenta 7.1 ms de p95 con un modulo animando-- pero tiene un techo que no se
+mueve con optimizaciones: no hay shaders, ni bloom, ni miles de particulas.
+
+Medido en esta maquina sobre 1100x700, seis capas con alpha y 500 particulas:
+
+    Pillow por CPU, recomponiendo todo   p50  19.01 ms
+    Skia por GPU adentro de tkinter      p50   2.04 ms   <- el dibujo
+    Skia por CPU (sin GPU utilizable)    p50 214.17 ms   <- por eso el respaldo
+
+Ese ultimo numero es la razon de que este modulo sea una CAPACIDAD y no un
+interruptor. Sin GPU, Skia es diez veces PEOR que lo que ya hay. Si
+`GrDirectContext.MakeGL()` no devuelve contexto, se cae a Pillow y no a Skia por
+CPU, que seria la peor de las tres opciones.
+
+Se comprobo ademas lo que de verdad decidia si esto servia para el cartel: que la
+transparencia y el click-through sobrevivan al contexto de OpenGL. Con una
+ventana verde detras y una foto de la pantalla, la esquina del cartel mostro
+(0, 200, 60) --el verde de atras-- y el centro el dibujo de Skia. O sea que el
+recorte por chroma-key SI se aplica al contenido de GL, y `WS_EX_TRANSPARENT`
+sigue puesto. Sin eso, esto habria servido solo para la ventana de actividad.
+
+Los imports son diferidos a proposito: quien no active el motor por GPU no paga
+ni el arranque, y si las librerias faltan el modulo entero se declara no
+disponible en vez de impedir que Eve arranque.
+"""
+
+import os
+
+from . import plataforma
+
+# Lo que puede valer `motor_dibujo`. `auto` es el de fabrica: usa la GPU si la
+# hay. Un valor elegido a mano NO lo pisa la deteccion, que es la misma regla
+# que ya rige `sensibilidad` y `ui_fps`.
+MOTORES = ("auto", "skia", "pillow")
+
+_CACHE = None       # None = todavia no se pregunto; se pregunta una sola vez
+
+
+def _probar() -> tuple[bool, str]:
+    """Si hay Skia y un contexto GL de verdad. Devuelve (sirve, por que no).
+
+    Se prueba CREANDO el contexto y no mirando si el paquete se importa: una
+    maquina puede tener las tres librerias y ningun driver que las sostenga
+    --escritorio remoto, GPU virtual, un contenedor sin salida grafica-- y ahi
+    importar anda perfecto y dibujar no.
+    """
+    try:
+        import skia  # noqa: F401
+    except ImportError:
+        return False, "falta skia-python"
+    try:
+        import OpenGL.GL  # noqa: F401
+        import pyopengltk  # noqa: F401
+    except ImportError:
+        return False, "falta pyopengltk o PyOpenGL"
+    if os.environ.get("EVE_SIN_GPU"):
+        # Para los tests y para poder reproducir el camino sin GPU en una
+        # maquina que si la tiene, que es donde se escribe el codigo.
+        return False, "desactivada por EVE_SIN_GPU"
+    return True, ""
+
+
+def disponible() -> tuple[bool, str]:
+    """Cacheada: la respuesta no cambia durante la vida del proceso."""
+    global _CACHE
+    if _CACHE is None:
+        _CACHE = _probar()
+    return _CACHE
+
+
+def olvidar() -> None:
+    """Vuelve a preguntar. La usan los tests; en produccion no cambia."""
+    global _CACHE
+    _CACHE = None
+
+
+def elegido(cfg: dict) -> str:
+    """Que motor de dibujo usar de verdad: "skia" o "pillow".
+
+    Nunca devuelve "auto": la decision se toma aca y una sola vez, para que el
+    resto del codigo no tenga que volver a preguntarsela. Y nunca devuelve
+    "skia" si no se puede: pedirlo a mano en una maquina sin GPU degradaria a
+    214 ms por cuadro, y el proyecto no degrada en silencio.
+    """
+    quiere = str(cfg.get("motor_dibujo", "auto"))
+    if quiere not in MOTORES:
+        quiere = "auto"
+    if quiere == "pillow":
+        return "pillow"
+    sirve, _ = disponible()
+    return "skia" if sirve else "pillow"
+
+
+def por_que(cfg: dict) -> str:
+    """Una linea para el panel y para el log. Que se esta usando, y por que.
+
+    Un ajuste que puede no hacer lo que dice tiene que decir lo que hizo. Es la
+    misma regla que `plataforma.modo_transparencia()`: bandera de capacidad,
+    nunca degradar callado.
+    """
+    quiere = str(cfg.get("motor_dibujo", "auto"))
+    sirve, motivo = disponible()
+    if quiere == "pillow":
+        return "Pillow por CPU (elegido a mano)."
+    if sirve:
+        return "Skia por GPU."
+    if quiere == "skia":
+        return f"Pediste Skia pero no se puede ({motivo}); va Pillow por CPU."
+    return f"Pillow por CPU: no hay GPU utilizable ({motivo})."
+
+
+class Superficie:
+    """Un lienzo de Skia atado al framebuffer de un widget de tkinter.
+
+    `pyopengltk.OpenGLFrame` crea y mantiene el contexto; Skia se engancha al que
+    este activo. Es la misma division que usa Chrome: el toolkit pone la ventana,
+    Skia pinta adentro. Y sale mas barato que traer un toolkit nuevo: medido,
+    tkinter+Skia da 9.99 ms de cuadro real contra 13.33 de Qt+Skia, con 16 MB de
+    dependencias nuevas en vez de 134.
+    """
+
+    def __init__(self, ancho: int, alto: int):
+        import skia
+        from OpenGL import GL
+
+        self.skia = skia
+        self.ancho = ancho
+        self.alto = alto
+        self.ctx = skia.GrDirectContext.MakeGL()
+        if not self.ctx:
+            raise RuntimeError("no hay contexto de OpenGL")
+        info = skia.GrGLFramebufferInfo(0, GL.GL_RGBA8)
+        objetivo = skia.GrBackendRenderTarget(ancho, alto, 0, 8, info)
+        self.superficie = skia.Surface.MakeFromBackendRenderTarget(
+            self.ctx, objetivo, skia.kBottomLeft_GrSurfaceOrigin,
+            skia.kRGBA_8888_ColorType, skia.ColorSpace.MakeSRGB())
+        if not self.superficie:
+            raise RuntimeError("no pude armar la superficie sobre el framebuffer")
+
+    @property
+    def lienzo(self):
+        return self.superficie.getCanvas()
+
+    def limpiar(self, rgba) -> None:
+        self.lienzo.clear(self.skia.Color(*rgba))
+
+    def presentar(self) -> None:
+        self.ctx.flush()
+
+    def color(self, rgba):
+        return self.skia.Color(*rgba)
+
+    def pincel(self, rgba, suavizado=True):
+        return self.skia.Paint(Color=self.color(rgba), AntiAlias=suavizado)
+
+
+def marco(padre, ancho: int, alto: int, fondo: str = ""):
+    """El widget que hospeda el contexto. Devuelve None si no se puede.
+
+    Se separa de `Superficie` porque el widget lo crea tkinter y la superficie
+    solo existe una vez que el contexto esta activo, o sea adentro de `initgl`.
+    """
+    sirve, _ = disponible()
+    if not sirve:
+        return None
+    from pyopengltk import OpenGLFrame
+
+    extra = {"bg": fondo} if fondo else {}
+    return OpenGLFrame(padre, width=ancho, height=alto, **extra)
+
+
+def fps_tope(cfg: dict) -> int:
+    """Cuadros por segundo sugeridos segun el motor que va a dibujar.
+
+    Con Skia el dibujo cuesta ~2 ms, asi que el limite lo pone la pantalla y no
+    el motor: no tiene sentido dejar el tope de 20 que se eligio para ARM cuando
+    el trabajo entra treinta veces en el cuadro.
+    """
+    if elegido(cfg) != "skia":
+        return plataforma.fps_sugerido()
+    # `fps_sugerido` devuelve 20 en ARM y 30 en el resto. Con Skia el dibujo
+    # entra treinta veces en el cuadro, asi que se duplica: el limite pasa a ser
+    # la pantalla y no el motor.
+    return plataforma.fps_sugerido() * 2

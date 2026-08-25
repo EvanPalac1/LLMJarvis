@@ -236,6 +236,9 @@ DEFAULTS = {
     # habria forma de bajarlo salvo recompilando. `plataforma.fps_sugerido()`
     # arranca mas bajo en ARM.
     "ui_fps": 0,           # 0 = el que sugiera la plataforma
+    # Quien dibuja los modulos. `auto` usa la GPU si la hay; ver `eve/gpu.py`.
+    # Elegirlo a mano NO lo pisa la deteccion, igual que `sensibilidad`.
+    "motor_dibujo": "auto",
     # Cuanto se muestra del panel de una. `esencial` deja a la vista lo que usa
     # cualquiera y esconde las secciones de ajuste fino; `completo` muestra todo.
     # No hay una tercera opcion "experto" con cosas ocultas: si una opcion existe

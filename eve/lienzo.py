@@ -13,6 +13,17 @@ en capas del tamaño del cuadro; solo se repinta el que cambio; y la PhotoImage
 se crea una vez y despues se le hace `paste`, porque reasignarla cada cuadro
 cuesta el doble.
 
+DONDE ESTA EL TECHO, perfilado despues sobre seis modulos animando a la vez:
+
+    ImageTk.paste (el puente PIL -> Tcl)    89% del cuadro
+    dibujar los modulos de verdad            9%
+
+O sea que el cuello no es lo que se dibuja sino subirlo al toolkit, y cuesta
+~15 ms por modulo animado por cuadro. Un modulo animando entra comodo; seis
+cuestan ~90 ms hagan lo que hagan adentro. Optimizar el dibujo no mueve ese
+numero: la unica forma de bajarlo es no pasar por el puente, que es lo que hace
+`lienzo_skia.py` escribiendo directo en el framebuffer de la GPU.
+
 De yapa, un item de canvas por modulo es lo que el modo Edit necesita igual para
 saber en cual se hizo clic y para el orden de dibujo.
 

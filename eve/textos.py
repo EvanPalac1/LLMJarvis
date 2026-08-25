@@ -222,6 +222,28 @@ EN = {
         "you have not talked yet",
     "Eve esta corriendo":
         "Eve is running",
+    "Motor de dibujo":
+        "Drawing engine",
+    "Quien pinta los modulos. `auto` usa la GPU si tu maquina la\n"
+    "tiene, y si no cae a Pillow por CPU, que es lo de siempre.\n"
+    "\nMedido en un escritorio x64 sobre 1100x700 con seis capas y\n"
+    "quinientas particulas: Pillow por CPU cuesta 19.0 ms de\n"
+    "mediana y Skia por GPU 2.0. Pero Skia SIN GPU cuesta 214, o\n"
+    "sea diez veces peor que no usarlo: por eso pedirlo a mano no\n"
+    "lo fuerza si no se puede, y la linea de abajo dice que quedo.\n"
+    "\nLo que gana no son cuadros por segundo --con un modulo\n"
+    "animando ya sobra-- sino techo: shaders y miles de\n"
+    "particulas no entran por el camino de CPU.":
+        "Who paints the modules. `auto` uses the GPU if your machine has\n"
+        "one, and falls back to Pillow on the CPU, which is the usual path.\n"
+        "\nMeasured on an x64 desktop at 1100x700 with six layers and five\n"
+        "hundred particles: Pillow on the CPU costs 19.0 ms median and Skia\n"
+        "on the GPU 2.0. But Skia WITHOUT a GPU costs 214, ten times worse\n"
+        "than not using it at all: that is why asking for it by hand does\n"
+        "not force it, and the line below tells you what you got.\n"
+        "\nWhat it buys is not frames per second --with one module animating\n"
+        "there is already room to spare-- but headroom: shaders and\n"
+        "thousands of particles do not fit through the CPU path.",
     "agregado":
         "added",
     "Estoy en el desplegable de la flechita de la barra de tareas, con Steam y Discord. Arrastrame fuera para fijarme en la barra.":

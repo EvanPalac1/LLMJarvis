@@ -567,6 +567,16 @@ class Panel(tk.Tk):
                 else:
                     etiqueta.pack(anchor="w", padx=12, pady=(4, 8))
                 setattr(self, item.atributo, etiqueta)
+                # La mayoria de las Salidas las llena un boton de prueba, pero
+                # algunas tienen algo que decir apenas se abre el panel. Un
+                # gancho generico por nombre y no un `if` por atributo: si no,
+                # el pintor del registro empieza a conocer casos particulares.
+                inicial = getattr(self, "_texto_" + item.atributo, None)
+                if inicial:
+                    try:
+                        etiqueta.config(text=inicial())
+                    except Exception:  # noqa: BLE001 - abrir el panel no puede
+                        pass           # fallar porque una etiqueta no se llene
             elif isinstance(item, registro.Interruptor):
                 self._check(padre, tr(item.etiqueta), item.clave)
             elif isinstance(item, registro.Ayuda):
@@ -1930,6 +1940,17 @@ class Panel(tk.Tk):
         self._pintar_registro(t, registro.VOZ)
         return t
 
+
+    def _texto_motor_dibujo_label(self) -> str:
+        """Que motor de dibujo quedo activo, y por que.
+
+        Se lee al abrir y no despues de un boton: `motor_dibujo` puede pedir
+        Skia y quedarse en Pillow porque la maquina no da, y un ajuste que no
+        hace lo que dice tiene que decirlo sin que se lo pregunten.
+        """
+        from . import gpu
+
+        return gpu.por_que(self.cfg)
 
     def refresh_apps(self, scan: bool):
         from . import apps

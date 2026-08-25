@@ -5791,6 +5791,84 @@ def test_un_motor_mal_configurado_no_deja_ventanas_huerfanas():
     assert "log_action" in rama, "el error de arranque no queda escrito"
 
 
+def test_sin_gpu_el_motor_de_dibujo_cae_a_pillow_y_lo_dice():
+    """La regla del proyecto: bandera de capacidad, nunca degradar callado.
+
+    Sin GPU, Skia cuesta 214 ms por cuadro contra los 19 de Pillow --diez veces
+    PEOR que no usarlo. Asi que pedirlo a mano no puede forzarlo: tiene que caer
+    a Pillow, y tiene que decir por que. Un ajuste que puede no hacer lo que
+    dice, y no lo avisa, es peor que no tener el ajuste.
+    """
+    from eve import gpu
+
+    previo = os.environ.get("EVE_SIN_GPU")
+    os.environ["EVE_SIN_GPU"] = "1"
+    gpu.olvidar()
+    try:
+        sirve, motivo = gpu.disponible()
+        assert not sirve and motivo, "sin GPU tiene que decir que no y por que"
+
+        for pedido in ("auto", "skia", "pillow"):
+            elegido = gpu.elegido({"motor_dibujo": pedido})
+            assert elegido == "pillow", (
+                f"con motor_dibujo={pedido} y sin GPU eligio {elegido}: "
+                "degradar a Skia por CPU seria diez veces peor que no usarlo")
+
+        # Y que la explicacion distinga los tres casos, que no son lo mismo:
+        # elegirlo, no poder, y no haberlo pedido.
+        assert "elegido a mano" in gpu.por_que({"motor_dibujo": "pillow"})
+        assert "Pediste Skia" in gpu.por_que({"motor_dibujo": "skia"})
+        assert "no hay GPU" in gpu.por_que({"motor_dibujo": "auto"})
+    finally:
+        if previo is None:
+            os.environ.pop("EVE_SIN_GPU", None)
+        else:
+            os.environ["EVE_SIN_GPU"] = previo
+        gpu.olvidar()
+
+
+def test_el_motor_de_dibujo_llega_al_panel_con_sus_tres_opciones():
+    """Que la eleccion exista de verdad para el usuario, no solo en la config.
+
+    `registro.py` no importa nada del proyecto a proposito --para que un test lo
+    lea sin tkinter-- asi que la lista de opciones esta escrita dos veces. Esto
+    es lo que impide que se despeguen.
+    """
+    from eve import gpu, registro
+
+    assert "motor_dibujo" in store.DEFAULTS
+    todas = set()
+    for tabla in registro.TABLAS:
+        todas |= set(registro.claves(tabla))
+    assert "motor_dibujo" in todas, "el ajuste existe y no se puede tocar"
+
+    opciones = registro.opciones_de("motor_dibujo")
+    assert tuple(opciones) == gpu.MOTORES, (
+        f"el panel ofrece {opciones} y gpu.MOTORES son {gpu.MOTORES}")
+    assert store.DEFAULTS["motor_dibujo"] == "auto", (
+        "de fabrica tiene que decidir la maquina, no el usuario")
+
+
+def test_el_lienzo_de_skia_solo_dibuja_los_tipos_portados():
+    """La portacion esta a medias A PROPOSITO, y eso tiene que ser visible.
+
+    Un tipo sin portar no se dibuja mal: no se dibuja, y `dibujar` devuelve
+    cuantos hizo para que quien lo use se entere. Dibujar doce tipos a medias
+    seria peor que dibujar uno bien.
+    """
+    from eve import lienzo_skia, modulos
+
+    assert lienzo_skia.PORTADOS, "no hay ningun tipo portado"
+    for tipo in lienzo_skia.PORTADOS:
+        assert tipo in modulos.TIPOS, f"`{tipo}` no es un tipo de modulo real"
+
+    # Los cuatro estilos de la onda tienen que estar los cuatro: portar el tipo
+    # y dejar afuera un estilo es la clase de agujero que no se ve hasta que
+    # alguien elige justo ese.
+    assert set(lienzo_skia.ESTILOS) == set(modulos.OPCIONES["estilo"]), (
+        f"faltan estilos: {set(modulos.OPCIONES['estilo']) - set(lienzo_skia.ESTILOS)}")
+
+
 if __name__ == "__main__":
     _CORRAL = _corral()
     fallo = ""

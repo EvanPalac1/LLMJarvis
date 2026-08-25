@@ -506,6 +506,23 @@ TEMA = (
     Seccion(
         "Fluidez",
         (
+            # La lista va literal y no importada de `gpu`: este modulo
+            # no importa nada del proyecto a proposito, para que un test
+            # lo pueda leer sin tkinter. Un test comprueba que no se
+            # despeguen.
+            Campo("motor_dibujo", "Motor de dibujo",
+                  ["auto", "skia", "pillow"]),
+            Ayuda("Quien pinta los modulos. `auto` usa la GPU si tu maquina la\n"
+                  "tiene, y si no cae a Pillow por CPU, que es lo de siempre.\n"
+                  "\nMedido en un escritorio x64 sobre 1100x700 con seis capas y\n"
+                  "quinientas particulas: Pillow por CPU cuesta 19.0 ms de\n"
+                  "mediana y Skia por GPU 2.0. Pero Skia SIN GPU cuesta 214, o\n"
+                  "sea diez veces peor que no usarlo: por eso pedirlo a mano no\n"
+                  "lo fuerza si no se puede, y la linea de abajo dice que quedo.\n"
+                  "\nLo que gana no son cuadros por segundo --con un modulo\n"
+                  "animando ya sobra-- sino techo: shaders y miles de\n"
+                  "particulas no entran por el camino de CPU."),
+            Salida("motor_dibujo_label"),
             Campo("ui_fps", "Cuadros por segundo"),
             Ayuda("Vale para el cartel y para la ventana de actividad. 0 = el que\n"
                   "sugiere tu maquina: 30 en un PC normal, 20 en ARM.\n"
