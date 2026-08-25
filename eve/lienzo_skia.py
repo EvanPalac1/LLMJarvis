@@ -25,7 +25,8 @@ import math
 # Los que muestran texto largo: mismo dibujo, distinta fuente de datos.
 PARRAFOS = ("lector", "documento", "historial", "acciones")
 
-PORTADOS = ("onda", "particulas", "texto", "reloj", "boton") + PARRAFOS
+PORTADOS = ("onda", "particulas", "texto", "reloj", "boton",
+            "icono", "contexto", "grafo", "lottie") + PARRAFOS
 
 
 def _barras(lienzo, sup, modulo, muestras, ancho, alto, pincel):
@@ -165,6 +166,160 @@ def pintar_particulas(sup, modulo, sistema, ancho, alto, rgba):
             pincel)
 
 
+
+
+def imagen_desde_pil(sup, img):
+    """Un `skia.Image` a partir de un `PIL.Image` RGBA.
+
+    Es el puente que necesitan `icono` y `lottie`: los dos producen su contenido
+    con Pillow --uno lee archivos y hojas de sprites, el otro rasteriza vectores
+    con rlottie-- y eso no tiene por que reescribirse para la GPU. `imagenes.py`
+    ya resuelve formatos, cuadros, atlas y cache por sha1; duplicarlo en Skia
+    seria mantener dos lectores de PNG.
+
+    La subida a la GPU cuesta, y por eso quien la use tiene que cachear el
+    `skia.Image` mientras el contenido no cambie. Aca no se cachea a proposito:
+    esta funcion no sabe cuando el de arriba cambio de cuadro.
+    """
+    if img is None:
+        return None
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+    datos = sup.skia.Data.MakeWithoutCopy(img.tobytes())
+    info = sup.skia.ImageInfo.Make(img.width, img.height,
+                                   sup.skia.kRGBA_8888_ColorType,
+                                   sup.skia.kUnpremul_AlphaType)
+    return sup.skia.Image.MakeRasterData(info, datos, img.width * 4)
+
+
+def pintar_icono(sup, modulo, ancho, alto, acento, panel, foto=None):
+    """La figura parametrica del cartel, y encima la imagen si hay.
+
+    Mismos parametros que el otro camino --`lados` y el radio-- porque es la
+    misma figura: menos de 3 lados es un circulo, y de ahi para arriba un
+    poligono regular con la punta arriba. Que las dos den la MISMA forma es lo
+    que hace que cambiar de motor no cambie el diseño.
+
+    El relleno solo va cuando NO hay imagen: con imagen, queda como un disco de
+    color atras que el cartel de siempre no tiene.
+    """
+    import math
+
+    lienzo = sup.lienzo
+    cx, cy = ancho / 2.0, alto / 2.0
+    radio = max(2.0, min(cx, cy) - 2.0)
+    lados = int(modulo.get("lados", 6) or 6)
+
+    if foto is None:
+        relleno = sup.pincel(panel)
+        if lados < 3:
+            lienzo.drawCircle(cx, cy, radio, relleno)
+        else:
+            lienzo.drawPath(_poligono(sup, cx, cy, radio, lados), relleno)
+
+    borde = sup.pincel(acento)
+    borde.setStyle(sup.skia.Paint.kStroke_Style)
+    borde.setStrokeWidth(2.0)
+    if lados < 3:
+        lienzo.drawCircle(cx, cy, radio, borde)
+    else:
+        lienzo.drawPath(_poligono(sup, cx, cy, radio, lados), borde)
+
+    # La imagen va ENCIMA de la figura, como en el cartel de siempre.
+    if foto is not None:
+        lienzo.drawImageRect(foto, sup.skia.Rect(0, 0, ancho, alto))
+
+
+def _poligono(sup, cx, cy, radio, lados):
+    import math
+
+    camino = sup.skia.Path()
+    for i in range(lados):
+        angulo = 2 * math.pi * i / lados - math.pi / 2
+        x, y = cx + radio * math.cos(angulo), cy + radio * math.sin(angulo)
+        if i == 0:
+            camino.moveTo(x, y)
+        else:
+            camino.lineTo(x, y)
+    camino.close()
+    return camino
+
+
+def pintar_contexto(sup, modulo, partes, ancho, alto, colores, texto_rgba,
+                    familia="", por_punto=96.0 / 72.0):
+    """El medidor: lo unico que muestra un numero medido y no un adorno.
+
+    Dos formas, igual que en el otro camino. En `numeros`, el color va en un
+    cuadradito y el texto SIEMPRE en el color de texto: pintar la linea entera
+    del color de su tramo dejaba dos de las cinco filas ilegibles, porque el
+    ciclo llega a `borde` y a `texto_tenue`, que existen para cosas que no se
+    leen.
+    """
+    lienzo = sup.lienzo
+    total = sum(partes.values()) or 1
+    ordenadas = sorted(partes.items(), key=lambda par: -par[1])
+
+    if str(modulo.get("detalle")) == "numeros":
+        f = fuente(sup, 9, familia, por_punto=por_punto)
+        m = f.getMetrics()
+        y = 0.0
+        for i, (nombre, valor) in enumerate(ordenadas[:5]):
+            lienzo.drawRect(sup.skia.Rect(0, y + 2, 8, y + 10),
+                            sup.pincel(colores[i % len(colores)]))
+            lienzo.drawString(f"{nombre}: {valor}", 13, y - m.fAscent, f,
+                              sup.pincel(texto_rgba))
+            y += 15
+        return
+
+    x = 0.0
+    for i, (_, valor) in enumerate(ordenadas):
+        w = ancho * valor / total
+        lienzo.drawRect(sup.skia.Rect(x, 0, x + w, alto),
+                        sup.pincel(colores[i % len(colores)]))
+        x += w
+
+
+def pintar_grafo(sup, guardado, ancho, alto, borde, acento, texto_rgba, vacio,
+                 familia="", por_punto=96.0 / 72.0):
+    """Lo que Eve hizo: herramientas, y las que salen una detras de otra.
+
+    El acomodo lo hace `grafo.Acomodo`, el MISMO de siempre: es un sistema de
+    particulas con resortes, no tiene nada de grafico, y tener dos daria dos
+    dibujos distintos del mismo log.
+    """
+    lienzo = sup.lienzo
+    nodos, aristas = guardado["nodos"], guardado["aristas"]
+    if not nodos:
+        f = fuente(sup, 10, familia, por_punto=por_punto)
+        m = f.getMetrics()
+        lienzo.drawString(vacio, 0, -m.fAscent, f, sup.pincel(texto_rgba))
+        return
+
+    pos = guardado["acomodo"].pos
+    for a, b, veces in aristas:
+        if a >= len(pos) or b >= len(pos):
+            continue
+        linea = sup.pincel(borde)
+        linea.setStyle(sup.skia.Paint.kStroke_Style)
+        linea.setStrokeWidth(float(max(1, min(int(veces), 3))))
+        lienzo.drawLine(float(pos[a][0]), float(pos[a][1]),
+                        float(pos[b][0]), float(pos[b][1]), linea)
+
+    mayor = max(n["peso"] for n in nodos) or 1
+    f = fuente(sup, 8, familia, por_punto=por_punto)
+    m = f.getMetrics()
+    for i, nodo in enumerate(nodos):
+        if i >= len(pos):
+            break
+        x, y = float(pos[i][0]), float(pos[i][1])
+        radio = 3.0 + 5.0 * (nodo["peso"] / mayor)
+        lienzo.drawCircle(x, y, radio, sup.pincel(acento))
+        if guardado.get("etiquetas", True):
+            lienzo.drawString(str(nodo.get("nombre", ""))[:18],
+                              x + radio + 3, y - m.fAscent / 2, f,
+                              sup.pincel(texto_rgba))
+
+
 class LienzoSkia:
     """Dibuja una lista de modulos sobre UNA superficie de GPU.
 
@@ -190,6 +345,12 @@ class LienzoSkia:
         # tkinter mide en PUNTOS y Skia en PIXELES, igual que PIL. Mismo factor
         # que usa `Lienzo`, o el texto sale al 75% en una pantalla de 96 dpi.
         self.por_punto = 96.0 / 72.0
+        self._fotos: dict = {}
+        self._grafos: dict = {}
+        # Los usan los metodos de `Lienzo` que se reusan sin ligar: ver
+        # `_pil_de_lienzo`.
+        self._fondos: dict = {}
+        self._lotties: dict = {}
 
     def aplicar(self, cfg, paleta):
         self.cfg = cfg
@@ -230,6 +391,92 @@ class LienzoSkia:
                         float(modulo.get("gravedad", 40) or 40),
                         0.0)
         return sistema
+
+    def _pil_de_lienzo(self, metodo, *args):
+        """Llama a un metodo de `Lienzo` que solo necesita paleta y caches.
+
+        `_cuadro_de` y `_pintar_lottie` no tocan nada de tkinter: leen
+        `self.paleta` y guardan en `self._fondos` / `self._lotties`, que esta
+        clase tambien tiene. Llamarlos sin ligar evita duplicar el lector de
+        imagenes --formatos, cuadros de un GIF, atlas, cache por sha1-- y sobre
+        todo evita que los dos motores muestren distinto el mismo archivo.
+
+        Es reuso deliberado y no un accidente: si alguno de esos metodos
+        empezara a necesitar el canvas, esto se rompe fuerte y en el acto, que
+        es preferible a que se rompa despacio.
+        """
+        from . import lienzo as lienzo_mod
+
+        return getattr(lienzo_mod.Lienzo, metodo)(self, *args)
+
+    def _foto(self, modulo, ancho, alto):
+        """La imagen del icono, ya subida a la GPU y cacheada.
+
+        Se cachea el `skia.Image` por (ruta, tamaño, id del PIL): subir a la GPU
+        cuesta, y un GIF que no avanzo no tiene por que volver a subirse.
+        """
+        if not str(modulo.get("imagen") or "").strip():
+            return None
+        try:
+            img = self._pil_de_lienzo("_cuadro_de", modulo, ancho, alto, 100)
+        except Exception:  # noqa: BLE001 - una imagen rota deja la figura sola
+            return None
+        if img is None:
+            return None
+        clave = (modulo["id"], ancho, alto, id(img))
+        foto = self._fotos.get(clave)
+        if foto is None:
+            foto = imagen_desde_pil(self.sup, img)
+            self._fotos = {clave: foto}   # uno por modulo: no crece
+        return foto
+
+    def _lottie(self, modulo, ahora, ancho, alto):
+        """Un cuadro de la animacion, rasterizado por rlottie y subido a GPU.
+
+        Se reusa `_pintar_lottie`, que compone sobre un PIL: se le pasa uno
+        transparente y de ahi sale el cuadro. Asi el cache de la animacion --que
+        evita parsear el JSON treinta veces por segundo-- es el mismo y no dos.
+        """
+        from PIL import Image
+
+        base = Image.new("RGBA", (max(1, ancho), max(1, alto)), (0, 0, 0, 0))
+        try:
+            self._pil_de_lienzo("_pintar_lottie", base, modulo, ahora, ancho,
+                                alto, 100)
+        except Exception:  # noqa: BLE001 - un .json roto no tumba el cuadro
+            return None
+        if base.getchannel("A").getextrema()[1] == 0:
+            return None   # no dibujo nada: no vale la pena subirlo
+        foto = imagen_desde_pil(self.sup, base)
+        if foto is not None:
+            self.sup.lienzo.drawImageRect(
+                foto, self.sup.skia.Rect(0, 0, ancho, alto))
+        return None
+
+    def _grafo(self, modulo, ancho, alto):
+        """El grafo del log, releido cada tantos cuadros y acomodado siempre.
+
+        Mismo criterio que el otro camino: leer el log en cada cuadro serian
+        treinta consultas por segundo a una base que casi nunca cambia, pero el
+        acomodado si tiene que avanzar, que es lo que se ve moverse.
+        """
+        from . import grafo as grafo_mod
+
+        ident = modulo["id"]
+        guardado = self._grafos.get(ident)
+        cuantas = int(modulo.get("cuantas", 150) or 150)
+        if (guardado is None or guardado["cuadros"] > 90
+                or guardado["tam"] != (ancho, alto)):
+            nodos, aristas = grafo_mod.leer(cuantas, self.cfg.get("workdirs"))
+            guardado = {"nodos": nodos, "aristas": aristas, "cuadros": 0,
+                        "tam": (ancho, alto),
+                        "acomodo": grafo_mod.Acomodo(len(nodos), ancho, alto)}
+            self._grafos[ident] = guardado
+        guardado["cuadros"] += 1
+        guardado["etiquetas"] = bool(modulo.get("etiquetas", True))
+        if guardado["nodos"]:
+            guardado["acomodo"].avanzar(guardado["aristas"])
+        return guardado
 
     def _rol(self, nombre):
         """Un color de la paleta por su rol, en (r, g, b, a)."""
@@ -312,6 +559,26 @@ class LienzoSkia:
         if tipo == "boton":
             return pintar_boton(self.sup, modulo, ancho, alto, rgba,
                                 self._rol("acento"), fam, pp)
+        if tipo == "icono":
+            return pintar_icono(self.sup, modulo, ancho, alto,
+                                self._rol("acento"), self._rol("panel"),
+                                self._foto(modulo, ancho, alto))
+        if tipo == "lottie":
+            return self._lottie(modulo, ahora, ancho, alto)
+        if tipo == "contexto":
+            colores = [self._rol("acento"), self._rol("acento2"),
+                       self._rol("borde"), self._rol("texto_tenue")]
+            return pintar_contexto(self.sup, modulo,
+                                   estado.get("partes") or {}, ancho, alto,
+                                   colores, self._rol("texto"), fam, pp)
+        if tipo == "grafo":
+            from .textos import t as tr
+
+            return pintar_grafo(self.sup, self._grafo(modulo, ancho, alto),
+                                ancho, alto, self._rol("borde"),
+                                self._rol("acento"), self._rol("texto_tenue"),
+                                tr("todavia no hice nada que graficar"),
+                                fam, pp)
 
         # Los cuatro de parrafos: mismo dibujo, distinta fuente de datos.
         if tipo in PARRAFOS:

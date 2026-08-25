@@ -6285,6 +6285,42 @@ def test_el_perfil_por_contexto_no_pisa_lo_que_tocaste_a_mano():
             store.CONFIG_PATH, store.PERFILES_PATH, plataforma.app_en_foco = reales
 
 
+def _lottie_de_prueba(raiz: str) -> str:
+    """Un `.json` de Lottie minimo: un rectangulo rosa quieto.
+
+    Hace falta porque el tipo `lottie` sin archivo no dibuja nada -- y eso es
+    CORRECTO, no un bug. Sin darle uno, el test lo contaria como roto cuando lo
+    unico que pasaba es que estaba vacio.
+    """
+    import json
+
+    anim = {"v": "5.7.4", "fr": 30, "ip": 0, "op": 60, "w": 200, "h": 200,
+            "nm": "p", "ddd": 0, "assets": [],
+            "layers": [{"ddd": 0, "ind": 1, "ty": 4, "nm": "c", "sr": 1,
+                        "ks": {"o": {"a": 0, "k": 100}, "r": {"a": 0, "k": 0},
+                               "p": {"a": 0, "k": [100, 100, 0]},
+                               "a": {"a": 0, "k": [0, 0, 0]},
+                               "s": {"a": 0, "k": [100, 100, 100]}},
+                        "ao": 0,
+                        "shapes": [{"ty": "gr", "it": [
+                            {"ty": "rc", "d": 1,
+                             "s": {"a": 0, "k": [150, 150]},
+                             "p": {"a": 0, "k": [0, 0]},
+                             "r": {"a": 0, "k": 8}},
+                            {"ty": "fl", "c": {"a": 0, "k": [1, 0.3, 0.5, 1]},
+                             "o": {"a": 0, "k": 100}},
+                            {"ty": "tr", "p": {"a": 0, "k": [0, 0]},
+                             "a": {"a": 0, "k": [0, 0]},
+                             "s": {"a": 0, "k": [100, 100]},
+                             "r": {"a": 0, "k": 0},
+                             "o": {"a": 0, "k": 100}}]}],
+                        "ip": 0, "op": 60, "st": 0, "bm": 0}]}
+    ruta = os.path.join(raiz, "prueba.json")
+    with open(ruta, "w", encoding="utf-8") as f:
+        json.dump(anim, f)
+    return ruta
+
+
 def test_todo_tipo_portado_a_skia_dibuja_pixeles():
     """Que `PORTADOS` no mienta. Es la peor forma de fallar que tiene esto.
 
@@ -6346,8 +6382,13 @@ def test_todo_tipo_portado_a_skia_dibuja_pixeles():
                       "texto": "Cuerpo." + salto + "Segunda linea."},
         "historial": "Vos: hola" + salto + "Eve: que tal",
         "acciones": "obs grabar -> ok",
+        # El medidor sin datos no dibuja nada, y eso es CORRECTO: sin darle
+        # partes, el test lo contaria como roto cuando solo estaba vacio.
+        "partes": {"integraciones": 5458, "brief": 3481, "interfaz": 1352,
+                   "tono": 435, "catalogo": 274},
     }
 
+    raiz = tempfile.mkdtemp()
     sin_dibujar = []
     for tipo in LS.PORTADOS:
         assert tipo in modulos.TIPOS, f"`{tipo}` no es un tipo de modulo real"
@@ -6359,7 +6400,10 @@ def test_todo_tipo_portado_a_skia_dibuja_pixeles():
                   "cantidad": 200, "vida": 1.0, "gravedad": 40,
                   "formato": "%H:%M", "origen": "fijo", "contenido": "Hola Eve",
                   "etiqueta": "Escuchar", "accion": "escuchar", "lineas": 0,
-                  "cuantos": 5, "cuantas": 5, "resultado": True, "titulo": True}
+                  "cuantos": 5, "cuantas": 5, "resultado": True,
+                  "titulo": True, "detalle": "numeros", "lados": 6,
+                  "cuadro": 10, "velocidad": 1.0, "etiquetas": True,
+                  "archivo": _lottie_de_prueba(raiz)}
         pintor.dibujar([modulo], estado, ahora=1.0)
 
         px = sup.superficie.toarray(colorType=skia.kRGBA_8888_ColorType)
