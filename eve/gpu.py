@@ -7,7 +7,7 @@ mueve con optimizaciones: no hay shaders, ni bloom, ni miles de particulas.
 
 Medido en esta maquina sobre 1100x700, seis capas con alpha y 500 particulas:
 
-    Pillow por CPU, recomponiendo todo   p50  19.01 ms
+    Pillow por CPU, seis modulos animando p50 20.34 ms  <- ya optimizado
     Skia por GPU adentro de tkinter      p50   2.04 ms   <- el dibujo
     Skia por CPU (sin GPU utilizable)    p50 214.17 ms   <- por eso el respaldo
 

@@ -13,16 +13,16 @@ en capas del tamaño del cuadro; solo se repinta el que cambio; y la PhotoImage
 se crea una vez y despues se le hace `paste`, porque reasignarla cada cuadro
 cuesta el doble.
 
-DONDE ESTA EL TECHO, perfilado despues sobre seis modulos animando a la vez:
+DONDE ESTABA EL TECHO, perfilado sobre seis modulos animando a la vez:
 
     ImageTk.paste (el puente PIL -> Tcl)    89% del cuadro
     dibujar los modulos de verdad            9%
 
-O sea que el cuello no es lo que se dibuja sino subirlo al toolkit, y cuesta
-~15 ms por modulo animado por cuadro. Un modulo animando entra comodo; seis
-cuestan ~90 ms hagan lo que hagan adentro. Optimizar el dibujo no mueve ese
-numero: la unica forma de bajarlo es no pasar por el puente, que es lo que hace
-`lienzo_skia.py` escribiendo directo en el framebuffer de la GPU.
+O sea que el cuello no era lo que se dibuja sino subirlo al toolkit. La primera
+lectura de eso fue "cuesta ~15 ms por modulo animado y optimizar el dibujo no lo
+mueve; la unica salida es la GPU". **Esa conclusion era falsa**, y conviene que
+quede escrita porque estuvo un rato en este archivo: el costo del puente no era
+inherente, dependia de UNA propiedad de lo que se le pasaba. Ver abajo.
 
 Y UNA SEGUNDA COSA, QUE RESULTO SER LA MAS GRANDE: el cuadro no costaba lo mismo
 al principio que despues. Con seis modulos animando arrancaba en ~78 ms y a los

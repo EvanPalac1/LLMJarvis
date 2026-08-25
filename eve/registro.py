@@ -515,7 +515,7 @@ TEMA = (
             Ayuda("Quien pinta los modulos. `auto` usa la GPU si tu maquina la\n"
                   "tiene, y si no cae a Pillow por CPU, que es lo de siempre.\n"
                   "\nMedido en un escritorio x64 sobre 1100x700 con seis capas y\n"
-                  "quinientas particulas: Pillow por CPU cuesta 19.0 ms de\n"
+                  "quinientas particulas: Pillow por CPU cuesta 20.3 ms de\n"
                   "mediana y Skia por GPU 2.0. Pero Skia SIN GPU cuesta 214, o\n"
                   "sea diez veces peor que no usarlo: por eso pedirlo a mano no\n"
                   "lo fuerza si no se puede, y la linea de abajo dice que quedo.\n"
