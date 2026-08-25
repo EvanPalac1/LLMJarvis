@@ -5905,6 +5905,51 @@ def test_si_el_contexto_de_gpu_falla_se_deja_de_intentar():
     assert not gpu.disponible()[1].endswith("no responde en esta maquina")
 
 
+def test_el_widget_de_opengl_es_nuestro_y_dice_donde_no_puede():
+    """`pyopengltk` afuera: CI la probo y en macOS ni importa.
+
+    Su `darwin.py` tiene una linea que dice "Currently not implemented" y el
+    import de darwin esta comentado en su `__init__`. El error que daba Python
+    --"most likely due to a circular import"-- era una adivinanza equivocada que
+    mando a buscar el problema al lado que no era.
+
+    Lo que queda comprobado aca no es que ande --eso lo mide `--probar-gpu` en
+    los cinco objetivos-- sino que este modulo diga la verdad sobre donde puede
+    y donde no, sin abrir ninguna ventana.
+    """
+    from eve import gpu, marco_gl
+
+    # Que no haya vuelto por la ventana.
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    for archivo in ("eve/gpu.py", "eve/marco_gl.py"):
+        with open(os.path.join(raiz, archivo), encoding="utf-8") as f:
+            texto = f.read()
+        assert "import pyopengltk" not in texto, (
+            f"{archivo} volvio a importar pyopengltk")
+
+    puede, motivo = marco_gl.se_puede()
+    assert isinstance(puede, bool) and isinstance(motivo, str)
+    assert puede or motivo, "dice que no puede y no dice por que"
+
+    if sys.platform == "darwin":
+        assert not puede, "macOS no puede tener contexto GL dentro de Tk"
+        assert "macOS" in motivo
+        # Y que la capa de arriba lo respete en vez de intentarlo igual.
+        gpu.olvidar()
+        assert gpu.elegido({"motor_dibujo": "skia"}) == "pillow"
+        gpu.olvidar()
+
+    # `tkCreateContext` en macOS tiene que EXPLICAR, no reventar con un
+    # AttributeError adentro de ctypes.
+    if sys.platform == "darwin":
+        marco = marco_gl.MarcoGL.__new__(marco_gl.MarcoGL)
+        try:
+            marco.tkCreateContext()
+            raise AssertionError("no aviso que no se puede")
+        except marco_gl.SinContexto as exc:
+            assert "macOS" in str(exc)
+
+
 if __name__ == "__main__":
     _CORRAL = _corral()
     fallo = ""

@@ -1,8 +1,9 @@
 name: Motor de dibujo por GPU
 
 # La puerta que le falta a `eve/gpu.py` para poder entrar al instalador: que el
-# camino de Skia ande en los CINCO objetivos. Hoy solo esta probado en Windows,
-# y por eso las tres dependencias van comentadas en requirements.txt.
+# camino de Skia ande en los cinco objetivos. La primera corrida dio 2 de 5 y
+# dejo el bloqueo acotado: `pyopengltk` no soporta macOS. Se la reemplazo por
+# `eve/marco_gl.py`, que es nuestro, y esto vuelve a medir.
 #
 # Va en su propio workflow y no adentro de Release por dos motivos: no puede
 # frenar una release --el motor es opcional y Eve anda sin el-- y se corre a
@@ -60,7 +61,7 @@ jobs:
       - name: Las tres librerias del motor por GPU
         id: instalar
         continue-on-error: true   # que no publiquen rueda TAMBIEN es el resultado
-        run: python -m pip install --upgrade pip skia-python PyOpenGL pyopengltk numpy pillow
+        run: python -m pip install --upgrade pip skia-python PyOpenGL numpy pillow
 
       - name: Hubo ruedas para este objetivo?
         run: |
@@ -96,3 +97,4 @@ jobs:
           echo "  3 = no se pudo crear el widget de OpenGL"
           echo "  4 = la superficie salio vacia"
           echo "  5 = fallo armando el camino"
+          echo "  6 = este sistema no puede tener contexto (macOS)"

@@ -26,6 +26,11 @@ sigue puesto. Sin eso, esto habria servido solo para la ventana de actividad.
 Los imports son diferidos a proposito: quien no active el motor por GPU no paga
 ni el arranque, y si las librerias faltan el modulo entero se declara no
 disponible en vez de impedir que Eve arranque.
+
+El widget con contexto lo pone `eve/marco_gl.py`, que es nuestro. Dependia de
+`pyopengltk` hasta que CI lo probo en los cinco objetivos: en los dos de macOS ni
+importa --su `darwin.py` dice "Currently not implemented"-- y lo que quedaba era
+depender de un paquete 0.0.4 sin mantenimiento para doscientas lineas.
 """
 
 import os
@@ -64,9 +69,16 @@ def _probar() -> tuple[bool, str]:
         return False, "falta skia-python"
     try:
         import OpenGL.GL  # noqa: F401
-        import pyopengltk  # noqa: F401
     except ImportError:
-        return False, "falta pyopengltk o PyOpenGL"
+        return False, "falta PyOpenGL"
+    # El widget con contexto lo pone `marco_gl`, que es nuestro. Antes esto
+    # dependia de `pyopengltk`, que en macOS ni importa: su `darwin.py` dice
+    # "Currently not implemented" y su `__init__` tiene el import comentado.
+    from . import marco_gl
+
+    puede, motivo = marco_gl.se_puede()
+    if not puede:
+        return False, motivo
     if os.environ.get("EVE_SIN_GPU"):
         # Para los tests y para poder reproducir el camino sin GPU en una
         # maquina que si la tiene, que es donde se escribe el codigo.
@@ -191,19 +203,11 @@ def marco(padre, ancho: int, alto: int, fondo: str = ""):
     sirve, _ = disponible()
     if not sirve:
         return None
-    try:
-        from pyopengltk import OpenGLFrame
-    except Exception as exc:  # noqa: BLE001 - no solo ImportError
-        # En macOS, `pyopengltk` 0.0.4 tira un import circular:
-        # "cannot import name 'OpenGLFrame' from partially initialized module".
-        # Medido en los runners Intel y Apple Silicon. Se anota y se sigue con
-        # Pillow, que es lo que hace Eve hoy para todos.
-        marcar_fallo(f"pyopengltk no carga en este sistema ({exc})")
-        return None
+    from . import marco_gl
 
     extra = {"bg": fondo} if fondo else {}
     try:
-        return OpenGLFrame(padre, width=ancho, height=alto, **extra)
+        return marco_gl.MarcoGL(padre, width=ancho, height=alto, **extra)
     except Exception as exc:  # noqa: BLE001 - sin GL no hay widget
         marcar_fallo(f"no se pudo crear el widget de OpenGL ({exc})")
         return None
@@ -244,7 +248,7 @@ def probar_a_fondo() -> int:
     print(f"Python:  {platform.python_version()}")
 
     faltan = []
-    for nombre in ("skia", "OpenGL.GL", "pyopengltk"):
+    for nombre in ("skia", "OpenGL.GL"):
         try:
             __import__(nombre)
             print(f"  ok    import {nombre}")
@@ -255,6 +259,18 @@ def probar_a_fondo() -> int:
         print(f"\nNo estan instaladas: {', '.join(faltan)}")
         print("Es un resultado valido: sin ellas Eve usa Pillow y anda igual.")
         return 1
+
+    from . import marco_gl
+
+    puede, motivo = marco_gl.se_puede()
+    print(f"  {'ok   ' if puede else 'NO   '} contexto en este sistema"
+          f"{'' if puede else ': ' + motivo}")
+    if not puede:
+        print()
+        print(motivo)
+        print("Es un resultado valido: Eve dibuja con Pillow, que anda en los "
+              "cinco sistemas.")
+        return 6
 
     import tkinter as tk
 
