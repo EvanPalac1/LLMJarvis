@@ -4883,6 +4883,136 @@ def test_listar_y_buscar_no_salen_de_lo_permitido():
     _corral_de_config(cuerpo)
 
 
+def test_un_motor_roto_no_impide_abrir_eve():
+    """Eve arranca aunque el motor no se pueda armar, y dice que le falta.
+
+    Era el peor modo de falla que tuvo el programa: `Listener.__init__`
+    propagaba el RuntimeError, `main` lo atrapaba y se iba con codigo 1, o sea
+    que NADA abria --ni la bandeja, ni la tecla, ni el panel-- por algo que el
+    resto del programa no necesita. Y la unica forma de arreglarlo era el panel,
+    que era justo lo que tampoco abria.
+
+    Peor todavia: el motor que fallaba no tenia por que ser el que usabas.
+    Alcanzaba con que `engine` hubiera quedado en `ollama` para que un Ollama
+    apagado --o con otro modelo bajado-- dejara sin abrir a alguien que solo
+    queria usar su API key o la sesion del CLI.
+    """
+    import importlib
+
+    from eve import listener as lis_mod
+
+    # Recargado ANTES y despues. Cinco tests de esta suite reemplazan
+    # `Listener._build_engine` en la CLASE y no lo restauran, asi que para
+    # cuando llega este --los tests corren en orden alfabetico, no de
+    # definicion-- el metodo puede ser un lambda que devuelve None o un
+    # `object()`. Sin esto, este test no probaba lo que dice: pasaba o fallaba
+    # segun que otro test hubiera corrido antes.
+    lis_mod = importlib.reload(lis_mod)
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previos = (store.CONFIG_PATH, store.DB_PATH)
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        try:
+            # Un host donde no hay nada escuchando: el motor no se puede armar.
+            store.save_config({**store.DEFAULTS, "engine": "ollama",
+                               "ollama_host": "http://127.0.0.1:59997"})
+            lis = lis_mod.Listener(store.load_config())
+            assert lis.eve is None, "armo un motor que no existe"
+            assert lis.motor_error, "fallo sin decir por que"
+            assert "59997" in lis.motor_error, lis.motor_error
+            # Y quedo escrito, que es lo que permite diagnosticarlo despues.
+            assert any("NO DISPONIBLE" in str(f[3]) for f in store.recent_actions(5))
+
+            # Al hablarle, lo dice en vez de reventar en silencio.
+            dichos, vistas = [], []
+            lis.mostrar = lambda **kw: vistas.append(kw)
+            real_speak = lis_mod.voice.speak
+            lis_mod.voice.speak = lambda texto, cfg, **kw: dichos.append(texto)
+            try:
+                lis._sin_motor()
+            finally:
+                lis_mod.voice.speak = real_speak
+            assert dichos and "motor" in dichos[0].lower(), dichos
+            assert vistas and vistas[0].get("estado") == "error", vistas
+            # El detalle tecnico va a la PANTALLA y no a la voz: hablar una URL
+            # con puerto no se entiende, y leerla si.
+            assert "59997" in str(vistas[0].get("eve", "")), vistas
+            assert "59997" not in dichos[0], "hablo la URL"
+
+            # Y se reintenta solo: lo que falla suele ser algo de afuera que se
+            # arregla sin tocar ningun ajuste, y si no, habria que reiniciar.
+            store.save_config({**store.load_config(), "engine": "claude-code"})
+            lis.cfg = store.load_config()
+            hubo = []
+            lis_mod.armar_motor = lambda cfg, **kw: hubo.append(1) or "un-motor"
+            assert lis._motor() == "un-motor", "no reintento"
+            assert lis.motor_error == "", "quedo el error viejo puesto"
+
+            # `main` NO se va cuando esto pasa. Se comprueba sobre el codigo
+            # porque arrancar de verdad abre ventanas: lo que importa es que la
+            # rama del motor roto ya no tenga una salida con error.
+            raiz_repo = os.path.dirname(os.path.abspath(__file__))
+            fuente = open(os.path.join(raiz_repo, "main.py"), encoding="utf-8").read()
+            i = fuente.index("motor_error")
+            j = fuente.index("overlay.asegurar", i)
+            assert "return 1" not in fuente[i:j], \
+                "main todavia se va cuando el motor no esta"
+        finally:
+            store.CONFIG_PATH, store.DB_PATH = previos
+            importlib.reload(lis_mod)
+
+
+def test_ollama_no_exige_un_modelo_en_particular():
+    """Teniendo modelos bajados, usa uno; no se planta por el nombre.
+
+    `qwen3:8b` es el default de fabrica, o sea un nombre que el usuario nunca
+    eligio. Negarse con "no tengo qwen3:8b" teniendo un Ollama sano y con
+    modelos adentro es negarse por un detalle que a nadie le importa. El que
+    quiera uno exacto lo escribe en el panel, y ahi si manda: entonces es una
+    eleccion y no un default que quedo puesto.
+    """
+    from eve import ollama_engine
+
+    class Falsa:
+        def __init__(self, modelos):
+            self.modelos = modelos
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"models": [{"name": m} for m in self.modelos]}
+
+    real = ollama_engine.requests.get
+    try:
+        for instalados, pedido, espera in (
+            (["gemma4:latest"], "qwen3:8b", "gemma4:latest"),   # el caso real
+            (["qwen3:8b", "otro"], "qwen3:8b", "qwen3:8b"),     # el pedido gana
+            (["qwen3:8b"], "qwen3", "qwen3:8b"),                # prefijo + tag
+            # Y una variante que NO es prefijo --`qwen3:8b-q4` no empieza con
+            # `qwen3:8b:`-- cae al respaldo y usa la que hay, que es lo que se
+            # quiere: tener la q4 bajada y que se niegue por el nombre exacto
+            # seria el mismo problema otra vez.
+            (["qwen3:8b-q4"], "qwen3:8b", "qwen3:8b-q4"),
+        ):
+            ollama_engine.requests.get = lambda *a, **k: Falsa(instalados)
+            eve = ollama_engine.OllamaEve.__new__(ollama_engine.OllamaEve)
+            eve.host, eve.modelo = "http://x", pedido
+            ok, dicho = eve.comprobar()
+            assert ok, dicho
+            assert eve.modelo == espera, (instalados, pedido, eve.modelo)
+
+        # Sin NINGUN modelo si se planta: ahi no hay con que contestar.
+        ollama_engine.requests.get = lambda *a, **k: Falsa([])
+        eve = ollama_engine.OllamaEve.__new__(ollama_engine.OllamaEve)
+        eve.host, eve.modelo = "http://x", "qwen3:8b"
+        ok, dicho = eve.comprobar()
+        assert not ok and "ningun modelo" in dicho, dicho
+    finally:
+        ollama_engine.requests.get = real
+
+
 def test_monitores():
     """Enumerar pantallas, que tkinter no sabe hacer en ningun sistema.
 
@@ -6207,10 +6337,15 @@ def test_un_motor_mal_configurado_no_deja_ventanas_huerfanas():
 
     # Y que esa rama no se vaya muda: tiene que avisar Y dejar rastro. El `print`
     # no cuenta -- `Eve.exe` se arma windowed y no tiene stdout por ningun lado.
-    rama = fuente[fuente.index("except RuntimeError as exc:"):]
+    rama = fuente[fuente.index("motor_error"):]
     rama = rama[:rama.index("overlay.asegurar")]
     assert "plataforma.avisar" in rama, "el error de arranque no se ve"
     assert "log_action" in rama, "el error de arranque no queda escrito"
+    # Pero avisar NO es irse. El orden de arriba existe para no dejar ventanas
+    # huerfanas cuando Eve se va; la respuesta correcta a un motor que no anda
+    # es no irse: sin motor Eve igual tiene bandeja, tecla y panel, y el panel
+    # es justo lo que hace falta para arreglarlo.
+    assert "return 1" not in rama, "un motor que no anda todavia impide abrir"
 
 
 def test_sin_gpu_el_motor_de_dibujo_cae_a_pillow_y_lo_dice():

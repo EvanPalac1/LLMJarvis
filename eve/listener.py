@@ -10,6 +10,7 @@ import time
 import traceback
 
 from . import cc_engine, plataforma, store, voice
+from .textos import t as tr
 
 
 def _mtime(ruta: str) -> float:
@@ -107,7 +108,44 @@ class Listener:
                      detalle=self._con_cola(texto.upper().rstrip(". ")), nivel=0.12)
 
     def _build_engine(self):
-        return armar_motor(self.cfg, confirm=self._confirm, on_status=self._estado)
+        """El motor de la config, o None con el motivo guardado.
+
+        NO propaga el error, y esa es toda la diferencia entre "Eve no abre" y
+        "Eve abre y te dice que le falta". Antes esto reventaba hacia arriba,
+        `main` lo atrapaba y se iba con codigo 1: un Ollama apagado, un modelo
+        sin bajar o una key vencida y no arrancaba NADA --ni la bandeja, ni la
+        tecla, ni el panel-- aunque el resto del programa no necesita el motor
+        para nada. Y peor: el motor que fallaba podia ser uno que ni siquiera
+        estabas usando, porque basta con que `engine` haya quedado apuntando
+        ahi.
+
+        El error se guarda y se dice cuando de verdad hace falta, que es al
+        hablarle. Un asistente que no puede pensar todavia puede abrir su
+        panel para que lo arregles, y esa es justamente la ventana que hace
+        falta cuando el motor esta mal configurado.
+        """
+        self.motor_error = ""
+        try:
+            return armar_motor(self.cfg, confirm=self._confirm,
+                               on_status=self._estado)
+        except Exception as exc:  # noqa: BLE001 - ningun motor puede impedir abrir
+            self.motor_error = str(exc)
+            print(f"MOTOR NO DISPONIBLE: {exc}")
+            store.log_action("listener", f"motor {self.cfg.get('engine')}",
+                             f"NO DISPONIBLE: {str(exc)[:300]}")
+            return None
+
+    def _motor(self):
+        """El motor, reintentando armarlo si la vez pasada no se pudo.
+
+        Se reintenta aca y no solo al cambiar la config porque lo que falla
+        suele ser algo de AFUERA --Ollama que todavia no arranco, la red, el
+        CLI recien instalado-- y eso se arregla sin tocar ningun ajuste. Sin
+        el reintento habria que reiniciar Eve para algo que ya anda.
+        """
+        if self.eve is None:
+            self.eve = self._build_engine()
+        return self.eve
 
     def _confirm(self, reason: str, detail: str) -> bool:
         voice.speak(f"Necesito tu confirmacion. {reason}.", self.cfg)
@@ -227,7 +265,11 @@ class Listener:
             print(f"[usuario] {text}")
             self.mostrar(estado="pensando", detalle=self._con_cola("PENSANDO"),
                          usuario=text, eve="")
-            reply = self.eve.ask(text)
+            motor = self._motor()
+            if motor is None:
+                self._sin_motor()
+                return
+            reply = motor.ask(text)
             print(f"[{self.cfg['assistant_name']}] {reply}")
             self.mostrar(estado="hablando", detalle=self._con_cola("RESPONDIENDO"), eve="")
             voice.speak(
@@ -241,6 +283,18 @@ class Listener:
             store.log_action("listener", "procesar audio", f"ERROR: {exc}")
             self.mostrar(estado="error", detalle="ERROR", eve=str(exc)[:200], nivel=0.0)
             voice.speak("Tuve un error procesando eso.", self.cfg)
+
+    def _sin_motor(self) -> None:
+        """Que se entienda que falta configurar algo, y donde.
+
+        Por voz una frase corta --el detalle tecnico hablado no lo entiende
+        nadie-- y el detalle entero a la pantalla, que es donde se puede leer.
+        """
+        detalle = self.motor_error or tr("No hay ningun motor configurado.")
+        print(f"SIN MOTOR: {detalle}")
+        self.mostrar(estado="error", detalle=tr("SIN MOTOR"),
+                     eve=detalle[:300], nivel=0.0)
+        voice.speak(tr("No tengo motor configurado. Miralo en el panel."), self.cfg)
 
     def _on_event(self, nombre: str, tipo: str) -> None:
         if nombre != self.cfg["hotkey"]:

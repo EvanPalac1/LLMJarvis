@@ -67,12 +67,32 @@ class OllamaEve:
                 "y dejalo corriendo, o cambia el motor en el panel."
             )
         instalados = [m["name"] for m in r.json().get("models", [])]
-        if not any(m == self.modelo or m.startswith(self.modelo + ":") for m in instalados):
-            return False, (
-                f"Ollama anda pero no tiene '{self.modelo}'. Corre: ollama pull {self.modelo}\n"
-                f"Instalados: {', '.join(instalados) or 'ninguno'}"
-            )
-        return True, "ok"
+        exacto = next((m for m in instalados if m == self.modelo), "")
+        if exacto:
+            return True, "ok"
+        # Por prefijo se adopta el nombre COMPLETO del instalado. Antes esto
+        # devolvia "ok" y dejaba puesto el nombre sin tag: con `qwen3:8b`
+        # bajado y `qwen3` configurado, la comprobacion pasaba y despues cada
+        # pedido moria en un 404 del propio Ollama, o sea el peor reparto
+        # posible --el chequeo dice que si y el uso dice que no.
+        con_tag = next((m for m in instalados
+                        if m.startswith(self.modelo + ":")), "")
+        if con_tag:
+            self.modelo = con_tag
+            return True, "ok"
+        # El modelo pedido no esta, pero hay OTROS: se usa uno y se avisa, en
+        # vez de negarse. `qwen3:8b` es el default de fabrica, o sea un nombre
+        # que nadie eligio, y plantarse con "no tengo qwen3:8b" teniendo un
+        # Ollama sano con modelos bajados es negarse por un detalle que al
+        # usuario no le importa. El que quiera uno exacto lo pone en el panel,
+        # y ahi si manda: entonces si es una eleccion y no un default.
+        if instalados:
+            self.modelo = instalados[0]
+            return True, f"uso {self.modelo}, que el pedido no estaba"
+        return False, (
+            "Ollama anda pero no tiene ningun modelo bajado. Corre: "
+            f"ollama pull {self.modelo}"
+        )
 
     def reset_context(self) -> None:
         self.historial = []

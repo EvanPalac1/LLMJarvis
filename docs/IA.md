@@ -18,7 +18,7 @@ interfaz. Se elige en **Panel → General → Motor**.
 |---|---|---|---|
 | `api` | La API de Anthropic directo | `claude-opus-5` | Una clave |
 | `claude-code` | El CLI de Claude Code, con sus herramientas | `sonnet` | El CLI instalado |
-| `ollama` | Un modelo local | `qwen3:8b` | Ollama corriendo |
+| `ollama` | Un modelo local | el que tengas bajado | Ollama corriendo |
 | `compat` | Cualquier API estilo OpenAI | Gemini `gemini-flash-latest` | Una clave, o nada si es local |
 
 El motor `compat` trae presets para no ir a buscar la URL:
@@ -40,6 +40,27 @@ Podés arrancar con Ollama y seguir en la API sin repetir el contexto.
 
 Las claves **no se guardan en texto plano**. El botón de probar el motor recorre
 exactamente el mismo camino que el asistente: si el botón dice que anda, anda.
+
+**Un motor que no se puede armar NO impide que Eve abra.** Si Ollama está
+apagado, la key venció o el CLI no está logueado, Eve arranca igual: la tecla,
+el ícono de bandeja y el panel funcionan, te avisa qué le falta y te abre el
+panel para arreglarlo. Lo único que no va a poder es contestarte, y cuando le
+hablás te lo dice en vez de quedarse muda.
+
+Antes no: el motor se armaba en el arranque y si fallaba Eve se iba con error,
+o sea que **no abría nada** —ni siquiera la ventana que hacía falta para
+arreglarlo—. Y el motor que fallaba no tenía por qué ser el que usabas: bastaba
+con que `engine` hubiera quedado apuntando a Ollama para que alguien que solo
+quería su API key se quedara sin poder abrir. Además se reintenta solo, porque
+lo que falla suele ser algo de afuera —Ollama que todavía no arrancó, la red,
+el CLI recién instalado— y eso se arregla sin tocar ningún ajuste.
+
+**Y `ollama` no exige un modelo en particular.** Si el que dice la config no
+está pero hay otros bajados, usa uno. `qwen3:8b` es el valor de fábrica, o sea
+un nombre que nadie eligió, y plantarse con *"no tengo qwen3:8b"* teniendo un
+Ollama sano con modelos adentro es negarse por un detalle que al usuario no le
+importa. Si querés uno exacto, escribilo en el panel: ahí sí manda, porque
+entonces es una elección.
 
 ---
 

@@ -136,7 +136,8 @@ Los seis salen de `.github/workflows/release.yml`, que corre al empujar un tag `
 Una de estas tres:
 
 - **[Ollama](https://ollama.com)** corriendo con un modelo que soporte tools
-  (`ollama pull qwen3:8b`). Gratis, offline, sin cuenta.
+  (`ollama pull qwen3:8b`, o cualquier otro: usa el que tengas bajado).
+  Gratis, offline, sin cuenta.
 - **Suscripcion de Claude (Pro/Max)** con [Claude Code](https://claude.com/claude-code)
   instalado y logueado. Sin API key, sin tarjeta.
 - **API key de Anthropic**, que se carga en el panel (pestana Claves).
@@ -1719,7 +1720,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 145 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 147 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

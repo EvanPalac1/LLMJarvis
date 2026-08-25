@@ -385,27 +385,49 @@ def main() -> int:
     #
     # Se paga que el cartel tarde un poco mas en aparecer. Es barato al lado de
     # dejar dos ventanas sueltas cada vez que el motor no esta configurado.
-    try:
-        lis = listener_mod.Listener(cfg)
-    except RuntimeError as exc:
+    lis = listener_mod.Listener(cfg)
+    if getattr(lis, "motor_error", ""):
+        # Un motor que no se puede armar YA NO impide arrancar. Antes esto se
+        # iba con codigo 1 y no abria nada: ni bandeja, ni tecla, ni panel. O
+        # sea que un Ollama apagado --o un modelo sin bajar, o una key vencida,
+        # o el motor que ni siquiera estabas usando-- dejaba a Eve sin poder
+        # abrirse, y la unica forma de arreglarlo era la ventana que tampoco
+        # abria. Se avisa, se deja escrito, y se sigue: todo lo que no necesita
+        # el motor --que es casi todo-- funciona igual, y el panel esta ahi
+        # para arreglarlo. Al guardar, el listener rearma el motor solo.
+        #
         # `print` no alcanza: `Eve.exe` se arma windowed y no tiene stdout por
         # ningun camino. Este error tiene que VERSE y quedar ESCRITO. Que la
-        # unica rama que se va sin dejar rastro sea justamente la que falla es
-        # lo que hizo que esto se reportara tres veces sin poder diagnosticarse.
-        print(f"ERROR: {exc}")
+        # unica rama que falla fuera la unica sin rastro es lo que hizo que
+        # esto se reportara tres veces sin poder diagnosticarse.
+        print(f"MOTOR NO DISPONIBLE: {lis.motor_error}")
         from eve import plataforma
 
         try:
-            store.log_action("eve", "arranque-fallido", str(exc)[:300])
+            store.log_action("eve", "arranque-sin-motor", lis.motor_error[:300])
         except Exception:  # noqa: BLE001 - el log no puede tapar el error real
             pass
-        plataforma.avisar(
-            str(exc) + "\n\nAbro el panel para que lo configures.",
-            "Eve no pudo arrancar", error=True)
-        tray.open_panel()
-        return 1
+        # En un hilo, porque `avisar` BLOQUEA hasta que alguien apriete OK
+        # --en Windows es un MessageBoxW-- y eso dejaba la bandeja y la tecla
+        # esperando a que el usuario mirara la pantalla. Medido sobre el
+        # binario: el aviso quedo escrito a las 17:47:37 y la bandeja se armo
+        # a las 17:48:25, o sea 48 segundos en los que Eve, para el usuario,
+        # no existia. Arrancando desde la carpeta de Inicio es peor: el
+        # dialogo sale detras de lo que estes haciendo y la tecla no responde
+        # hasta que lo encuentres.
+        import threading
 
-    # Recien ahora, con el motor armado, se lanzan las ventanas hijas.
+        threading.Thread(
+            target=plataforma.avisar, daemon=True,
+            args=(lis.motor_error + chr(10) * 2 + "Eve abre igual: la tecla, "
+                  "la bandeja y el panel andan. Lo que no va a poder es "
+                  "contestarte hasta que elijas un motor que funcione."
+                  + chr(10) * 2 + "Te abri el panel.",
+                  "Eve arranco sin motor"),
+            kwargs={"error": False}).start()
+        tray.open_panel()
+
+    # Con el motor armado o sin el, se lanzan las ventanas hijas.
     from eve import overlay
 
     overlay.asegurar(cfg)  # corre aparte y se cierra solo cuando Eve sale
