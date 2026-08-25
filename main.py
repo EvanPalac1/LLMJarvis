@@ -325,6 +325,14 @@ def main() -> int:
         if flag == "--probar-imports":
             return _probar_imports()
 
+        if flag == "--probar-gpu":
+            # La puerta que le falta al motor por GPU: que ande en los CINCO
+            # objetivos. Vive aca y no en un script suelto para que CI lo corra
+            # igual que `--probar-imports`, sobre el binario si hace falta.
+            from eve import gpu
+
+            return gpu.probar_a_fondo()
+
         if flag == "--bench-dibujo":
             # Mide los dos motores de dibujo sobre la misma escena, adentro de
             # Eve. Vive aca y no en un script suelto porque los bancos sueltos

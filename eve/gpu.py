@@ -186,3 +186,107 @@ def fps_tope(cfg: dict) -> int:
     # entra treinta veces en el cuadro, asi que se duplica: el limite pasa a ser
     # la pantalla y no el motor.
     return plataforma.fps_sugerido() * 2
+
+
+def probar_a_fondo() -> int:
+    """Comprueba el camino de GPU de punta a punta. Devuelve 0 si sirve.
+
+    Lo corre CI en los cinco objetivos, que es la puerta que le falta a este
+    modulo para poder entrar al instalador. No alcanza con que las tres
+    librerias importen: `pyopengltk` crea el contexto de forma distinta en cada
+    sistema, y en un runner sin pantalla puede importar perfecto y no dibujar.
+
+    Por eso se llega hasta el final: se abre una ventana, se crea el contexto,
+    se arma la superficie, se dibuja un modulo de verdad y SE MIRAN LOS PIXELES.
+    Un "anduvo" que no comprobo que algo se dibujara no comprueba nada -- es
+    exactamente el error que ya se cometio en este proyecto con la sonda del
+    menu de la bandeja.
+    """
+    import platform
+
+    print(f"Sistema: {platform.system()} {platform.machine()}")
+    print(f"Python:  {platform.python_version()}")
+
+    faltan = []
+    for nombre in ("skia", "OpenGL.GL", "pyopengltk"):
+        try:
+            __import__(nombre)
+            print(f"  ok    import {nombre}")
+        except ImportError as exc:
+            print(f"  FALTA import {nombre}: {exc}")
+            faltan.append(nombre)
+    if faltan:
+        print(f"\nNo estan instaladas: {', '.join(faltan)}")
+        print("Es un resultado valido: sin ellas Eve usa Pillow y anda igual.")
+        return 1
+
+    import tkinter as tk
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError as exc:
+        print(f"\nSin pantalla: {exc}")
+        print("No concluyente: hace falta un servidor grafico para decidir.")
+        return 2
+
+    ancho, alto = 320, 240
+    resultado = {"codigo": 3, "dicho": "el widget no llego a dibujar"}
+    try:
+        raiz.geometry(f"{ancho}x{alto}")
+        marco_gl = marco(raiz, ancho, alto)
+        if marco_gl is None:
+            print("\nNo se pudo crear el widget de OpenGL.")
+            return 3
+        marco_gl.pack(fill="both", expand=True)
+        estado = {}
+
+        def initgl():
+            if "sup" in estado:
+                return
+            estado["sup"] = Superficie(ancho, alto)
+
+        def redraw():
+            if "sup" not in estado or resultado["codigo"] != 3:
+                return
+            sup = estado["sup"]
+            from . import lienzo_skia
+
+            sup.limpiar((0, 0, 0, 255))
+            modulo = {"id": "p", "tipo": "onda", "estilo": "barras",
+                      "muestras": 16, "opacidad": 100, "color": "texto"}
+            # Muestras al tope: las barras tienen que llenar el alto, asi que
+            # un pixel claro abajo al medio es prueba de que dibujo.
+            lienzo_skia.pintar_onda(sup, modulo, {"onda": [1.0] * 16}, 0.0,
+                                    ancho, alto, (255, 255, 255, 255))
+            sup.presentar()
+            px = sup.superficie.toarray(
+                colorType=sup.skia.kRGBA_8888_ColorType)
+            claros = int((px[..., 0] > 200).sum())
+            if claros > 100:
+                resultado.update(codigo=0,
+                                 dicho=f"dibujo {claros} pixeles claros")
+            else:
+                resultado.update(codigo=4,
+                                 dicho=f"la superficie salio vacia ({claros})")
+            raiz.quit()
+
+        marco_gl.initgl = initgl
+        marco_gl.redraw = redraw
+        marco_gl.animate = 0
+        marco_gl.after(80, marco_gl.tkExpose, None)
+        # Un tope de tiempo: si el contexto no se arma, `mainloop` esperaria
+        # para siempre y CI se quedaria colgado en vez de dar un resultado.
+        raiz.after(15000, raiz.quit)
+        raiz.mainloop()
+    except Exception as exc:  # noqa: BLE001 - cualquier falla es un resultado
+        print(f"\nFallo armando el camino: {type(exc).__name__}: {exc}")
+        return 5
+    finally:
+        try:
+            raiz.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+
+    print(f"\n{'SIRVE' if resultado['codigo'] == 0 else 'NO SIRVE'}: "
+          f"{resultado['dicho']}")
+    return resultado["codigo"]

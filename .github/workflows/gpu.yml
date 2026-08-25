@@ -1,0 +1,98 @@
+name: Motor de dibujo por GPU
+
+# La puerta que le falta a `eve/gpu.py` para poder entrar al instalador: que el
+# camino de Skia ande en los CINCO objetivos. Hoy solo esta probado en Windows,
+# y por eso las tres dependencias van comentadas en requirements.txt.
+#
+# Va en su propio workflow y no adentro de Release por dos motivos: no puede
+# frenar una release --el motor es opcional y Eve anda sin el-- y se corre a
+# mano cuando hace falta decidir, no en cada tag.
+#
+# Lo que decide NO es que las librerias importen. `pyopengltk` crea el contexto
+# de forma distinta en cada sistema, asi que `--probar-gpu` llega hasta el
+# final: abre ventana, arma el contexto, dibuja un modulo de verdad y cuenta los
+# pixeles. Un "anduvo" que no comprobo que algo se dibujara no comprueba nada.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "eve/gpu.py"
+      - "eve/lienzo_skia.py"
+      - ".github/workflows/gpu.yml"
+
+jobs:
+  probar:
+    name: ${{ matrix.nombre }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false   # un objetivo que falla no puede tapar a los otros
+      matrix:
+        include:
+          - nombre: Windows x64
+            runner: windows-latest
+          - nombre: macOS Intel
+            runner: macos-15-intel
+          - nombre: macOS Apple Silicon
+            runner: macos-14
+          - nombre: Linux x64
+            runner: ubuntu-latest
+          - nombre: Linux ARM64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # tkinter no viene en los runners de Linux, y OpenGL necesita mesa. `xvfb`
+      # da la pantalla virtual: sin ella `tk.Tk()` tira TclError y el resultado
+      # seria "no concluyente" en vez de un si o un no.
+      - name: Dependencias del sistema (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            python3-tk xvfb libgl1 libglu1-mesa libglx-mesa0 mesa-utils
+
+      - name: Las tres librerias del motor por GPU
+        id: instalar
+        continue-on-error: true   # que no publiquen rueda TAMBIEN es el resultado
+        run: python -m pip install --upgrade pip skia-python PyOpenGL pyopengltk numpy pillow
+
+      - name: Hubo ruedas para este objetivo?
+        run: |
+          echo "instalacion: ${{ steps.instalar.outcome }}"
+          python -c "import platform; print(platform.system(), platform.machine())"
+
+      - name: Probar el camino entero
+        id: probar
+        continue-on-error: true   # un "no sirve" es un resultado, no un error
+        run: python main.py --probar-gpu
+
+      - name: Probar el camino entero (Linux, con pantalla virtual)
+        # En Linux el paso de arriba da 2 (sin pantalla) porque el runner no
+        # tiene servidor grafico. `xvfb-run` le pone uno, y recien ahi el
+        # resultado distingue "no anda" de "no habia donde probarlo".
+        if: runner.os == 'Linux'
+        id: probar_x
+        continue-on-error: true
+        run: xvfb-run -a --server-args="-screen 0 1280x1024x24" python main.py --probar-gpu
+
+      - name: Resultado
+        run: |
+          echo "=================================================="
+          echo "objetivo:     ${{ matrix.nombre }}"
+          echo "instalacion:  ${{ steps.instalar.outcome }}"
+          echo "prueba:       ${{ steps.probar.outcome }}"
+          echo "prueba xvfb:  ${{ steps.probar_x.outcome }}"
+          echo "=================================================="
+          echo "Codigos de --probar-gpu:"
+          echo "  0 = sirve, dibujo pixeles de verdad"
+          echo "  1 = faltan librerias (no publican para este objetivo)"
+          echo "  2 = sin pantalla, no concluyente"
+          echo "  3 = no se pudo crear el widget de OpenGL"
+          echo "  4 = la superficie salio vacia"
+          echo "  5 = fallo armando el camino"
