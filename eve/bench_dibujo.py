@@ -77,11 +77,6 @@ def _medir(motor: str, cuantas_particulas: int) -> tuple[float, float] | None:
     if motor == "skia":
         from .lienzo_skia import LienzoSkia
 
-        marco = gpu.marco(raiz, ANCHO, ALTO)
-        if marco is None:
-            raiz.destroy()
-            return None
-        marco.pack(fill="both", expand=True)
         estado_local = {"pintor": None, "n": 0}
         paleta = tema.resolver(cfg, "hud")
 
@@ -105,8 +100,14 @@ def _medir(motor: str, cuantas_particulas: int) -> tuple[float, float] | None:
             if estado_local["n"] >= CUADROS + CALENTAR:
                 raiz.quit()
 
-        marco.initgl = initgl
-        marco.redraw = redraw
+        # Al constructor, no como atributos despues: asignarlas tarde es una
+        # carrera contra los eventos de Tk. Ver `marco_gl.MarcoGL`.
+        marco = gpu.marco(raiz, ANCHO, ALTO, al_iniciar=initgl,
+                          al_dibujar=redraw)
+        if marco is None:
+            raiz.destroy()
+            return None
+        marco.pack(fill="both", expand=True)
         marco.animate = 1
         marco.after(50, marco.tkExpose, None)
         raiz.mainloop()

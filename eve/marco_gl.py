@@ -45,18 +45,34 @@ class SinContexto(RuntimeError):
 class MarcoGL(tk.Frame):
     """Un `tk.Frame` que expone un contexto de OpenGL activo.
 
-    Quien lo usa implementa dos metodos: `initgl` --una vez, con el contexto ya
-    activo-- y `redraw` --cada cuadro. Es la misma forma que tenia `pyopengltk`,
-    a proposito: el codigo que ya estaba escrito contra esa interfaz no cambia.
+    Las dos funciones que hacen el trabajo --`al_iniciar`, una vez con el
+    contexto activo, y `al_dibujar`, cada cuadro-- SE PASAN AL CONSTRUCTOR.
+
+    `pyopengltk` las tomaba asignandolas como atributos despues de construir, y
+    esa interfaz tiene una carrera que no se puede cerrar desde adentro: el
+    widget no puede saber cuando quien lo usa termino de configurarlo. Si un
+    `<Map>` o un `<Expose>` llegan antes de la asignacion --y `raiz.update()`
+    dispara los dos-- corre el `initgl` vacio, el contexto queda marcado como
+    listo, y el de verdad no corre nunca. La ventana queda negra SIN UN SOLO
+    ERROR, y depende del tiempo: en mi maquina andaba y en el runner de Windows
+    no. Primero intente moverla de `<Map>` a `<Expose>` y solo la cambie de
+    lugar; la unica salida es que el widget nazca sabiendo que dibujar.
+
+    Un subclase puede seguir redefiniendo `initgl` y `redraw`, que es lo que
+    hace el test: ahi no hay carrera porque los metodos existen antes de que el
+    widget exista.
     """
 
-    def __init__(self, padre=None, **kw):
+    def __init__(self, padre=None, al_iniciar=None, al_dibujar=None, **kw):
         # Fondo vacio: sin esto Tk pinta encima del contenido de GL y parpadea.
         kw["bg"] = ""
+        self._al_iniciar = al_iniciar
+        self._al_dibujar = al_dibujar
         super().__init__(padre, **kw)
         self.animate = 0          # ms entre cuadros; 0 = solo cuando se pide
         self._pendiente = None
         self._hay_contexto = False
+        self._inicializado = False
         self.bind("<Map>", self._al_mostrarse)
         self.bind("<Configure>", self._al_redimensionar)
         self.bind("<Expose>", self.tkExpose)
@@ -65,22 +81,44 @@ class MarcoGL(tk.Frame):
 
     def initgl(self) -> None:
         """Se llama una vez, con el contexto ya activo."""
+        if self._al_iniciar:
+            self._al_iniciar()
 
     def redraw(self) -> None:
         """Se llama en cada cuadro, con el contexto ya activo."""
+        if self._al_dibujar:
+            self._al_dibujar()
 
     # -- el ciclo ------------------------------------------------------------
 
     def _al_mostrarse(self, _evento=None) -> None:
+        """Solo anota el id. El contexto se arma cuando toca dibujar.
+
+        Armarlo aca era una CARRERA, y la encontro CI. Quien usa este widget
+        asigna `initgl` y `redraw` despues de construirlo --que es lo natural--
+        y si `<Map>` llegaba antes de esa asignacion corria el `initgl` vacio de
+        la clase, el contexto quedaba marcado como listo, y el `initgl` de
+        verdad no corria nunca. La ventana se quedaba negra sin un solo error.
+
+        En esta maquina el tiempo daba bien y en el runner de Windows no, que es
+        la peor version: anda donde lo probas y falla donde no mirás. Moverlo al
+        primer dibujo saca la carrera de raiz, porque para entonces quien lo usa
+        ya asigno lo suyo.
+        """
         self._wid = self.winfo_id()
+
+    def _asegurar_contexto(self) -> None:
         if not self._hay_contexto:
+            self._wid = self.winfo_id()
             self.tkCreateContext()
             self._hay_contexto = True
+        if not self._inicializado:
+            self._inicializado = True
             self.initgl()
 
     def _al_redimensionar(self, evento) -> None:
         self.width, self.height = evento.width, evento.height
-        if self._hay_contexto and self.winfo_ismapped():
+        if self._inicializado and self.winfo_ismapped():
             from OpenGL import GL
 
             self.tkMakeCurrent()
@@ -92,9 +130,8 @@ class MarcoGL(tk.Frame):
         if self._pendiente is not None:
             self.after_cancel(self._pendiente)
             self._pendiente = None
-        if not self._hay_contexto:
-            self._al_mostrarse()
         self.update_idletasks()
+        self._asegurar_contexto()
         self.tkMakeCurrent()
         self.redraw()
         self.tkSwapBuffers()

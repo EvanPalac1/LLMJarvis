@@ -194,7 +194,8 @@ class Superficie:
         return self.skia.Paint(Color=self.color(rgba), AntiAlias=suavizado)
 
 
-def marco(padre, ancho: int, alto: int, fondo: str = ""):
+def marco(padre, ancho: int, alto: int, fondo: str = "",
+          al_iniciar=None, al_dibujar=None):
     """El widget que hospeda el contexto. Devuelve None si no se puede.
 
     Se separa de `Superficie` porque el widget lo crea tkinter y la superficie
@@ -207,7 +208,9 @@ def marco(padre, ancho: int, alto: int, fondo: str = ""):
 
     extra = {"bg": fondo} if fondo else {}
     try:
-        return marco_gl.MarcoGL(padre, width=ancho, height=alto, **extra)
+        return marco_gl.MarcoGL(padre, al_iniciar=al_iniciar,
+                                al_dibujar=al_dibujar,
+                                width=ancho, height=alto, **extra)
     except Exception as exc:  # noqa: BLE001 - sin GL no hay widget
         marcar_fallo(f"no se pudo crear el widget de OpenGL ({exc})")
         return None
@@ -285,11 +288,6 @@ def probar_a_fondo() -> int:
     resultado = {"codigo": 3, "dicho": "el widget no llego a dibujar"}
     try:
         raiz.geometry(f"{ancho}x{alto}")
-        marco_gl = marco(raiz, ancho, alto)
-        if marco_gl is None:
-            print("\nNo se pudo crear el widget de OpenGL.")
-            return 3
-        marco_gl.pack(fill="both", expand=True)
         estado = {}
 
         def initgl():
@@ -322,8 +320,16 @@ def probar_a_fondo() -> int:
                                  dicho=f"la superficie salio vacia ({claros})")
             raiz.quit()
 
-        marco_gl.initgl = initgl
-        marco_gl.redraw = redraw
+        # Las dos funciones van AL CONSTRUCTOR y no como atributos despues:
+        # asignarlas tarde es una carrera contra `<Map>` y `<Expose>`, y CI la
+        # encontro. Ver `marco_gl.MarcoGL`.
+        marco_gl = marco(raiz, ancho, alto, al_iniciar=initgl,
+                         al_dibujar=redraw)
+        if marco_gl is None:
+            print()
+            print("No se pudo crear el widget de OpenGL.")
+            return 3
+        marco_gl.pack(fill="both", expand=True)
         marco_gl.animate = 0
         marco_gl.after(80, marco_gl.tkExpose, None)
         # Un tope de tiempo: si el contexto no se arma, `mainloop` esperaria

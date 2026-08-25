@@ -5950,6 +5950,120 @@ def test_el_widget_de_opengl_es_nuestro_y_dice_donde_no_puede():
             assert "macOS" in str(exc)
 
 
+def test_el_marco_gl_recibe_sus_funciones_al_construirse():
+    """La carrera que encontro CI, cerrada en la API en vez de en el timing.
+
+    `pyopengltk` tomaba las dos funciones asignandolas como atributos DESPUES de
+    construir el widget. Eso tiene una carrera que no se puede cerrar desde
+    adentro: el widget no sabe cuando quien lo usa termino de configurarlo, y si
+    un `<Map>` o un `<Expose>` llegan antes --y `raiz.update()` dispara los
+    dos-- corre el `initgl` vacio, el contexto queda marcado como listo, y el de
+    verdad no corre nunca. La ventana queda negra SIN UN SOLO ERROR.
+
+    Lo peor es que dependia del tiempo: en la maquina de desarrollo andaba y en
+    el runner de Windows no. Primero intente moverla de `<Map>` a `<Expose>` y
+    solo la cambie de lugar; el test seguia rojo, que es exactamente para lo que
+    sirve.
+
+    Aca se comprueba el contrato nuevo: las funciones van al constructor, corren
+    igual aunque los eventos ya hayan pasado, y `initgl` corre UNA sola vez.
+    """
+    import tkinter as tk
+
+    from eve import marco_gl
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        print("    (salteado: sin pantalla)")
+        return
+
+    corrio = {"init": 0, "draw": 0}
+
+    class Fingido(marco_gl.MarcoGL):
+        """Sin GL de verdad: interesa quien llama a que, y cuando."""
+
+        def tkCreateContext(self):
+            self.creado = True
+
+        def tkMakeCurrent(self):
+            pass
+
+        def tkSwapBuffers(self):
+            pass
+
+    try:
+        raiz.geometry("120x80")
+        w = Fingido(raiz,
+                    al_iniciar=lambda: corrio.__setitem__("init", corrio["init"] + 1),
+                    al_dibujar=lambda: corrio.__setitem__("draw", corrio["draw"] + 1),
+                    width=120, height=80)
+        w.pack()
+        raiz.update()          # dispara <Map> y <Expose> de una
+
+        w.tkExpose()
+        assert corrio["init"] == 1, (
+            f"initgl corrio {corrio['init']} veces: con 0 la ventana queda "
+            "negra sin ningun error, y con mas de 1 se rearma la superficie "
+            "en cada cuadro")
+        assert corrio["draw"] >= 1, "no dibujo"
+
+        # Y que no se re-inicialice: rearmar la superficie treinta veces por
+        # segundo seria el otro extremo del mismo error.
+        antes = corrio["draw"]
+        w.tkExpose()
+        w.tkExpose()
+        assert corrio["init"] == 1, f"initgl corrio {corrio['init']} veces"
+        assert corrio["draw"] == antes + 2, "no dibujo los dos cuadros"
+    finally:
+        raiz.destroy()
+
+
+def test_el_widget_de_opengl_es_nuestro_y_dice_donde_no_puede():
+    """`pyopengltk` afuera: CI la probo y en macOS ni importa.
+
+    Su `darwin.py` tiene una linea que dice "Currently not implemented" y el
+    import de darwin esta comentado en su `__init__`. El error que daba Python
+    --"most likely due to a circular import"-- era una adivinanza equivocada que
+    mando a buscar el problema al lado que no era.
+
+    Lo que queda comprobado aca no es que ande --eso lo mide `--probar-gpu` en
+    los cinco objetivos-- sino que este modulo diga la verdad sobre donde puede
+    y donde no, sin abrir ninguna ventana.
+    """
+    from eve import gpu, marco_gl
+
+    # Que no haya vuelto por la ventana.
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    for archivo in ("eve/gpu.py", "eve/marco_gl.py"):
+        with open(os.path.join(raiz, archivo), encoding="utf-8") as f:
+            texto = f.read()
+        assert "import pyopengltk" not in texto, (
+            f"{archivo} volvio a importar pyopengltk")
+
+    puede, motivo = marco_gl.se_puede()
+    assert isinstance(puede, bool) and isinstance(motivo, str)
+    assert puede or motivo, "dice que no puede y no dice por que"
+
+    if sys.platform == "darwin":
+        assert not puede, "macOS no puede tener contexto GL dentro de Tk"
+        assert "macOS" in motivo
+        # Y que la capa de arriba lo respete en vez de intentarlo igual.
+        gpu.olvidar()
+        assert gpu.elegido({"motor_dibujo": "skia"}) == "pillow"
+        gpu.olvidar()
+
+    # `tkCreateContext` en macOS tiene que EXPLICAR, no reventar con un
+    # AttributeError adentro de ctypes.
+    if sys.platform == "darwin":
+        marco = marco_gl.MarcoGL.__new__(marco_gl.MarcoGL)
+        try:
+            marco.tkCreateContext()
+            raise AssertionError("no aviso que no se puede")
+        except marco_gl.SinContexto as exc:
+            assert "macOS" in str(exc)
+
+
 if __name__ == "__main__":
     _CORRAL = _corral()
     fallo = ""
