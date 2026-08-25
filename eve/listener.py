@@ -54,6 +54,10 @@ class Listener:
     def __init__(self, cfg: dict):
         self.cfg = cfg
         self.paused = False
+        # El ultimo perfil que aplicaron las reglas de contexto. Arranca con el
+        # que ya estaba puesto: si al abrir Eve ya estabas en Discord y la regla
+        # dice `discord=gaming`, no tiene sentido re-aplicar lo que ya rige.
+        self._perfil_contextual = str(cfg.get("perfil_activo", "") or "")
         # La escucha continua, si el usuario la prendio. None = apagada.
         self.escucha = None
         self.recorder = voice.Recorder()
@@ -338,6 +342,7 @@ class Listener:
                 # asistente esta vivo, sin tener que preguntarle al SO.
                 store.latir({"motor": self.cfg.get("engine"), "tecla": self.cfg.get("hotkey"),
                              "pausado": self.paused})
+                self._perfil_del_contexto()
                 time.sleep(2)
                 actual = _mtime(store.CONFIG_PATH)
                 if actual == ultimo:
@@ -364,6 +369,40 @@ class Listener:
                     store.log_action("listener", "recarga automatica", f"ERROR: {exc}")
 
         threading.Thread(target=bucle, daemon=True).start()
+
+    def _perfil_del_contexto(self) -> None:
+        """Aplica el perfil que pide la hora o el programa en foco, si cambio.
+
+        Se engancha al bucle que ya vigila la config y ya late: agregar un hilo
+        propio para esto seria un hilo mas para hacer lo que este ya hace cada
+        dos segundos.
+
+        No hace falta ningun canal nuevo: `aplicar_perfil` escribe config.json,
+        y el vigilante de mtime que esta cinco lineas mas abajo lo recarga solo,
+        con el cartel y la ventana de actividad incluidos.
+
+        **Solo actua cuando el RESULTADO de las reglas cambia**, y eso es lo que
+        lo separa de una app poseida. Si mientras estas en Discord movés un
+        color a mano, la regla `discord=gaming` no te lo va a volver a pisar en
+        el proximo tick: ya aplico `gaming` y sigue aplicando `gaming`. Recien
+        cuando cambies de programa o de hora vuelve a tocar algo. Es la misma
+        regla que el modo `auto` de sensibilidad, donde una eleccion a mano no
+        la pisa el reloj.
+        """
+        try:
+            quiere = store.perfil_por_contexto(self.cfg)
+        except Exception:  # noqa: BLE001 - el vigilante no puede morir por esto
+            return
+        if not quiere or quiere == self._perfil_contextual:
+            return
+        try:
+            store.aplicar_perfil(quiere)
+            self._perfil_contextual = quiere
+            print(f"[perfil por contexto: {quiere}]")
+            store.log_action("listener", f"perfil {quiere}", "por contexto")
+        except Exception as exc:  # noqa: BLE001 - un perfil borrado no puede
+            self._perfil_contextual = quiere   # no reintentar en cada tick
+            store.log_action("listener", f"perfil {quiere}", f"ERROR: {exc}")
 
     def restart(self, nueva: dict | None = None) -> None:
         """Relee config.json y rearma lo que haga falta.

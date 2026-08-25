@@ -6175,6 +6175,116 @@ def test_el_readme_dice_la_version_real_de_lo_que_es_gpl():
         "falta de donde sacar el fuente de Eve")
 
 
+def test_perfiles_por_contexto_eligen_bien():
+    """Las reglas: hora o programa en foco, y la primera que entra gana.
+
+    La sintaxis es la MISMA que las reglas de horario del reconocedor, y el
+    parser tambien --`store.rango_horario`-- a proposito: dos parsers con la
+    misma forma serian dos comportamientos, y el usuario no tiene por que saber
+    cual esta escribiendo.
+    """
+    import datetime
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.PERFILES_PATH
+        store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+        try:
+            base = dict(store.DEFAULTS)
+            store.guardar_perfil("noche", base)
+            store.guardar_perfil("gaming", base)
+            cfg = dict(base)
+            cfg["perfil_reglas"] = "22:00-06:00=noche, discord=gaming"
+            noche = datetime.datetime(2026, 1, 1, 23, 30)
+            dia = datetime.datetime(2026, 1, 1, 15, 0)
+
+            def cual(cuando, app):
+                return store.perfil_por_contexto(cfg, ahora=cuando, app=app)
+
+            assert cual(noche, "chrome") == "noche", "la hora no entro"
+            assert cual(dia, "discord") == "gaming", "el programa no entro"
+            # Por pedazo y no exacto: el usuario escribe `discord` y el proceso
+            # puede llamarse `Discord.exe`. Exigir el nombre exacto seria
+            # pedirle que abra el administrador de tareas.
+            assert cual(dia, "Discord.exe") == "gaming"
+            assert cual(dia, "discordptb") == "gaming"
+            assert cual(dia, "chrome") == "", "entro una regla que no debia"
+
+            # No saber que hay en foco NO es lo mismo que no haber nada: ahi no
+            # se aplica ninguna regla de programa.
+            assert cual(dia, "") == ""
+
+            # Gana la PRIMERA que entra, que es lo que hace que el orden del
+            # usuario sea su orden de prioridad.
+            cfg["perfil_reglas"] = "discord=gaming, 22:00-06:00=noche"
+            assert cual(noche, "discord") == "gaming", "no gano la primera"
+
+            # Nada de esto puede tumbar el arranque: ni un perfil borrado ni una
+            # regla mal escrita.
+            cfg["perfil_reglas"] = "noexiste=fantasma, discord=gaming"
+            assert cual(dia, "discord") == "gaming", "un perfil borrado rompio"
+            cfg["perfil_reglas"] = "basura sin igual, discord=gaming"
+            assert cual(dia, "discord") == "gaming", "una regla rota rompio"
+            cfg["perfil_reglas"] = ""
+            assert cual(noche, "discord") == "", "sin reglas igual hizo algo"
+        finally:
+            store.PERFILES_PATH = real
+
+
+def test_el_perfil_por_contexto_no_pisa_lo_que_tocaste_a_mano():
+    """Lo que separa esto de una app poseida, y es la mitad de la funcion.
+
+    Solo actua cuando el RESULTADO de las reglas CAMBIA. Si mientras estas en
+    Discord movés un color a mano, la regla `discord=gaming` no te lo vuelve a
+    pisar en el proximo tick: ya aplico `gaming` y sigue aplicando `gaming`.
+    Recien cuando cambies de programa o de hora vuelve a tocar algo.
+
+    Es la misma regla que el modo `auto` de sensibilidad, donde una eleccion a
+    mano no la pisa el reloj. Sin esto la funcion seria un ajuste que te pelea.
+    """
+    from eve import listener as listener_mod, plataforma
+
+    with tempfile.TemporaryDirectory() as raiz:
+        reales = (store.CONFIG_PATH, store.PERFILES_PATH, plataforma.app_en_foco)
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+        plataforma.app_en_foco = lambda: "discord"
+        try:
+            base = dict(store.DEFAULTS)
+            base["hud_forma"] = "caja"
+            store.save_config(base)
+            store.guardar_perfil("gaming", {**base, "hud_forma": "circulo"})
+            cfg = store.load_config()
+            cfg["perfil_reglas"] = "discord=gaming"
+            store.save_config(cfg)
+
+            lis = listener_mod.Listener.__new__(listener_mod.Listener)
+            lis.cfg = store.load_config()
+            lis._perfil_contextual = ""
+
+            lis._perfil_del_contexto()
+            assert store.load_config()["hud_forma"] == "circulo", (
+                "no aplico el perfil cuando el contexto lo pedia")
+            assert lis._perfil_contextual == "gaming"
+
+            # Ahora el usuario toca algo a mano, con el MISMO contexto.
+            a_mano = store.load_config()
+            a_mano["hud_forma"] = "hexagono"
+            store.save_config(a_mano)
+            lis.cfg = store.load_config()
+            lis._perfil_del_contexto()
+            assert store.load_config()["hud_forma"] == "hexagono", (
+                "te piso lo que tocaste a mano: eso es una app poseida")
+
+            # Y con un programa sin regla tampoco toca nada.
+            plataforma.app_en_foco = lambda: "chrome"
+            lis.cfg = store.load_config()
+            lis._perfil_del_contexto()
+            assert store.load_config()["hud_forma"] == "hexagono", (
+                "toco algo sin que ninguna regla entrara")
+        finally:
+            store.CONFIG_PATH, store.PERFILES_PATH, plataforma.app_en_foco = reales
+
+
 if __name__ == "__main__":
     _CORRAL = _corral()
     fallo = ""

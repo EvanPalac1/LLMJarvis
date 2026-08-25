@@ -631,3 +631,97 @@ def _monitores_linux() -> list[dict]:
                           "trabajo": (x, y, w, h),
                           "principal": m.group(1) == "*"})
     return monitores
+
+
+def app_en_foco() -> str:
+    """El nombre del programa que tiene el foco, en minusculas y sin `.exe`.
+
+    Devuelve "" si no se puede saber, que NO es lo mismo que "no hay ninguno":
+    quien la use tiene que tratar el vacio como "no aplicar ninguna regla" y no
+    como "aplicar la regla del escritorio". Es la misma disciplina que
+    `modo_transparencia()`: una capacidad que puede faltar lo dice, no inventa.
+
+    Hay una via por sistema porque no existe ninguna comun, igual que con
+    `monitores()`:
+
+        Windows   GetForegroundWindow + QueryFullProcessImageNameW por ctypes
+        macOS     `lsappinfo front`, que viene con el sistema
+        Linux     `xdotool` si esta; si no, "" -- en Wayland no hay forma
+                  general de saberlo, y fingir que si la hay seria peor
+
+    Nada de dependencias nuevas: en Windows es ctypes puro, y en los otros dos
+    son programas que o vienen con el sistema o no estan, y eso se detecta.
+    """
+    if WINDOWS:
+        return _foco_windows()
+    if MACOS:
+        return _foco_macos()
+    return _foco_linux()
+
+
+def _foco_windows() -> str:
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        user32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return ""
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not pid.value:
+            return ""
+        # QUERY_LIMITED_INFORMATION y no ALL_ACCESS: alcanza para el nombre y es
+        # el unico que abre procesos de otra integridad sin pedir permisos.
+        # Mismo criterio que `store._proceso_vivo`.
+        h = k32.OpenProcess(0x1000, False, pid.value)
+        if not h:
+            return ""
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            n = wintypes.DWORD(len(buf))
+            if not k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n)):
+                return ""
+            return os.path.splitext(os.path.basename(buf.value))[0].lower()
+        finally:
+            k32.CloseHandle(h)
+    except Exception:  # noqa: BLE001 - no saber quien esta en foco no es un error
+        return ""
+
+
+def _foco_macos() -> str:
+    try:
+        salida = correr(["lsappinfo", "front"], capture_output=True, text=True,
+                        timeout=2)
+        asn = (salida.stdout or "").strip()
+        if not asn:
+            return ""
+        info = correr(["lsappinfo", "info", "-only", "name", asn],
+                      capture_output=True, text=True, timeout=2)
+        # Devuelve `"LSDisplayName"="Safari"`; interesa lo de las comillas.
+        texto = (info.stdout or "").strip()
+        if '"' in texto:
+            partes = texto.split('"')
+            if len(partes) >= 4:
+                return partes[3].lower()
+        return ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _foco_linux() -> str:
+    from shutil import which
+
+    if not which("xdotool"):
+        return ""
+    try:
+        pid = correr(["xdotool", "getactivewindow", "getwindowpid"],
+                     capture_output=True, text=True, timeout=2)
+        n = (pid.stdout or "").strip()
+        if not n.isdigit():
+            return ""
+        with open(f"/proc/{n}/comm", encoding="utf-8") as f:
+            return f.read().strip().lower()
+    except Exception:  # noqa: BLE001
+        return ""

@@ -370,13 +370,10 @@ MODOS = {
 }
 
 
-def _rango(txt: str, ahora) -> bool:
-    """`22:30-06:00` incluye la medianoche; `08:00-12:00` no. Sin este caso el
-    horario que el usuario pidio --de las 12 de la noche a las 6-- no entraria."""
-    desde, hasta = (x.strip() for x in txt.split("-", 1))
-    h, m = ahora.hour * 60 + ahora.minute, lambda t: int(t[:2]) * 60 + int(t[3:5])
-    a, b = m(desde), m(hasta)
-    return a <= h < b if a <= b else (h >= a or h < b)
+# Vive en `store` para que los perfiles contextuales puedan usar el MISMO
+# parser sin importar este modulo, que arrastra sounddevice. Dos parsers de
+# horario serian dos comportamientos con la misma sintaxis.
+_rango = store.rango_horario
 
 
 def modo_horario(cfg: dict, ahora=None) -> str:

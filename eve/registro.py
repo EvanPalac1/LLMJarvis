@@ -339,6 +339,21 @@ VOZ = (
                   "contra 0.71s en gpu. 'auto' elige int8 en cpu e int8_float16 en gpu."),
             Interruptor("stt_vad", "Recortar silencios antes de transcribir (VAD)"),
             Campo("stt_horario", "Reglas por horario", None, 40),
+            Campo("perfil_reglas", "Perfil segun el contexto", None, 40),
+            Ayuda("Cambia de perfil solo, segun la hora o el programa que\n"
+                  "tengas adelante. Misma sintaxis que la linea de arriba:\n"
+                  "  22:00-06:00=noche, discord=gaming\n"
+                  "\nLa condicion es un rango de horas si tiene forma de rango,\n"
+                  "y si no el nombre del programa. GANA LA PRIMERA QUE ENTRA,\n"
+                  "asi que el orden en que las escribis es el orden de\n"
+                  "prioridad -- es lo unico de esto que no se adivina.\n"
+                  "\nEl nombre del programa se compara por pedazo: `discord`\n"
+                  "agarra tambien `Discord.exe` y `discordptb`, para no tener\n"
+                  "que abrir el administrador de tareas para escribir una\n"
+                  "regla.\n"
+                  "\nVacio no cambia nada. Y un perfil solo toca como se VE y\n"
+                  "como suena Eve: no puede cambiarte el motor, la tecla, los\n"
+                  "permisos ni tus datos."),
             Ayuda("Van separadas por coma y solo pisan al modo 'auto':\n"
                   "  00:00-06:00=bajo, 20:00-23:59=ruido\n"
                   "Si eliges un modo a mano, el reloj no te lo cambia."),

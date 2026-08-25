@@ -146,6 +146,11 @@ DEFAULTS = {
     # Reglas de horario, separadas por coma: `00:00-06:00=bajo, 20:00-23:59=ruido`.
     # Solo pisan al modo `auto`. Vacio = sin reglas.
     "stt_horario": "",
+    # Perfiles contextuales. Misma sintaxis que las reglas de horario de arriba,
+    # y la condicion puede ser un rango de horas o el programa en foco:
+    #   22:00-06:00=noche, discord=gaming
+    # Vacio = no cambia nada solo, que es lo que corresponde de fabrica.
+    "perfil_reglas": "",
     # Los dos de abajo solo se usan con stt_sensibilidad = manual.
     "stt_vad_umbral": 0.5,
     "stt_vad_aire_ms": 100,
@@ -587,6 +592,72 @@ def perfilable(clave: str) -> bool:
     if clave in NO_PERFILABLE:
         return False
     return clave.startswith(PREFIJOS_COSMETICOS) or clave in EXTRA_PERFILABLE
+
+
+def rango_horario(txt: str, ahora) -> bool:
+    """`22:30-06:00` incluye la medianoche; `08:00-12:00` no.
+
+    Sin el caso que cruza la medianoche, el horario que el usuario pidio --de
+    las 12 de la noche a las 6-- no entraria nunca. Lo usan la sensibilidad del
+    reconocedor y los perfiles contextuales: mismo parser, misma sintaxis.
+    """
+    desde, hasta = (x.strip() for x in txt.split("-", 1))
+    h = ahora.hour * 60 + ahora.minute
+    m = lambda t: int(t[:2]) * 60 + int(t[3:5])  # noqa: E731
+    a, b = m(desde), m(hasta)
+    return a <= h < b if a <= b else (h >= a or h < b)
+
+
+def perfil_por_contexto(cfg: dict, ahora=None, app: str | None = None) -> str:
+    """El perfil que pide el contexto, o "" si ninguna regla entra.
+
+    Formato, igual al de las reglas de horario del reconocedor para no inventar
+    una segunda sintaxis:
+
+        22:00-06:00=noche, discord=gaming, code=trabajo
+
+    La condicion es un RANGO DE HORAS si tiene forma de rango, y si no el
+    nombre del programa en foco. Gana la primera que entra, asi que el orden
+    que escribe el usuario es el orden de prioridad -- y eso hay que decirlo en
+    la ayuda, porque es lo unico que no se adivina.
+
+    El nombre del programa se compara por PEDAZO y no exacto: el usuario
+    escribe `discord` y el proceso puede llamarse `discord`, `Discord.exe` o
+    `discordptb`. Exigir el nombre exacto seria pedirle que abra el
+    administrador de tareas para escribir una regla.
+
+    Devuelve "" tambien cuando no se puede saber que hay en foco. Ahi NO se
+    aplica ninguna regla de programa, que es distinto de aplicar la del
+    escritorio: una capacidad que falta se dice, no se inventa.
+    """
+    reglas = str(cfg.get("perfil_reglas", "")).strip()
+    if not reglas:
+        return ""
+    import datetime
+
+    ahora = ahora or datetime.datetime.now()
+    if app is None:
+        from . import plataforma
+
+        app = plataforma.app_en_foco()
+    app = (app or "").lower()
+    perfiles = listar_perfiles()
+
+    for regla in reglas.split(","):
+        if "=" not in regla:
+            continue
+        cond, nombre = (x.strip() for x in regla.split("=", 1))
+        if nombre not in perfiles:
+            continue   # un perfil borrado no puede romper el arranque
+        try:
+            if ":" in cond and "-" in cond:
+                if rango_horario(cond, ahora):
+                    return nombre
+            elif app and cond.lower() in app:
+                return nombre
+        except (ValueError, IndexError):
+            continue   # una regla mal escrita no cambia nada, y no explota
+    return ""
 
 
 def listar_perfiles() -> dict:

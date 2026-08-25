@@ -222,6 +222,35 @@ EN = {
         "you have not talked yet",
     "Eve esta corriendo":
         "Eve is running",
+    "Perfil segun el contexto":
+        "Profile by context",
+    "Cambia de perfil solo, segun la hora o el programa que\n"
+    "tengas adelante. Misma sintaxis que la linea de arriba:\n"
+    "  22:00-06:00=noche, discord=gaming\n"
+    "\nLa condicion es un rango de horas si tiene forma de rango,\n"
+    "y si no el nombre del programa. GANA LA PRIMERA QUE ENTRA,\n"
+    "asi que el orden en que las escribis es el orden de\n"
+    "prioridad -- es lo unico de esto que no se adivina.\n"
+    "\nEl nombre del programa se compara por pedazo: `discord`\n"
+    "agarra tambien `Discord.exe` y `discordptb`, para no tener\n"
+    "que abrir el administrador de tareas para escribir una\n"
+    "regla.\n"
+    "\nVacio no cambia nada. Y un perfil solo toca como se VE y\n"
+    "como suena Eve: no puede cambiarte el motor, la tecla, los\n"
+    "permisos ni tus datos.":
+        "Switches profile on its own, by the time of day or by the program\n"
+        "you have in front. Same syntax as the line above:\n"
+        "  22:00-06:00=night, discord=gaming\n"
+        "\nThe condition is a time range if it looks like one, and otherwise\n"
+        "the name of the program. THE FIRST MATCH WINS, so the order you\n"
+        "write them in is their priority -- it is the only part of this you\n"
+        "cannot guess.\n"
+        "\nThe program name matches by substring: `discord` also catches\n"
+        "`Discord.exe` and `discordptb`, so you do not have to open the task\n"
+        "manager to write a rule.\n"
+        "\nEmpty changes nothing. And a profile only touches how Eve LOOKS and\n"
+        "sounds: it cannot change your engine, your key, your permissions or\n"
+        "your data.",
     "Motor de dibujo":
         "Drawing engine",
     "Quien pinta los modulos. `auto` usa la GPU si tu maquina la\n"
