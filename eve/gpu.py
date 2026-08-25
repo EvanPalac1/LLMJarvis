@@ -288,6 +288,20 @@ def probar_a_fondo() -> int:
     resultado = {"codigo": 3, "dicho": "el widget no llego a dibujar"}
     try:
         raiz.geometry(f"{ancho}x{alto}")
+        # Tk NO propaga las excepciones de sus callbacks: se las pasa a
+        # `report_callback_exception`, que por defecto las imprime y sigue. O
+        # sea que un fallo adentro de `initgl` --por ejemplo `MakeGL()`
+        # devolviendo None en una maquina sin GPU-- no llega al `try` de afuera
+        # y el resultado queda en el mensaje generico "no llego a dibujar".
+        #
+        # Eso es lo que paso en el runner de Windows: dos corridas de CI
+        # diciendo "no llego a dibujar" sin una sola linea de por que. Aca se
+        # captura para que el diagnostico exista.
+        def _atrapar(tipo, valor, _traza):
+            resultado.update(codigo=5, dicho=f"{tipo.__name__}: {valor}")
+            raiz.quit()
+
+        raiz.report_callback_exception = _atrapar
         estado = {}
 
         def initgl():
