@@ -24,24 +24,33 @@ cuestan ~90 ms hagan lo que hagan adentro. Optimizar el dibujo no mueve ese
 numero: la unica forma de bajarlo es no pasar por el puente, que es lo que hace
 `lienzo_skia.py` escribiendo directo en el framebuffer de la GPU.
 
-Y UNA SEGUNDA COSA, PEOR Y SIN EXPLICAR TODAVIA: el cuadro no cuesta lo mismo al
-principio que despues. Con seis modulos animando arranca en ~78 ms y a los
-cincuenta cuadros --menos de dos segundos de uso-- se planta en ~505, y ahi se
-queda. Seis veces y media, sin volver.
+Y UNA SEGUNDA COSA, QUE RESULTO SER LA MAS GRANDE: el cuadro no costaba lo mismo
+al principio que despues. Con seis modulos animando arrancaba en ~78 ms y a los
+cincuenta cuadros --menos de dos segundos de uso-- se plantaba en ~505.
 
-Lo que YA se descarto, midiendo:
+La causa, aislada midiendo: pasarle a Tk una imagen CON TRANSPARENCIA cuesta 44
+veces mas que pasarle una opaca. La misma onda sale 92.69 ms transparente y 2.11
+compuesta sobre el fondo. Tk mantiene una region de validez del photo image, y
+una imagen mayormente transparente con muchos huecos --48 barras con espacio
+entre medio-- la fragmenta en cientos de rectangulos, y eso se acumula.
 
-    el bucle apretado del banco   pasa igual a 30 fps con pausas
-    la ventana tapada             pasa igual al frente y con foco
-    que algo se acumule           los items quedan en 6, las imagenes de Tcl en 10,
-                                  y los caches internos no crecen
+Componer sobre el fondo del canvas antes de la `paste` --`_opaco()`-- lo arregla:
 
-El 91% del cuadro se va en `_tkinter.tkapp.call`, o sea del lado de Tcl, pero no
-se encontro QUE crece ahi. Queda anotado como reproducible y sin causa, que es
-mejor que una explicacion inventada:
+    6 ondas              505.57 ms  ->  20.34 ms
+    6 x 500 particulas    56.02 ms  ->  18.89 ms
 
-    python main.py --bench-dibujo pillow
+y la rampa desaparece: 20.34 los primeros cuadros, 20.53 los ultimos.
 
+Se ve identico, comprobado con una foto de la pantalla y no con un argumento: de
+108 800 pixeles cero difieren en mas de 2. Tiene sentido, porque el canvas ya
+hacia esa misma mezcla contra ese mismo fondo para mostrar la imagen. Lo unico
+que cambia es quien la hace, y Pillow la hace sin fragmentar ninguna region.
+
+Como se descarto todo lo demas antes de llegar ahi: no era el bucle del banco
+(pasa igual a 30 fps con pausas), ni la ventana tapada (igual al frente y con
+foco), ni acumulacion de objetos (los items quedan en 6 y las imagenes de Tcl en
+10). El 91% del cuadro se iba en `_tkinter.tkapp.call`, y el reparto exacto era
+seis `paste` por cuadro pasando de 3.0 ms a 85 ms cada una.
 El camino de Skia no lo tiene: 1.96 ms de punta a punta, sin rampa.
 
 De yapa, un item de canvas por modulo es lo que el modo Edit necesita igual para
@@ -191,6 +200,8 @@ class Lienzo:
         self._lotties: dict = {}
         self._ondas = {}
         self._grafos = {}
+        self._fondo_rgb = None
+        self._fondos_opacos: dict = {}
         self._t0 = time.monotonic()
 
     def aplicar(self, cfg):
@@ -219,6 +230,57 @@ class Lienzo:
         self._ondas.pop(ident, None)
         self._grafos.pop(ident, None)
 
+    def _color_de_fondo(self):
+        """El color del canvas, en RGB. Se pregunta una vez."""
+        if self._fondo_rgb is not None:
+            return self._fondo_rgb
+        crudo = (16, 16, 16)
+        try:
+            r, g, b = self.canvas.winfo_rgb(self.canvas.cget("bg"))
+            crudo = (r >> 8, g >> 8, b >> 8)
+        except Exception:  # noqa: BLE001 - sin ventana todavia, gris oscuro
+            pass
+        self._fondo_rgb = crudo
+        return crudo
+
+    def _opaco(self, img):
+        """El modulo compuesto sobre el fondo del canvas, sin alpha.
+
+        LA OPTIMIZACION MAS GRANDE DE ESTE ARCHIVO, y sale de medirla: pasarle a
+        Tk una imagen con transparencia cuesta **44 veces mas** que pasarle una
+        opaca. Medido sobre la onda --48 barras con huecos entre medio-- una
+        `paste` transparente sale 92.69 ms y la misma compuesta sobre el fondo
+        sale 2.11.
+
+        El motivo es que Tk mantiene una "region de validez" del photo image, y
+        una imagen mayormente transparente con muchos huecos la fragmenta en
+        cientos de rectangulos. Cuantos mas huecos, mas cara cada `paste`
+        siguiente: seis modulos animando arrancaban en ~78 ms por cuadro y a los
+        cincuenta cuadros se plantaban en ~505.
+
+        Se ve EXACTAMENTE IGUAL, y eso esta comprobado con una foto de la
+        pantalla y no con un argumento: de 108 800 pixeles, cero difieren en mas
+        de 2, y la diferencia maxima por canal es 1 --redondeo. Tiene sentido:
+        el canvas ya componia esa misma imagen contra ese mismo fondo para
+        mostrarla. Lo unico que cambia es QUIEN hace la mezcla, y Pillow la hace
+        sin fragmentar ninguna region.
+
+        Vale igual para el cartel: ahi el fondo del canvas es el color magico
+        del chroma-key, asi que componer contra el da el mismo pixel que Tk iba
+        a dibujar, y el recorte lo sigue haciendo Windows despues.
+        """
+        if img.mode != "RGBA":
+            return img
+        tam = img.size
+        base = self._fondos_opacos.get(tam)
+        if base is None:
+            base = Image.new("RGBA", tam, self._color_de_fondo() + (255,))
+            # Uno por tamaño distinto. Son unos pocos: los modulos no cambian
+            # de tamaño por cuadro, y el que lo hace arrastrando reemplaza el
+            # suyo. Sin cache habria que crear la base en cada `paste`.
+            self._fondos_opacos[tam] = base
+        return Image.alpha_composite(base, img)
+
     def dibujar(self, lista, estado):
         """Pinta los modulos visibles. Devuelve cuantos hubo que repintar."""
         from PIL import ImageTk
@@ -238,7 +300,7 @@ class Lienzo:
             if datos is not None and datos[2] == firma:
                 continue   # no cambio nada: no se toca
 
-            img = self.pintar(modulo, estado, ahora)
+            img = self._opaco(self.pintar(modulo, estado, ahora))
             if datos is None or [datos[3], datos[4]] != [img.width, img.height]:
                 if datos is not None:
                     self.canvas.delete(datos[0])

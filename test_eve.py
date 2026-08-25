@@ -6064,6 +6064,68 @@ def test_el_widget_de_opengl_es_nuestro_y_dice_donde_no_puede():
             assert "macOS" in str(exc)
 
 
+def test_a_tk_no_se_le_pasan_imagenes_con_transparencia():
+    """La optimizacion mas grande de `lienzo.py`, y la mas facil de perder.
+
+    Pasarle a Tk una imagen con alpha cuesta **44 veces mas** que una opaca:
+    medido sobre la onda, 92.69 ms contra 2.11. Tk mantiene una region de
+    validez del photo image y una imagen mayormente transparente con muchos
+    huecos la fragmenta en cientos de rectangulos. Peor: se acumula. Seis
+    modulos animando arrancaban en ~78 ms por cuadro y a los cincuenta cuadros
+    se plantaban en ~505, y ahi se quedaban.
+
+    Componer sobre el fondo del canvas antes de pasarla lo baja a 20 ms y la
+    rampa desaparece. Se ve identico --comprobado con una foto de la pantalla:
+    de 108 800 pixeles, cero difieren en mas de 2-- porque el canvas ya hacia
+    esa misma mezcla para mostrarla. Lo unico que cambia es quien la hace.
+
+    Es de las que se pierden sin que nadie se entere: el dibujo sale bien igual
+    y solo se nota en el reloj. Por eso hay un test.
+    """
+    import tkinter as tk
+
+    from PIL import Image, ImageDraw
+
+    from eve import lienzo as lienzo_mod
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        print("    (salteado: sin pantalla)")
+        return
+    try:
+        cv = tk.Canvas(raiz, width=200, height=200, highlightthickness=0,
+                       bg="#101010")
+        cv.pack()
+        pintor = lienzo_mod.Lienzo(cv, dict(store.DEFAULTS))
+
+        # Un modulo como los de verdad: dibujo sobre fondo transparente.
+        img = Image.new("RGBA", (120, 90), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.rectangle([10, 10, 50, 80], fill=(255, 200, 100, 255))
+        d.rectangle([60, 10, 110, 80], fill=(80, 200, 255, 128))  # medio alpha
+
+        salida = pintor._opaco(img)
+        alfas = salida.getchannel("A").getextrema()
+        assert alfas == (255, 255), (
+            f"la imagen que va a Tk todavia tiene transparencia (alpha {alfas}): "
+            "cada `paste` va a costar 44 veces mas y ademas se acumula")
+
+        # Y que se vea igual: el pixel semitransparente tiene que dar lo mismo
+        # que mezclarlo a mano contra el fondo del canvas.
+        fondo = pintor._color_de_fondo()
+        esperado = tuple(round(c * 0.5 + f * 0.5)
+                         for c, f in zip((80, 200, 255), fondo))
+        real = salida.getpixel((80, 40))[:3]
+        assert all(abs(a - b) <= 2 for a, b in zip(real, esperado)), (
+            f"la mezcla no coincide: {real} contra {esperado}")
+
+        # Lo opaco no se toca.
+        assert salida.getpixel((30, 40))[:3] == (255, 200, 100)
+    finally:
+        raiz.destroy()
+
+
 if __name__ == "__main__":
     _CORRAL = _corral()
     fallo = ""
