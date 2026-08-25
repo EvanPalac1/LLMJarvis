@@ -4564,7 +4564,16 @@ def test_el_buscador_de_ajustes_entiende_como_habla_una_persona():
         for frase, clave in esperado.items():
             hallados = [e["clave"] for e in registro.buscar(
                 frase, excluir=store.NUNCA_POR_EVE, tope=6)]
-            assert clave in hallados, f"{frase!r} no encontro {clave}: {hallados[:4]}"
+            assert hallados[0] == clave, f"{frase!r} dio {hallados[:3]}, no {clave}"
+
+        # Y las dos donde el primer puesto se lo lleva otra: lo que importa es
+        # que caigan entre las seis, porque Eve las lee todas con sus opciones.
+        # Estan como test para que se note si alguna vez se caen del todo.
+        for frase, clave in (("ponete en modo ruido", "stt_sensibilidad"),
+                             ("quiero que el cartel se vea siempre", "overlay_modo")):
+            hallados = [e["clave"] for e in registro.buscar(
+                frase, excluir=store.NUNCA_POR_EVE, tope=6)]
+            assert clave in hallados, f"{frase!r} perdio {clave}: {hallados}"
 
         # Ninguna clave frenada se ofrece: darsela es hacerle gastar una llamada
         # para que le contesten que no.

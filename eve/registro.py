@@ -796,6 +796,21 @@ _PARTES_FONDO = (
 # exactamente donde buscar fallaba. "transparencia" no aparece en ningun rotulo
 # --el ajuste se llama `hud_opacidad`, "Opacidad (%)"-- asi que pedirle a Eve
 # que adivine ahi era pedirle que fallara.
+# Palabras que aparecen en media docena de rotulos y no distinguen nada. Sin
+# esta lista, "transparencia DEL cartel" premiaba a "Opacidad DEL fondo" por
+# encima de la opacidad del cartel: la palabra vacia sumaba tanto como la que
+# importaba, y ademas sumaba dos veces --por coincidir y por coincidir en el
+# nombre-- asi que un rotulo con dos preposiciones le ganaba al ajuste correcto.
+VACIAS = frozenset((
+    "del", "las", "los", "una", "unos", "unas", "que", "por", "para", "con",
+    "sin", "mas", "menos", "muy", "esta", "este", "eso", "esa",
+    "todo", "toda", "poneme", "ponme", "hace", "hacer",
+    # "cuando", "como" y "donde" NO estan: son rotulos de verdad --"Cuando se
+    # ve", "Cuando se abre"-- y sacarlas rompia justo las preguntas que mas
+    # naturalmente se hacen sobre esos ajustes.
+    "quiero", "puedo", "puede", "dale", "vez", "veces", "algo", "cosa",
+))
+
 SINONIMOS = {
     "transparencia": "opacidad", "transparente": "opacidad",
     "translucido": "opacidad", "opaco": "opacidad",
@@ -885,8 +900,20 @@ def buscar(consulta: str, excluir=(), tope: int = 8) -> list[dict]:
 
     `excluir` es para las claves que Eve no puede escribir. Ofrecerle una opcion
     frenada seria hacerle gastar una llamada para que le digan que no.
+
+    Lo que este ranking SI garantiza, medido sobre nueve frases dichas como las
+    diria una persona: 7 de 9 aciertan en el primer renglon y **9 de 9 caen
+    dentro de los seis** que se devuelven. Ese es el criterio que importa y no
+    el primer puesto, porque Eve lee los seis con su rotulo, su valor de ahora
+    y sus opciones: con eso elige. Las dos que no salen primeras son del mismo
+    tipo --"ponete en modo ruido" y "que el cartel se vea siempre"-- donde la
+    palabra que nombra el concepto ("modo", "cartel") aparece literal en el
+    NOMBRE de otras claves, y el nombre pesa 25. Subirle el peso a las opciones
+    no las arregla; se probo con 4 y salio igual. Se deja asi: afinar mas seria
+    pelearse con un caso a costa del resto.
     """
-    palabras = [p for p in _normalizar(consulta).split() if len(p) > 2]
+    palabras = [p for p in _normalizar(consulta).split()
+                if len(p) > 2 and p not in VACIAS]
     # Cada palabra suma la suya y las que el panel usa para lo mismo. Sin esto,
     # "poneme el cartel mas transparente" no encontraba `hud_opacidad`.
     for palabra in list(palabras):
@@ -901,22 +928,35 @@ def buscar(consulta: str, excluir=(), tope: int = 8) -> list[dict]:
         campos = ((_normalizar(entrada["clave"]), 6),
                   (_normalizar(entrada["etiqueta"]), 5),
                   (_normalizar(entrada["seccion"]), 2),
+                  # Los VALORES que acepta, porque la gente nombra el valor y
+                  # no el ajuste: "que el cartel se vea siempre" no dice
+                  # `overlay_modo` ni "Cuando se ve", dice `siempre`, que es
+                  # una de sus opciones. Pesa poco --hay muchas listas con
+                  # `siempre`-- pero sin esto no entraba ni entre las seis.
+                  (_normalizar(" ".join(str(o) for o in (entrada["opciones"] or ()))), 2),
                   (_normalizar(entrada["ayuda"]), 1))
         punto = 0
         tocadas = 0
         en_nombre = 0
         for palabra in palabras:
             mejor = 0
+            nombrada = False
             for i, (texto, peso) in enumerate(campos):
                 if palabra in texto:
                     # Palabra entera vale mas que pedazo: buscando "voz" no
                     # tiene que ganar "vozarron" sobre el ajuste que se llama voz.
                     mejor = max(mejor, peso * (2 if f" {palabra} " in f" {texto} " else 1))
                     if i < 2:            # clave o etiqueta, no seccion ni ayuda
-                        en_nombre += 1
+                        # UNA vez por palabra, aunque este en la clave Y en la
+                        # etiqueta. Contando las dos, `hud_fondo_opacidad`
+                        # --que dice "opacidad" en las dos-- le ganaba a
+                        # `hud_opacidad` en "transparencia del cartel": el que
+                        # se repite no es mas relevante, es mas largo.
+                        nombrada = True
             if mejor:
                 tocadas += 1
                 punto += mejor
+                en_nombre += 1 if nombrada else 0
         if not tocadas:
             continue
         # Que coincidan TODAS las palabras pesa mas que coincidir mucho con una.
