@@ -222,6 +222,8 @@ EN = {
         "you have not talked yet",
     "Eve esta corriendo":
         "Eve is running",
+    "Toca 'Armar el tablero' aca arriba para poner los de arranque.":
+        "Hit 'Set up the board' above to drop in the starter ones.",
     "Perfil segun el contexto":
         "Profile by context",
     "Cambia de perfil solo, segun la hora o el programa que\n"

@@ -93,9 +93,28 @@ class Consola:
         cuerpo = ttk.Frame(self.raiz)
         cuerpo.pack(fill="both", expand=True)
 
-        self.lienzo = tk.Canvas(cuerpo, highlightthickness=0, borderwidth=0)
+        # El widget depende del motor de dibujo elegido. Se mantiene en
+        # `self.lienzo` en los dos casos para que los binds del raton y los
+        # `winfo_*` sigan siendo los mismos: lo unico que cambia es QUIEN pinta.
+        from . import gpu
+
+        self.gpu = gpu.elegido(self.cfg) == "skia"
+        self._sup = None
+        if self.gpu:
+            self.lienzo = gpu.marco(cuerpo, 800, 600,
+                                    al_iniciar=self._arrancar_gpu,
+                                    al_dibujar=self._pintar_gpu)
+            if self.lienzo is None:
+                # No se pudo: se cae a Pillow y se DICE por que. Quedarse con
+                # una ventana negra seria el peor de los dos mundos.
+                gpu.marcar_fallo("no se pudo crear el lienzo de la ventana")
+                self.gpu = False
+        if not self.gpu:
+            self.lienzo = tk.Canvas(cuerpo, highlightthickness=0, borderwidth=0)
         self.lienzo.pack(side="left", fill="both", expand=True)
-        self.pintor = lienzo.Lienzo(self.lienzo, self.cfg, "hud")
+        self.pintor = (None if self.gpu
+                       else lienzo.Lienzo(self.lienzo, self.cfg, "hud"))
+        print(f"[ventana de actividad: {gpu.por_que(self.cfg)}]")
 
         self.panel = ttk.Frame(cuerpo, width=260)
         self.panel.pack(side="right", fill="y")
@@ -154,6 +173,59 @@ class Consola:
         self.mtime = self._mtime()
         self.aviso.config(text=tr("listo, ahi estan"))
 
+    def _arrancar_gpu(self) -> None:
+        """Arma la superficie de Skia, del tamaño que tenga el widget AHORA.
+
+        Se rehace cuando el tamaño cambia, y eso NO es por las dudas: la primera
+        vez que corre, el widget todavia no paso por el acomodado de Tk y
+        `winfo_width()` devuelve 1. Sin rehacerla, la ventana entera dibujaba
+        sobre una superficie de UN PIXEL --sin error, sin nada, solo negro.
+        Lo agarro un arnes que leia la superficie por dentro; una foto de la
+        pantalla no lo habria mostrado.
+
+        `MarcoGL` vuelve a llamar a `initgl` en cada `<Configure>`, asi que esto
+        se entera de cada cambio de tamaño sin vigilar nada.
+        """
+        from . import gpu
+        from .lienzo_skia import LienzoSkia
+
+        ancho = max(1, self.lienzo.winfo_width())
+        alto = max(1, self.lienzo.winfo_height())
+        if self._sup is not None and (self._sup.ancho, self._sup.alto) == (ancho, alto):
+            return
+        try:
+            self._sup = gpu.Superficie(ancho, alto)
+        except Exception as exc:  # noqa: BLE001 - sin superficie, a Pillow
+            gpu.marcar_fallo(str(exc))
+            self.gpu = False
+            self._sup = None
+            return
+        self.pintor = LienzoSkia(self._sup, self.cfg,
+                                 tema.resolver(self.cfg, "hud"))
+
+    def _pintar_gpu(self) -> None:
+        """Un cuadro por GPU. Corre adentro del contexto, no desde afuera."""
+        if self._sup is None or self.pintor is None:
+            return
+        lista, vista = getattr(self, "_por_dibujar", ([], {}))
+        if lista:
+            self.pintor.dibujar(lista, vista,
+                                seleccion=(self.seleccion
+                                           if self.modo.get() == "edit" else ()))
+        else:
+            paleta = tema.resolver(self.cfg, "ui")
+            crudo = (paleta["fondo"] or "#101010").lstrip("#")
+            try:
+                rgb = tuple(int(crudo[i:i + 2], 16) for i in (0, 2, 4))
+            except ValueError:
+                rgb = (16, 16, 16)
+            self._sup.limpiar((*rgb, 255))
+            self.pintor.vacio(
+                tr("Esta ventana esta vacia porque el tablero no tiene modulos."),
+                tr("Toca 'Armar el tablero' aca arriba para poner los de arranque."),
+                self._sup.ancho, self._sup.alto)
+            self._sup.presentar()
+
     def _dibujar_vacio(self) -> None:
         """Que la ventana diga por que esta vacia en vez de estarlo y ya.
 
@@ -161,6 +233,8 @@ class Consola:
         fue el reporte textual: no saber si la ventana existia. Ahora dice que
         existe, por que no muestra nada, y donde esta el boton que lo arregla.
         """
+        if self.gpu:
+            return   # por GPU lo dibuja `_pintar_gpu`, con el mismo texto
         self.lienzo.delete("vacio")
         paleta = tema.resolver(self.cfg, "ui")
         ancho = max(1, self.lienzo.winfo_width())
@@ -381,6 +455,10 @@ class Consola:
             self._guardar(cfg)
 
     def _dibujar_seleccion(self) -> None:
+        if self.gpu:
+            # Por GPU el contorno lo pinta `LienzoSkia.dibujar` junto con todo
+            # lo demas: no hay items sueltos que borrar y volver a crear.
+            return
         self.lienzo.delete("marca")
         if self.modo.get() != "edit":
             return
@@ -736,11 +814,19 @@ class Consola:
         }
         if editando:
             lista = [dict(m, cuando="siempre") for m in lista]
-        self.pintor.dibujar(lista, vista)
+        if self.gpu:
+            # El widget de GL dibuja adentro de su propio callback, asi que aca
+            # se deja lo que hay que pintar y se pide un cuadro. Dibujar desde
+            # afuera del contexto no pinta nada y no avisa.
+            self._por_dibujar = (lista, vista)
+            self.lienzo.tkExpose()
+        else:
+            self.pintor.dibujar(lista, vista)
         # Sin modulos no hay nada que dibujar y la ventana queda negra, que es
         # indistinguible de "no arranco". Se dice por que, y aparece el boton.
         if lista:
-            self.lienzo.delete("vacio")
+            if not self.gpu:
+                self.lienzo.delete("vacio")
             self.boton_semilla.pack_forget()
         else:
             self._dibujar_vacio()
@@ -749,7 +835,9 @@ class Consola:
             # treinta veces por segundo sin que se vea nada raro.
             if not self.boton_semilla.winfo_manager():
                 self.boton_semilla.pack(side="left", padx=6)
-        if editando:
+        if editando and not self.gpu:
+            # Solo el canvas de tkinter tiene items que reordenar. Por GPU el
+            # contorno ya se pinta ultimo, que es lo que `tag_raise` conseguia.
             self.lienzo.tag_raise("marca")
         self.raiz.after(CUADRO, self.tick)
 

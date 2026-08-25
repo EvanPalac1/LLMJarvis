@@ -392,6 +392,44 @@ class LienzoSkia:
                         0.0)
         return sistema
 
+    def _marcar(self, lista, seleccion) -> None:
+        """El contorno punteado de los modulos elegidos, en modo Edit."""
+        lienzo = self.sup.lienzo
+        pincel = self.sup.pincel(self._rol("acento"))
+        pincel.setStyle(self.sup.skia.Paint.kStroke_Style)
+        pincel.setStrokeWidth(2.0)
+        # Punteado: 4 pintados, 3 en blanco, igual que el `dash=(4, 3)` del otro
+        # camino. Que se vean IGUAL importa mas de lo que parece: es la unica
+        # señal de que un modulo esta agarrado.
+        pincel.setPathEffect(self.sup.skia.DashPathEffect.Make([4.0, 3.0], 0.0))
+        for m in lista:
+            if m["id"] not in seleccion:
+                continue
+            x, y = float(m.get("x", 0) or 0), float(m.get("y", 0) or 0)
+            w = float(m.get("ancho", 0) or 0)
+            h = float(m.get("alto", 0) or 0)
+            lienzo.drawRect(self.sup.skia.Rect(x - 1, y - 1, x + w, y + h),
+                            pincel)
+
+    def vacio(self, texto: str, sub: str, ancho, alto) -> None:
+        """El cartel de "no hay modulos", centrado.
+
+        Existe por lo mismo que en el otro camino: el tablero viene sin modulos
+        de fabrica, y abrirlo mostraba un rectangulo negro indistinguible de un
+        programa que no arranco.
+        """
+        lienzo = self.sup.lienzo
+        fam = str(self.cfg.get("ui_fuente", "") or "")
+        for i, (linea, puntos, rol) in enumerate(
+                ((texto, 13, "texto"), (sub, 10, "texto_tenue"))):
+            if not linea:
+                continue
+            f = fuente(self.sup, puntos, fam, por_punto=self.por_punto)
+            m = f.getMetrics()
+            x = max(0.0, (ancho - f.measureText(linea)) / 2.0)
+            y = alto / 2.0 + i * 26 - m.fAscent
+            lienzo.drawString(linea, x, y, f, self.sup.pincel(self._rol(rol)))
+
     def _pil_de_lienzo(self, metodo, *args):
         """Llama a un metodo de `Lienzo` que solo necesita paleta y caches.
 
@@ -591,7 +629,7 @@ class LienzoSkia:
         # error de programacion y no del usuario.
         return None
 
-    def dibujar(self, lista, estado, ahora=None):
+    def dibujar(self, lista, estado, ahora=None, seleccion=()):
         """Un cuadro entero. Devuelve cuantos modulos dibujo de verdad.
 
         Los tipos que no estan en `PORTADOS` se saltan en silencio: mezclar los
@@ -612,6 +650,7 @@ class LienzoSkia:
 
         hechos = 0
         lienzo = self.sup.lienzo
+        seleccion = set(seleccion or ())
         for modulo in sorted(lista, key=lambda m: int(m.get("z", 0) or 0)):
             if modulo.get("tipo") not in PORTADOS:
                 continue
@@ -627,6 +666,12 @@ class LienzoSkia:
             self._uno(modulo, estado, ahora, ancho, alto)
             lienzo.restore()
             hechos += 1
+        # El contorno de lo elegido, DESPUES de todos los modulos: si se pintara
+        # con cada uno, el de abajo se lo comeria el de arriba. En el camino de
+        # Pillow eso lo resuelve un item de canvas con su propia etiqueta; aca,
+        # el orden.
+        if seleccion:
+            self._marcar(lista, seleccion)
         self.sup.presentar()
         return hechos
 

@@ -73,6 +73,7 @@ class MarcoGL(tk.Frame):
         self._pendiente = None
         self._hay_contexto = False
         self._inicializado = False
+        self._dibujando = False
         self.bind("<Map>", self._al_mostrarse)
         self.bind("<Configure>", self._al_redimensionar)
         self.bind("<Expose>", self.tkExpose)
@@ -126,11 +127,37 @@ class MarcoGL(tk.Frame):
             self.initgl()
 
     def tkExpose(self, _evento=None) -> None:
-        """Dibuja un cuadro. El nombre se conserva por compatibilidad."""
+        """Dibuja un cuadro. El nombre se conserva por compatibilidad.
+
+        El guardia de reentrada NO es defensivo por las dudas: este metodo esta
+        atado a `<Expose>` y adentro llama a `update_idletasks()`, que despacha
+        eventos pendientes. Si entre esos hay otro `<Expose>` --y lo hay, porque
+        dibujar genera uno-- se llama a si mismo y la ventana se cuelga sin un
+        solo error. Reproducido: la consola se colgaba antes del primer cuadro.
+        """
+        if self._dibujando:
+            return
         if self._pendiente is not None:
             self.after_cancel(self._pendiente)
             self._pendiente = None
-        self.update_idletasks()
+        self._dibujando = True
+        try:
+            self._pintar_una_vez()
+        finally:
+            self._dibujando = False
+
+    def _pintar_una_vez(self) -> None:
+        # NO va `update_idletasks()` aca, aunque `pyopengltk` lo tenia. Este
+        # metodo lo llama un temporizador de Tk, y `update_idletasks` despacha
+        # eventos pendientes -- entre ellos el propio temporizador. El resultado
+        # es que el bucle de dibujo se llama a si mismo sin volver nunca, y la
+        # ventana se cuelga SIN un solo error.
+        #
+        # Costo un rato entenderlo porque el guardia de reentrada de arriba no
+        # alcanza: ese impide volver a ENTRAR al dibujo, pero el que se reentra
+        # es el tick de la consola, un escalon mas arriba. Llamando a `tick()` a
+        # mano andaba, y manejado por `after` --o sea como corre de verdad-- se
+        # colgaba.
         self._asegurar_contexto()
         self.tkMakeCurrent()
         self.redraw()
