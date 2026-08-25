@@ -4447,7 +4447,9 @@ def test_eve_no_puede_soltar_sus_propios_frenos():
                 nuevo = {"confirm_destructive": "false", "workdirs": "C:\\",
                          "addons_aprobados": "malo:a1b2c3", "autoridad": "eve",
                          "claves_del_usuario": "hud_opacidad",
-                         "cc_permission_mode": "bypassPermissions"}[clave]
+                         "cc_permission_mode": "bypassPermissions",
+                         "ayuda_alcance": "codigo",
+                         "archivos_alcance": "escribir"}[clave]
                 salida = integrations.ajustar(clave, nuevo)
                 assert store.load_config().get(clave) == antes, f"{clave} se escribio"
                 assert "frenan" in salida, salida
@@ -4468,9 +4470,247 @@ def test_eve_no_puede_soltar_sus_propios_frenos():
     import re
 
     gobiernan = {k for k in store.DEFAULTS if re.search(
-        r"confirm|autorid|aprob|workdir|permission", k, re.I)}
+        # `alcance` entro despues, y por eso: las dos claves que lo llevan
+        # --hasta donde arma sola y hasta donde llega con los archivos-- son
+        # el techo de lo que Eve puede hacer, y estuvieron escribibles por
+        # ella hasta que se agregaron. La heuristica no las nombraba, asi que
+        # no las echo de menos. Ahora si.
+        r"confirm|autorid|aprob|workdir|permission|alcance", k, re.I)}
     faltan = gobiernan - set(store.NUNCA_POR_EVE)
     assert not faltan, f"claves de freno fuera de NUNCA_POR_EVE: {faltan}"
+
+
+def _corral_de_config(fn):
+    """Corre `fn(raiz)` con la config y el log de auditoria en una carpeta propia.
+
+    No es ceremonia: escribiendo estas mismas pruebas, un corral mal armado le
+    piso al usuario `workdirs`, `confirm_destructive` y cuatro filas del log de
+    acciones REAL. Un test que toca los datos de quien lo corre no es un test.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previos = (store.CONFIG_PATH, store.DB_PATH)
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            return fn(raiz)
+        finally:
+            store.CONFIG_PATH, store.DB_PATH = previos
+
+
+def test_cuanto_vocabulario_de_interfaz_viaja_lo_elige_el_usuario():
+    """El ahorro de `ayuda_vocabulario`, medido y no estimado.
+
+    El plan lo pidio con esas palabras --"sin numero no entra, igual que
+    Kokoro"-- porque el diccionario de modulos viajaba en CADA llamada, se
+    usara o no. Lo que se comprueba aca no es que el texto cambie: es que el
+    orden de costo sea el correcto y que el modo barato NO lleve el
+    diccionario, que es lo unico que de verdad ahorra.
+    """
+    from eve import modulos, prompt
+
+    def cuerpo(_):
+        cfg = store.load_config()
+        largo = {}
+        for cuanto in ("consultar", "minimo", "completo"):
+            partes = prompt.partes({**cfg, "ayuda_vocabulario": cuanto})
+            largo[cuanto] = (partes["interfaz"], sum(partes.values()))
+
+        # El orden, que es la promesa del ajuste.
+        assert largo["consultar"][0] < largo["minimo"][0] < largo["completo"][0], largo
+        assert largo["consultar"][1] < largo["minimo"][1] < largo["completo"][1], largo
+
+        # Y el ahorro de verdad: el esquema entero viaja SOLO en `completo`.
+        esquema = modulos.esquema_corto()
+        assert esquema in store.bloque_interfaz({**cfg, "ayuda_vocabulario": "completo"})
+        for cuanto in ("consultar", "minimo"):
+            bloque = store.bloque_interfaz({**cfg, "ayuda_vocabulario": cuanto})
+            assert esquema not in bloque, f"{cuanto} manda el diccionario igual"
+            # Y a cambio le dice como preguntarlo, o la quita sin darle salida.
+            assert "E ui buscar" in bloque, cuanto
+
+        ahorro = largo["completo"][1] - largo["consultar"][1]
+        print(f"    interfaz: completo {largo['completo'][0]} -> consultar "
+              f"{largo['consultar'][0]} chars; prompt entero -{ahorro} "
+              f"({100 * ahorro / largo['completo'][1]:.1f}%)")
+
+        # `ayuda_alcance = nada` sigue mandando por encima de los tres.
+        for cuanto in ("consultar", "minimo", "completo"):
+            assert store.bloque_interfaz(
+                {**cfg, "ayuda_vocabulario": cuanto, "ayuda_alcance": "nada"}) == ""
+
+    _corral_de_config(cuerpo)
+
+
+def test_el_buscador_de_ajustes_entiende_como_habla_una_persona():
+    """`E ui buscar` existe para que Eve deje de adivinar nombres de clave.
+
+    Nadie dice `hud_opacidad`: dice "poneme el cartel mas transparente". Si el
+    buscador no cruza ese salto no sirve de nada, porque el ciclo que viene a
+    matar --probar un nombre, que `ajustar` conteste que no existe, reintentar--
+    cuesta una llamada entera por vuelta.
+    """
+    from eve import integrations, registro
+
+    def cuerpo(_):
+        esperado = {
+            "poneme el cartel mas transparente": "hud_opacidad",
+            "que no me escuche de noche": "stt_horario",
+            "va a tirones": "ui_fps",
+            "cambiar la tecla": "hotkey",
+        }
+        for frase, clave in esperado.items():
+            hallados = [e["clave"] for e in registro.buscar(
+                frase, excluir=store.NUNCA_POR_EVE, tope=6)]
+            assert clave in hallados, f"{frase!r} no encontro {clave}: {hallados[:4]}"
+
+        # Ninguna clave frenada se ofrece: darsela es hacerle gastar una llamada
+        # para que le contesten que no.
+        todas = []
+        for frase in list(esperado) + ["permisos", "addons", "autoridad", "rutas"]:
+            todas += [e["clave"] for e in registro.buscar(
+                frase, excluir=store.NUNCA_POR_EVE, tope=10)]
+        colados = set(todas) & set(store.NUNCA_POR_EVE)
+        assert not colados, f"el buscador ofrece claves frenadas: {colados}"
+
+        # Lo que el buscador entrega tiene que alcanzar para escribir sin fallar.
+        salida = integrations.ui_ver("hud_opacidad")
+        assert "hud_opacidad" in salida and "Opacidad" in salida, salida
+        assert "frenan" in integrations.ui_ver("autoridad")
+        assert "No existe" in integrations.ui_ver("opacidadcartel")
+
+    _corral_de_config(cuerpo)
+
+
+def test_archivos_alcance_no_deja_rastro_cuando_esta_en_exacto():
+    """Una capacidad apagada no ocupa lugar en el prompt NI se puede llamar.
+
+    Las dos mitades importan. Si el prompt la nombra con el permiso en `exacto`,
+    Eve gasta una llamada en que le contesten que no; si el comando corre igual,
+    el ajuste es decorativo.
+    """
+    from eve import integrations, prompt
+
+    def cuerpo(raiz):
+        cfg = store.load_config()
+        cfg["workdirs"] = [raiz]
+        cfg["archivos_alcance"] = "exacto"
+        store.save_config(cfg)
+
+        armado = prompt.construir(store.load_config())
+        assert "E archivo" not in armado, "el prompt nombra un comando apagado"
+
+        for salida in (integrations.archivo_listar(raiz),
+                       integrations.archivo_buscar("x"),
+                       integrations.archivo_escribir(os.path.join(raiz, "a.txt"), "x")):
+            assert "No puedo" in salida, salida
+        assert not os.path.exists(os.path.join(raiz, "a.txt")), "escribio igual"
+
+        # Con `explorar` aparecen los dos de lectura y NO el de escribir.
+        cfg["archivos_alcance"] = "explorar"
+        store.save_config(cfg)
+        armado = prompt.construir(store.load_config())
+        assert "E archivo listar" in armado and "E archivo buscar" in armado
+        assert "E archivo escribir" not in armado, "ofrece escribir sin permiso"
+        assert "No puedo" in integrations.archivo_escribir(
+            os.path.join(raiz, "a.txt"), "x")
+
+        cfg["archivos_alcance"] = "escribir"
+        store.save_config(cfg)
+        assert "E archivo escribir" in prompt.construir(store.load_config())
+
+    _corral_de_config(cuerpo)
+
+
+def test_escribir_un_archivo_pasa_por_los_mismos_frenos_que_todo_lo_demas():
+    """Crear no destruye nada; reemplazar si, y por eso solo eso pregunta.
+
+    Se ejercen las cuatro ramas de verdad, con `plataforma.preguntar`
+    interceptado, porque este repo ya tuvo un freno que nunca habia corrido ni
+    una vez y reventaba con ImportError en vez de preguntar.
+    """
+    from eve import integrations, plataforma
+
+    def cuerpo(raiz):
+        cfg = store.load_config()
+        cfg["workdirs"] = [raiz]
+        cfg["archivos_alcance"] = "escribir"
+        cfg["confirm_destructive"] = True
+        store.save_config(cfg)
+        ruta = os.path.join(raiz, "sub", "nota.txt")
+        previo = plataforma.preguntar
+        try:
+            # 1. Crear no pregunta: no hay nada que perder.
+            preguntas = []
+            integrations.plataforma.preguntar = lambda t, m: preguntas.append(m) or True
+            assert "Creado" in integrations.archivo_escribir(ruta, "hola")
+            assert open(ruta, encoding="utf-8").read() == "hola"
+            assert not preguntas, "pregunto para crear un archivo nuevo"
+
+            # 2. Pisar pregunta, y un `no` deja el contenido intacto.
+            integrations.plataforma.preguntar = lambda t, m: preguntas.append(m) or False
+            assert "no dejo" in integrations.archivo_escribir(ruta, "PISADO")
+            assert open(ruta, encoding="utf-8").read() == "hola", "piso igual"
+            assert preguntas, "no pregunto antes de pisar"
+            assert any(f[3] == "DENEGADO" for f in store.recent_actions(5))
+
+            # 3. Un `si` si pisa.
+            integrations.plataforma.preguntar = lambda t, m: True
+            assert "Reemplazado" in integrations.archivo_escribir(ruta, "PISADO")
+            assert open(ruta, encoding="utf-8").read() == "PISADO"
+
+            # 4. Con la confirmacion apagada no pregunta, que es lo que ese
+            #    ajuste dice que hace.
+            preguntas.clear()
+            integrations.plataforma.preguntar = lambda t, m: preguntas.append(m) or True
+            store.save_config({**store.load_config(), "confirm_destructive": False})
+            integrations.archivo_escribir(ruta, "otra vez")
+            assert not preguntas, "pregunto con confirm_destructive apagado"
+
+            # 5. Y nada de esto sale de las rutas permitidas.
+            fuera = os.path.join(os.path.dirname(raiz), "afuera.txt")
+            assert "fuera de las rutas" in integrations.archivo_escribir(fuera, "x")
+            assert not os.path.exists(fuera)
+        finally:
+            integrations.plataforma.preguntar = previo
+
+    _corral_de_config(cuerpo)
+
+
+def test_listar_y_buscar_no_salen_de_lo_permitido():
+    """Explorar no agranda lo permitido: `workdirs` sigue siendo el limite."""
+    from eve import integrations
+
+    def cuerpo(raiz):
+        cfg = store.load_config()
+        cfg["workdirs"] = [raiz]
+        cfg["archivos_alcance"] = "explorar"
+        store.save_config(cfg)
+        os.makedirs(os.path.join(raiz, "sub", "node_modules"), exist_ok=True)
+        for rel in ("informe.md", "sub/informe_viejo.txt", "sub/node_modules/x.js"):
+            ruta = os.path.join(raiz, *rel.split("/"))
+            os.makedirs(os.path.dirname(ruta), exist_ok=True)
+            open(ruta, "w", encoding="utf-8").write("x")
+
+        listado = integrations.archivo_listar(raiz)
+        assert "informe.md" in listado and "sub/" in listado, listado
+
+        hallados = integrations.archivo_buscar("informe")
+        assert "informe.md" in hallados and "informe_viejo.txt" in hallados
+
+        # `node_modules` se poda: no es seguridad, es no gastarle media
+        # respuesta en dependencias.
+        # Se mira que no aparezca la RUTA: el mensaje de "no encontre nada"
+        # repite el patron, asi que buscarlo ahi da un verde que no significa.
+        assert "node_modules" not in integrations.archivo_buscar("x.js")
+
+        afuera = os.path.dirname(raiz)
+        assert "fuera de las rutas" in integrations.archivo_listar(afuera)
+        assert "fuera de las rutas" in integrations.archivo_buscar("x", afuera)
+
+    _corral_de_config(cuerpo)
 
 
 def test_monitores():

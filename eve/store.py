@@ -298,6 +298,20 @@ DEFAULTS = {
     # nivel donde apruebe sus propios addons, y no deberia haberlo: la huella
     # del contenido es lo unico que separa un plugin de un agujero.
     "ayuda_alcance": "datos",
+    # Cuanto vocabulario de interfaz viaja en el prompt. `ayuda_alcance`
+    # dice QUE puede hacer Eve; esta dice CUANTO le contamos de antemano.
+    #   consultar  dos renglones, y busca con `E ui buscar` (lo mas barato)
+    #   minimo     ademas los trece nombres de tipo
+    #   completo   el esquema entero, como era antes
+    "ayuda_vocabulario": "consultar",
+    # Hasta donde llega Eve con los archivos. `exacto` es lo que hacia
+    # antes de que esto existiera: leer uno si le das la ruta entera.
+    #   exacto     leer una ruta que le dictes
+    #   explorar   ademas listar carpetas y buscar por nombre, solo lectura
+    #   escribir   ademas crear y reemplazar, preguntando antes de pisar
+    # En los tres, `workdirs` sigue siendo el limite: esto mueve QUE puede
+    # hacer adentro de lo permitido, nunca cuanto alcanza.
+    "archivos_alcance": "exacto",
     # Cuando se abre la ventana de actividad.
     #   nunca      solo si la abris a mano desde la bandeja
     #   con_eve    se abre junto con Eve y queda ahi
@@ -479,30 +493,65 @@ DIALECTOS = {
 }
 
 
+SALTO = chr(10)
+
+
 def bloque_interfaz(cfg: dict) -> str:
-    """El vocabulario de modulos, para que Eve pueda armar la interfaz.
+    """El vocabulario de interfaz, en la cantidad que el usuario haya elegido.
 
-    Cuesta ~190 tokens en CADA llamada, y por eso es opcional en vez de estar
-    siempre: con `ayuda_alcance = nada` no viaja y el prompt queda como estaba.
-    Sin esta seccion Eve sabe que existe `E modulo crear` pero no que props
-    acepta cada tipo, asi que las descubre a fuerza de error --dos o tres
-    vueltas al modelo por cada pedido, que cuestan mas que los 190 tokens.
+    Eve puede escribir 121 opciones de config y trece tipos de modulo, y hasta
+    ahora el prompt resolvia eso de la unica forma cara: mandando el diccionario
+    entero de modulos --1 352 caracteres, 11% del prompt-- en CADA llamada, y
+    de los 121 ajustes, ninguno. O sea que pagaba siempre por lo que casi nunca
+    se usa, y para lo que si se usa Eve tenia que adivinar el nombre de la
+    clave, fallar, y reintentar.
 
-    Se genera desde las tablas de `modulos.py`, nunca a mano: una prop nueva
-    aparece sola y no hay forma de que la lista quede vieja.
+    `ayuda_vocabulario` deja elegir cuanto viaja, porque el equilibrio depende
+    de para que uses a Eve y no de lo que yo suponga:
+
+        consultar  dos renglones. Eve busca con `E ui buscar` cuando le hace
+                   falta. Lo mas barato por llamada; una ida y vuelta extra las
+                   veces que si toca la interfaz.
+        minimo     ademas los trece nombres de tipo, sin sus props.
+        completo   el esquema entero, como estaba.
+
+    Con `ayuda_alcance = nada` no viaja nada, igual que antes: ese ajuste dice
+    QUE puede hacer Eve y este CUANTO le contamos, y son preguntas distintas.
     """
     if str(cfg.get("ayuda_alcance", "datos")) == "nada":
         return ""
     from . import modulos
 
-    return (
+    cuanto = str(cfg.get("ayuda_vocabulario", "consultar"))
+    cabecera = (
         "## Armar la interfaz\n\n"
         "Si te piden algo visual --\"ponete unas particulas\", \"agranda la "
         "onda\", \"mostrame el grafo\"-- se hace con `E modulo` y `E ajustar`, "
         "no describiendolo. Un modulo se ajusta con `E ajustar mod_<id>_<prop>`. "
-        "Una personalidad entera es un perfil.\n\n"
-        + modulos.esquema_corto() + "\n"
-    )
+        "Una personalidad entera es un perfil.\n\n")
+
+    if cuanto == "completo":
+        return cabecera + modulos.esquema_corto() + "\n"
+
+    # En los modos baratos la cabecera tambien se acorta. Con el diccionario
+    # puesto hace falta explicar cuando usarlo; con un buscador, el propio
+    # comando lo explica al llamarlo, y repetirlo aca es pagar dos veces.
+    cabecera = ("## Armar la interfaz" + SALTO * 2
+                + "Lo visual se hace con `E modulo` y `E ajustar`, no "
+                  "describiendolo: `E ajustar mod_<id>_<prop>`." + SALTO * 2)
+
+    # El resto NO lleva el diccionario: lleva como pedirlo. `E ui buscar` acepta
+    # palabras humanas --"transparencia", "que no me escuche de noche"-- y
+    # devuelve la clave, el valor de ahora y las opciones.
+    buscador = (
+        "NO adivines nombres de opciones: son 121 y no estan aca. "
+        "`E ui buscar <lo que quieras cambiar>` te da la clave exacta, cuanto "
+        "vale ahora y que valores acepta. `E ui ver CLAVE` para una sola.\n")
+    if cuanto == "minimo":
+        return (cabecera + buscador
+                + "Tipos de modulo: " + ", ".join(modulos.TIPOS) + ".\n"
+                + "Sus props salen de `E ui ver mod_<id>_<prop>`.\n")
+    return cabecera + buscador
 
 
 def bloque_dialecto(cfg: dict) -> str:
@@ -1088,8 +1137,8 @@ AUTORIDADES = ("usuario", "eve", "preguntar")
 #
 # No es una preferencia y por eso no es configurable: son las claves que
 # gobiernan sus propios frenos, y un freno que el frenado puede soltar no es un
-# freno. Sin esta lista, cualquiera de estas cinco lineas desarmaba el resto del
-# programa, y las cinco andaban:
+# freno. Sin esta lista, cualquiera de estas ocho lineas desarmaba el resto del
+# programa, y las ocho andaban:
 #
 #   E ajustar confirm_destructive false   apaga la confirmacion de destructivos
 #   E ajustar workdirs C:\                el allowlist de rutas deja de existir
@@ -1097,6 +1146,8 @@ AUTORIDADES = ("usuario", "eve", "preguntar")
 #   E ajustar autoridad eve               se da permiso a si misma
 #   E ajustar claves_del_usuario ""       borra lo que el usuario habia trabado
 #   E ajustar cc_permission_mode bypass   le saca el hook al motor claude-code
+#   E ajustar ayuda_alcance codigo       se habilita a escribir addons .py
+#   E ajustar archivos_alcance escribir  se habilita a pisar tus archivos
 #
 # La aprobacion de addons por huella vivia en la misma config que Eve podia
 # escribir, asi que ese freno entero era decorativo. La asimetria es a proposito:
@@ -1108,6 +1159,15 @@ NUNCA_POR_EVE = (
     "autoridad",
     "claves_del_usuario",
     "cc_permission_mode",
+    # La ultima se sumo despues, y por el mismo camino que las otras: se
+    # encontro agregandole el hermano `ayuda_vocabulario`. Decide si Eve
+    # puede DEJAR ESCRITO un addon .py, o sea que es el techo de su propia
+    # autonomia; que ella pueda subirlo de `datos` a `codigo` volvia
+    # decorativo el nivel que el usuario eligio. `ayuda_vocabulario` NO
+    # esta aca a proposito: solo cambia cuanto texto viaja, no lo que
+    # puede hacer, asi que tocarlo no le compra ningun permiso.
+    "ayuda_alcance",
+    "archivos_alcance",
 )
 
 

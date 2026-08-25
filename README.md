@@ -1233,13 +1233,21 @@ vuelve a 80, y no hay forma de saber quien gano ni de trabar el valor.
 | `eve` | cambia lo que quiera |
 | `preguntar` | sale un dialogo antes de cada cambio |
 
-**Hay seis claves que Eve no puede escribir, y no es configurable**: las que gobiernan sus
+**Hay ocho claves que Eve no puede escribir, y no es configurable**: las que gobiernan sus
 propios frenos. `confirm_destructive`, `workdirs`, `addons_aprobados`, `autoridad`,
-`claves_del_usuario` y `cc_permission_mode`. Un freno que el frenado puede soltar no es un
-freno, y hasta que esto se cerro las seis andaban: `E ajustar confirm_destructive false`
+`claves_del_usuario`, `cc_permission_mode`, `ayuda_alcance` y `archivos_alcance`. Un freno
+que el frenado puede soltar no es un freno, y hasta que esto se cerro las seis primeras
+andaban: `E ajustar confirm_destructive false`
 apagaba la confirmacion de destructivos, `workdirs C:\` borraba el allowlist de rutas, y
 `addons_aprobados` se auto-aprobaba un addon --la huella vivia en la misma config que Eve
 podia escribir, asi que **ese freno entero era decorativo**.
+
+**Las dos ultimas se sumaron despues, y son los dos techos que elegis vos**: hasta donde
+arma sola, y hasta donde llega con los archivos. Estuvieron escribibles por ella todo ese
+tiempo, o sea que podia pasarse de `datos` a `codigo` --habilitarse a dejar escrito un
+addon `.py`-- y de `exacto` a `escribir`. El chequeo que tenia que atraparlas buscaba
+palabras como `confirm` o `permission` en el nombre de la clave y no miraba `alcance`;
+ahora la mira, asi que la proxima no depende de que alguien se acuerde.
 
 Tampoco alcanza con `autoridad = preguntar`: el dialogo de permiso lo dispara la propia
 Eve, y "¿me dejas apagar tu confirmacion?" no es una pregunta que deba poder hacer. La
@@ -1249,6 +1257,15 @@ El panel anota que claves tocaste vos, y esa lista es lo que se traba. Se suelta
 `E destrabar CLAVE`. Del lado de Eve quedan `E ajustar CLAVE VALOR`, `E modulo crear` y
 `E perfil guardar|aplicar`, que es lo que le permite armar una interfaz cuando se lo pedis
 hablando.
+
+**Y para encontrar la clave, `E ui buscar`.** Son 121 opciones y ninguna viaja en el
+prompt: hasta que existio el buscador, Eve adivinaba el nombre, `ajustar` contestaba "No
+existe la opcion X", y reintentaba --y esa vuelta perdida cuesta una llamada entera.
+`E ui buscar transparencia` devuelve la clave exacta, cuanto vale ahora y que valores
+acepta; `E ui ver CLAVE` da una sola con su ayuda. Busca sobre **el mismo indice que
+dibuja el `Ctrl+F` del panel**, asi que lo que Eve encuentra es lo que vos ves, y no una
+segunda lista que se despega. Las claves frenadas no se listan: ofrecerle una que no
+puede escribir es hacerle gastar otra llamada para que le digan que no.
 
 ---
 
@@ -1277,7 +1294,44 @@ Lo que hacia falta no era codigo nuevo sino que el modelo supiera el vocabulario
 sabe que existe `E modulo crear` pero no que props acepta cada tipo, y las descubre a
 fuerza de error: dos o tres vueltas por pedido, que cuestan mas que mandarle la tabla. La
 tabla **se genera de `modulos.py`**, nunca se escribe a mano, asi que una prop nueva
-aparece sola. Cuesta ~260 tokens por llamada, y con `nada` no viaja.
+aparece sola.
+
+### Cuanto de ese vocabulario viaja: **Cuanto le contamos de antemano**
+
+La tabla entera son 1 352 caracteres --11% del prompt-- y hasta hace poco viajaba en
+**cada** llamada, incluida "que hora es". Ahora es tu decision, al lado del ajuste de
+arriba:
+
+| | | |
+|---|---|---|
+| `consultar` | dos renglones; pregunta con `E ui buscar` cuando le hace falta **(por defecto)** | 310 chars |
+| `minimo` | ademas los trece nombres de tipo, sin props | 485 |
+| `completo` | la tabla entera, como era antes | 1 352 |
+
+Medido con `prompt.partes()`, el mismo contador que dibuja el modulo `contexto`: sobre un
+prompt de 11 972 caracteres, pasar de `completo` a `consultar` **se lleva 1 042 (−9%) de
+todo lo que le digas**, a cambio de una consulta extra las veces que si toca la interfaz.
+Con `nada` en el ajuste de arriba no viaja nada, igual que antes.
+
+---
+
+## Hasta donde llega con los archivos
+
+En **General > Hasta donde puede meterse**, debajo de las rutas permitidas. Las rutas
+siguen siendo el limite; esto decide que hace **adentro** de ellas:
+
+| | |
+|---|---|
+| `exacto` | leer un archivo si le dictas la ruta entera **(por defecto)** |
+| `explorar` | ademas `E archivo listar` y `E archivo buscar`, por nombre y solo lectura |
+| `escribir` | ademas `E archivo escribir`: crear y reemplazar |
+
+Pisar un archivo que ya existe pasa por la **misma confirmacion que los destructivos** y
+queda en el log de acciones; crear uno nuevo no pregunta, porque no hay nada que perder.
+
+**Con `exacto` esos comandos no se nombran en el prompt.** Una capacidad que no se puede
+usar no tiene por que ocupar lugar, y nombrarla ademas invita a gastar una llamada en que
+le contesten que no.
 
 ---
 
@@ -1628,7 +1682,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 139 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 144 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

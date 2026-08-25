@@ -564,8 +564,8 @@ EN = {
     "\n"
     "Es OTRO eje que 'Quien manda'. Aquel decide quien gana cuando los\n"
     "dos quieren el mismo valor; este, que clase de cosa puede crear.\n"
-    "Con 'nada' el prompt tampoco lleva el vocabulario de modulos, que\n"
-    "son ~190 tokens por llamada.":
+    "Con 'nada' el prompt tampoco lleva el vocabulario de modulos.\n"
+    "Cuanto de ese vocabulario viaja lo decide el ajuste de abajo.":
         "When you ask for something out loud, how far it can go:\n"
         "  nada    touches nothing; it is the voice and nothing else\n"
         "  datos   modules, settings and profiles -- everything that is already\n"
@@ -578,8 +578,40 @@ EN = {
         "\n"
         "This is a DIFFERENT axis from 'Who wins'. That one decides who wins\n"
         "when both want the same value; this one, what kind of thing it may\n"
-        "create. With 'nada' the prompt also drops the module vocabulary, which\n"
-        "is ~190 tokens per call.",
+        "create. With 'nada' the prompt also drops the module vocabulary.\n"
+        "How much of that vocabulary travels is up to the setting below.",
+    "Cuanto le contamos de antemano":
+        "How much we tell it up front",
+    "Cuanto vocabulario de interfaz viaja en CADA llamada:\n"
+    "  consultar  dos renglones, y Eve pregunta con 'E ui buscar'\n"
+    "             cuando le hace falta. 310 caracteres.\n"
+    "  minimo     ademas los trece nombres de tipo. 485.\n"
+    "  completo   el esquema entero, con sus props. 1352.\n"
+    "Medido con el mismo contador que dibuja el modulo\n"
+    "'contexto': de 11 972 caracteres de prompt, 'completo' se\n"
+    "lleva el 11.3% y 'consultar' el 2.8%. O sea 8.7% menos en\n"
+    "TODO lo que le digas, incluido 'que hora es', a cambio de\n"
+    "una consulta extra las veces que si toca la interfaz.\n"
+    "\n"
+    "Es OTRO eje que los dos de arriba: aquellos dicen QUE puede\n"
+    "hacer y quien gana cuando los dos quieren el mismo valor;\n"
+    "este, solo cuanto le adelantamos. Con 'Hasta donde arma\n"
+    "sola' en nada no viaja nada y este no hace diferencia.":
+        "How much interface vocabulary travels on EVERY call:\n"
+        "  consultar  two lines, and Eve asks with 'E ui buscar'\n"
+        "             when it needs to. 310 characters.\n"
+        "  minimo     plus the thirteen type names. 485.\n"
+        "  completo   the whole schema, with each type's props. 1352.\n"
+        "Measured with the same counter that draws the 'contexto'\n"
+        "module: out of 11,972 characters of prompt, 'completo' takes\n"
+        "11.3% and 'consultar' 2.8%. That is 8.7% less on EVERYTHING\n"
+        "you say, 'what time is it' included, in exchange for one\n"
+        "extra lookup the times it does touch the interface.\n"
+        "\n"
+        "This is a DIFFERENT axis from the two above: those say WHAT it\n"
+        "may do and who wins when both want the same value; this one,\n"
+        "only how much we tell it beforehand. With 'How far it goes on\n"
+        "its own' set to nada, nothing travels and this makes no difference.",
     "Cuando se abre":
         "When it opens",
     "Cuando se ve":
@@ -842,8 +874,36 @@ EN = {
         "Speaker only matters on voices that ship several.",
     "Hasta donde arma sola":
         "How much it can build on its own",
+    "Hasta donde llega con los archivos":
+        "How far it goes with files",
     "Hasta donde puede meterse":
         "How far it is allowed to go",
+    "Que puede hacer Eve DENTRO de las rutas de arriba. Las rutas\n"
+    "siguen siendo el limite: esto no agranda lo permitido, decide\n"
+    "que hace adentro.\n"
+    "  exacto     leer un archivo si le dictas la ruta entera\n"
+    "  explorar   ademas listar una carpeta y buscar por nombre;\n"
+    "             sin esto, encontrar algo dependia de que vos\n"
+    "             supieras y dictaras la ruta\n"
+    "  escribir   ademas crear y reemplazar. Pisar un archivo que\n"
+    "             ya existe te pregunta primero, salvo que hayas\n"
+    "             apagado la confirmacion aca arriba\n"
+    "Con 'exacto' los comandos de explorar no existen para ella y\n"
+    "tampoco se nombran en el prompt: una capacidad que no se puede\n"
+    "usar solo gasta lugar e invita a que pruebe y le digan que no.":
+        "What Eve may do INSIDE the paths above. Those paths are still\n"
+        "the limit: this does not widen what is allowed, it decides what\n"
+        "it does inside.\n"
+        "  exacto     read a file if you dictate the whole path\n"
+        "  explorar   plus list a folder and search by name; without it,\n"
+        "             finding anything depended on you knowing and\n"
+        "             dictating the path\n"
+        "  escribir   plus create and replace. Overwriting a file that\n"
+        "             already exists asks you first, unless you turned\n"
+        "             the confirmation above off\n"
+        "With 'exacto' the exploring commands do not exist for it and are\n"
+        "not named in the prompt either: a capability that cannot be used\n"
+        "only wastes room and invites it to try and be told no.",
     "Historial limpiado":
         "History cleared",
     "Icono":

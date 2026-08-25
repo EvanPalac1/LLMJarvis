@@ -109,12 +109,212 @@ def contacto(nombre: str) -> str:
     return f"{c.get('nombre')} -> " + (" | ".join(campos) or "sin datos cargados")
 
 
-def prompt_section() -> str:
-    """Lo que el modelo necesita saber para usar estas conexiones."""
+ARCHIVOS_ALCANCE = ("exacto", "explorar", "escribir")
+
+# Lo que no se lista ni se recorre. No es seguridad --el freno es `workdirs`--
+# sino no gastarle a Eve media respuesta en `node_modules`.
+_RUIDO = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist",
+          "build", ".idea", ".vscode", "site-packages", ".mypy_cache"}
+_TOPE_LISTA = 60
+
+
+def _alcance_archivos(cfg=None) -> str:
+    cfg = cfg if cfg is not None else store.load_config()
+    valor = str(cfg.get("archivos_alcance", "exacto"))
+    return valor if valor in ARCHIVOS_ALCANCE else "exacto"
+
+
+def _alcanza(nivel: str, cfg=None) -> str:
+    """Vacio si el permiso alcanza; si no, el motivo para que Eve lo repita.
+
+    El mensaje nombra el ajuste y el valor que haria falta porque el que lo va a
+    leer es un modelo: "no tengo permiso" lo deja adivinando, y "esta en exacto,
+    hace falta explorar" lo deja pedirtelo con precision.
+    """
+    tengo = _alcance_archivos(cfg)
+    if ARCHIVOS_ALCANCE.index(tengo) >= ARCHIVOS_ALCANCE.index(nivel):
+        return ""
+    return (f"No puedo: 'Hasta donde llega con los archivos' esta en {tengo!r} y "
+            f"esto necesita {nivel!r}. Pediselo al usuario, se cambia en el panel, "
+            "en General. No insistas con otro comando.")
+
+
+def _dentro(ruta: str, cfg) -> str:
+    """La ruta absoluta si esta permitida; si no, cadena vacia."""
+    abs_ = os.path.abspath(os.path.expanduser(ruta))
+    return abs_ if safety.path_allowed(abs_, cfg.get("workdirs", [])) else ""
+
+
+def archivo_listar(ruta: str = "") -> str:
+    """Que hay en una carpeta, en un renglon por entrada.
+
+    Sin esto la unica forma que tenia Eve de encontrar un archivo era que vos le
+    dictaras la ruta entera. Con las carpetas permitidas ya declaradas en el
+    panel, listarlas no agrega superficie: lo que decide que se puede ver sigue
+    siendo `workdirs`, igual que para leer.
+    """
+    cfg = store.load_config()
+    freno = _alcanza("explorar", cfg)
+    if freno:
+        return freno
+    if not ruta:
+        permitidas = cfg.get("workdirs", []) or []
+        if not permitidas:
+            return "No hay ninguna carpeta permitida. Se agregan en el panel, en General."
+        return "Carpetas permitidas:" + chr(10) + chr(10).join(
+            f"  {p}" for p in permitidas)
+
+    abs_ = _dentro(ruta, cfg)
+    if not abs_:
+        return (f"{ruta} esta fuera de las rutas permitidas. "
+                "Se agregan en el panel, en General.")
+    if not os.path.isdir(abs_):
+        return f"{abs_} no es una carpeta."
+    try:
+        nombres = sorted(os.listdir(abs_))
+    except OSError as exc:
+        return f"No pude leer {abs_}: {exc}"
+
+    lineas, ocultos = [], 0
+    for nombre in nombres:
+        if nombre in _RUIDO or nombre.startswith("."):
+            ocultos += 1
+            continue
+        entero = os.path.join(abs_, nombre)
+        if os.path.isdir(entero):
+            lineas.append(f"  {nombre}/")
+        else:
+            try:
+                tam = os.path.getsize(entero)
+            except OSError:
+                tam = 0
+            lineas.append(f"  {nombre}  ({tam:,} bytes)")
+    if not lineas:
+        return f"{abs_} esta vacia." + (f" ({ocultos} ocultos)" if ocultos else "")
+    recortado = len(lineas) > _TOPE_LISTA
+    cola = ([f"  ... y {len(lineas) - _TOPE_LISTA} mas. Afina con `E archivo buscar`."]
+            if recortado else [])
+    return chr(10).join([f"{abs_}:"] + lineas[:_TOPE_LISTA] + cola)
+
+
+def archivo_buscar(patron: str, ruta: str = "", tope: int = 40) -> str:
+    """Los archivos cuyo NOMBRE contiene el patron, dentro de lo permitido.
+
+    Por nombre y no por contenido a proposito: leer cada archivo para buscar
+    adentro es justo el gasto que este plan viene a bajar, y para el caso que
+    importa --"donde deje el informe"-- el nombre alcanza.
+    """
+    cfg = store.load_config()
+    freno = _alcanza("explorar", cfg)
+    if freno:
+        return freno
+    patron = patron.strip().lower()
+    if not patron:
+        return "Falta que buscar."
+
+    raices = []
+    if ruta:
+        abs_ = _dentro(ruta, cfg)
+        if not abs_:
+            return f"{ruta} esta fuera de las rutas permitidas."
+        raices = [abs_]
+    else:
+        raices = [os.path.abspath(os.path.expanduser(p))
+                  for p in (cfg.get("workdirs", []) or [])]
+    if not raices:
+        return "No hay ninguna carpeta permitida donde buscar."
+
+    hallados = []
+    for raiz in raices:
+        for base, dirs, archivos in os.walk(raiz):
+            # Podar aca y no al final: entrar a `node_modules` para despues
+            # descartarlo cuesta el recorrido igual.
+            dirs[:] = [d for d in dirs if d not in _RUIDO and not d.startswith(".")]
+            for nombre in archivos:
+                if patron in nombre.lower():
+                    hallados.append(os.path.join(base, nombre))
+                    if len(hallados) >= tope:
+                        break
+            if len(hallados) >= tope:
+                break
+        if len(hallados) >= tope:
+            break
+    if not hallados:
+        return f"Ningun archivo con {patron!r} en el nombre."
+    cola = [f"(corte en {tope}; afina el patron)"] if len(hallados) >= tope else []
+    return chr(10).join(hallados + cola)
+
+
+def archivo_escribir(ruta: str, texto: str) -> str:
+    """Crea o reemplaza un archivo de texto, dentro de lo permitido.
+
+    Pisar uno que ya existe pasa por `plataforma.preguntar`, que es el mismo
+    freno de destructivos que usan los addons: crear no destruye nada y
+    reemplazar si, asi que solo lo segundo pregunta. Con
+    `confirm_destructive` apagado no pregunta, que es lo que ese ajuste dice.
+    """
+    cfg = store.load_config()
+    freno = _alcanza("escribir", cfg)
+    if freno:
+        return freno
+    abs_ = _dentro(ruta, cfg)
+    if not abs_:
+        return (f"{ruta} esta fuera de las rutas permitidas. "
+                "Se agregan en el panel, en General.")
+    if os.path.isdir(abs_):
+        return f"{abs_} es una carpeta."
+
+    existia = os.path.exists(abs_)
+    if existia and cfg.get("confirm_destructive", True):
+        if not plataforma.preguntar(
+                "Eve quiere reemplazar un archivo",
+                f"Va a pisar el contenido de:{chr(10)}{abs_}{chr(10)}{chr(10)}"
+                "Se pierde lo que tenga ahora."):
+            store.log_action("eve", f"archivo-escribir {abs_}", "DENEGADO")
+            return f"El usuario no dejo reemplazar {abs_}."
+    try:
+        os.makedirs(os.path.dirname(abs_) or ".", exist_ok=True)
+        with open(abs_, "w", encoding="utf-8", newline="") as fh:
+            fh.write(texto)
+    except OSError as exc:
+        return f"No pude escribir {abs_}: {exc}"
+    store.log_action("eve", f"archivo-escribir {abs_}", "OK")
+    return f"{'Reemplazado' if existia else 'Creado'} {abs_} ({len(texto)} caracteres)."
+
+
+def bloque_archivos(cfg: dict) -> str:
+    """Los comandos de archivos que el permiso de HOY deja usar, y ninguno mas.
+
+    Con `exacto` devuelve cadena vacia: una capacidad que no se puede usar no
+    tiene por que ocupar lugar en el prompt, y nombrarla ademas invita a
+    gastar una llamada en que le contesten que no.
+    """
+    nivel = _alcance_archivos(cfg)
+    if nivel == "exacto":
+        return ""
+    lineas = ["## Archivos", "",
+              "Solo dentro de las carpetas permitidas; fuera de ahi el comando "
+              "te lo dice y no hay vuelta que darle.",
+              "`E archivo listar [RUTA]` sin ruta lista las carpetas permitidas.",
+              "`E archivo buscar PATRON [--ruta R]` busca por nombre de archivo."]
+    if nivel == "escribir":
+        lineas.append("`E archivo escribir RUTA --texto T` crea o reemplaza. "
+                      "Pisar uno que ya existe le pregunta al usuario.")
+    return chr(10).join(lineas) + chr(10)
+
+
+def prompt_section(cfg=None) -> str:
+    """Lo que el modelo necesita saber para usar estas conexiones.
+
+    Recibe la config en vez de leerla porque el medidor de contexto pregunta
+    por configs hipoteticas --"cuanto costaria con esto en tal valor"-- y una
+    seccion que se lee sola a si misma le contesta siempre lo mismo.
+    """
     from eve import addons
 
+    cfg = cfg if cfg is not None else store.load_config()
     contactos_prompt = contactos_prompt_texto()
-    extra = addons.prompt(store.load_config())
+    extra = addons.prompt(cfg)
     return f"""## Comandos
 
 Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
@@ -138,7 +338,7 @@ Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
   E exportar-contacto NOMBRE
       deja un archivo .evecontact en el Escritorio para compartir ese contacto.
       Despues adjuntalo con componer si te piden mandarselo a alguien.
-  E outlook-leer -n 10
+{bloque_archivos(cfg)}  E outlook-leer -n 10
   E outlook-contacto NOMBRE              resolve "Juan" -> direccion; si hay varios, pregunta
   E outlook-redactar --to X --asunto "..." --cuerpo "..."
       lo manda. Agrega --borrador solo si el usuario pide revisarlo antes
@@ -273,6 +473,72 @@ def perfil_cmd(a) -> str:  # noqa: ANN001
         return str(exc)
     store.log_action("perfil", f"aplicar {a.nombre}", "aplicado")
     return f"Aplique el perfil {a.nombre!r}."
+
+
+def ui_buscar(consulta: str, tope: int = 6) -> str:
+    """Los ajustes que coinciden con lo que se pregunto, para que Eve NO adivine.
+
+    Es el problema que este comando viene a resolver: Eve puede escribir 121
+    opciones y ninguna viaja en el prompt, asi que probaba un nombre, `ajustar`
+    contestaba "No existe la opcion X", y reintentaba. Cada vuelta de esas
+    cuesta una llamada entera.
+
+    Se busca sobre el MISMO arbol que dibuja el panel --`registro.catalogo()`--
+    asi que lo que Eve encuentra es exactamente lo que el usuario ve, y no una
+    segunda lista que se desfasa.
+
+    Las claves frenadas NO se listan: ofrecerle una opcion que no puede escribir
+    seria hacerle gastar otra llamada para que le digan que no.
+    """
+    from eve import registro
+
+    hallados = registro.buscar(consulta, excluir=store.NUNCA_POR_EVE, tope=tope)
+    if not hallados:
+        return (f"Nada parecido a {consulta!r}. Proba con otras palabras, o "
+                "decile al usuario que lo busque en el panel con Ctrl+F.")
+    cfg = store.load_config()
+    lineas = []
+    for e in hallados:
+        ahora = cfg.get(e["clave"], "")
+        trozo = f"{e['clave']} = {ahora!r}   {e['etiqueta']}"
+        if e["opciones"]:
+            trozo += "   opciones: " + "|".join(str(o) for o in e["opciones"])
+        if store.trabada(e["clave"], cfg):
+            trozo += "   [TRABADA por el usuario: no la puedo cambiar]"
+        lineas.append(trozo)
+    return chr(10).join(lineas)
+
+
+def ui_ver(clave: str) -> str:
+    """Una sola opcion, con todo lo que hace falta para escribirla bien.
+
+    Para cuando Eve ya sabe cual quiere y le falta el rango o las opciones.
+    Evita el ciclo escribir-fallar-reintentar, que es el que cuesta caro.
+
+    Cuando la clave no existe devuelve las parecidas, que es lo que convierte un
+    error en un paso adelante en vez de en otra llamada perdida.
+    """
+    from eve import modulos, registro
+
+    cfg = store.load_config()
+    if clave in store.NUNCA_POR_EVE:
+        return f"{clave} existe pero es una de las que me frenan: no la puedo tocar."
+    if clave not in store.DEFAULTS and modulos.tipo_de_clave(cfg, clave) is None:
+        cerca = registro.buscar(clave, excluir=store.NUNCA_POR_EVE, tope=3)
+        pista = ("  Parecidas: " + ", ".join(e["clave"] for e in cerca)) if cerca else ""
+        return f"No existe la opcion {clave!r}.{pista}"
+
+    entrada = next((e for e in registro.catalogo() if e["clave"] == clave), None)
+    partes = [f"{clave} = {cfg.get(clave, '')!r}"]
+    if entrada:
+        partes.append(f"  {entrada['etiqueta']}  ({entrada['seccion']})")
+        if entrada["opciones"]:
+            partes.append("  opciones: " + "|".join(str(o) for o in entrada["opciones"]))
+        if entrada["ayuda"]:
+            partes.append("  " + " ".join(entrada["ayuda"].split())[:300])
+    if store.trabada(clave, cfg):
+        partes.append("  [TRABADA por el usuario: no la puedo cambiar]")
+    return chr(10).join(partes)
 
 
 def ajustar(clave: str, valor: str) -> str:
@@ -1392,6 +1658,16 @@ def main(argv=None) -> int:
     aj.add_argument("clave")
     aj.add_argument("valor")
 
+    ar = sub.add_parser("archivo")
+    ar.add_argument("accion", choices=["listar", "buscar", "escribir"])
+    ar.add_argument("ruta", nargs="?", default="")
+    ar.add_argument("--ruta", dest="dentro", default="")
+    ar.add_argument("--texto", default="")
+
+    ui = sub.add_parser("ui")
+    ui.add_argument("accion", choices=["buscar", "ver"])
+    ui.add_argument("resto", nargs="+")
+
     de = sub.add_parser("destrabar")
     de.add_argument("clave", nargs="?", default="")
 
@@ -1464,6 +1740,16 @@ def main(argv=None) -> int:
             print(perfil_cmd(a))
         elif a.cmd == "ajustar":
             print(ajustar(a.clave, a.valor))
+        elif a.cmd == "ui":
+            print(ui_buscar(" ".join(a.resto)) if a.accion == "buscar"
+                  else ui_ver(a.resto[0]))
+        elif a.cmd == "archivo":
+            if a.accion == "listar":
+                print(archivo_listar(a.ruta))
+            elif a.accion == "buscar":
+                print(archivo_buscar(a.ruta, a.dentro))
+            else:
+                print(archivo_escribir(a.ruta, a.texto))
         elif a.cmd == "destrabar":
             print(store.destrabar(a.clave))
         elif a.cmd in ("leer", "buscar"):

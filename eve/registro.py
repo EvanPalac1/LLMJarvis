@@ -633,6 +633,21 @@ GENERAL = (
             # clave. Declaran lo que tocan para no salirse de la verificacion.
             Propio("_rutas_permitidas", ("workdirs",)),
             Propio("_selector_de_permisos", ("confirm_destructive",)),
+            Campo("archivos_alcance", "Hasta donde llega con los archivos",
+                  ["exacto", "explorar", "escribir"]),
+            Ayuda("Que puede hacer Eve DENTRO de las rutas de arriba. Las rutas\n"
+                  "siguen siendo el limite: esto no agranda lo permitido, decide\n"
+                  "que hace adentro.\n"
+                  "  exacto     leer un archivo si le dictas la ruta entera\n"
+                  "  explorar   ademas listar una carpeta y buscar por nombre;\n"
+                  "             sin esto, encontrar algo dependia de que vos\n"
+                  "             supieras y dictaras la ruta\n"
+                  "  escribir   ademas crear y reemplazar. Pisar un archivo que\n"
+                  "             ya existe te pregunta primero, salvo que hayas\n"
+                  "             apagado la confirmacion aca arriba\n"
+                  "Con 'exacto' los comandos de explorar no existen para ella y\n"
+                  "tampoco se nombran en el prompt: una capacidad que no se puede\n"
+                  "usar solo gasta lugar e invita a que pruebe y le digan que no."),
             Ayuda("'Permitir todo' desactiva la confirmacion y tambien los permisos internos\n"
                   "de Claude Code. Todo queda igual registrado en la pestaña Acciones."),
         ),
@@ -656,8 +671,24 @@ GENERAL = (
                   "plugin de un agujero.\n"
                   "\nEs OTRO eje que 'Quien manda'. Aquel decide quien gana cuando los\n"
                   "dos quieren el mismo valor; este, que clase de cosa puede crear.\n"
-                  "Con 'nada' el prompt tampoco lleva el vocabulario de modulos, que\n"
-                  "son ~190 tokens por llamada."),
+                  "Con 'nada' el prompt tampoco lleva el vocabulario de modulos.\n"
+                  "Cuanto de ese vocabulario viaja lo decide el ajuste de abajo."),
+            Campo("ayuda_vocabulario", "Cuanto le contamos de antemano",
+                  ["consultar", "minimo", "completo"]),
+            Ayuda("Cuanto vocabulario de interfaz viaja en CADA llamada:\n"
+                  "  consultar  dos renglones, y Eve pregunta con 'E ui buscar'\n"
+                  "             cuando le hace falta. 310 caracteres.\n"
+                  "  minimo     ademas los trece nombres de tipo. 485.\n"
+                  "  completo   el esquema entero, con sus props. 1352.\n"
+                  "Medido con el mismo contador que dibuja el modulo\n"
+                  "'contexto': de 11 972 caracteres de prompt, 'completo' se\n"
+                  "lleva el 11.3% y 'consultar' el 2.8%. O sea 8.7% menos en\n"
+                  "TODO lo que le digas, incluido 'que hora es', a cambio de\n"
+                  "una consulta extra las veces que si toca la interfaz.\n"
+                  "\nEs OTRO eje que los dos de arriba: aquellos dicen QUE puede\n"
+                  "hacer y quien gana cuando los dos quieren el mismo valor;\n"
+                  "este, solo cuanto le adelantamos. Con 'Hasta donde arma\n"
+                  "sola' en nada no viaja nada y este no hace diferencia."),
             Campo("claves_del_usuario", "Claves que fijaste tu", None, 44),
         ),
         AVANZADO,
@@ -745,3 +776,165 @@ CARTEL = (
 # para que el chequeo de traduccion las recorra sin que nadie tenga que
 # acordarse de sumar cada pestaña nueva a mano.
 TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA, GENERAL, CARTEL)
+
+
+# Las siete piezas de un bloque de fondo, con el sufijo REAL de su clave. Los
+# nombres salen de `_bloque_fondo`, que es quien las dibuja, y los sufijos de
+# `claves()`, que es quien ya las enumeraba.
+_PARTES_FONDO = (
+    ("_fondo", "Imagen de fondo"),
+    ("_fondo_ajuste", "Ajuste de la imagen de fondo"),
+    ("_fondo_opacidad", "Opacidad del fondo"),
+    ("_fondo_tinte", "Tinte del fondo"),
+    ("_grad", "Degradado"),
+    ("_grad_a", "Degradado: color de arriba"),
+    ("_grad_b", "Degradado: color de abajo"),
+)
+
+# Lo que dice una persona contra lo que dice el panel. NO es un tesauro: son las
+# pocas palabras donde el rotulo tecnico y el humano no coinciden, que es
+# exactamente donde buscar fallaba. "transparencia" no aparece en ningun rotulo
+# --el ajuste se llama `hud_opacidad`, "Opacidad (%)"-- asi que pedirle a Eve
+# que adivine ahi era pedirle que fallara.
+SINONIMOS = {
+    "transparencia": "opacidad", "transparente": "opacidad",
+    "translucido": "opacidad", "opaco": "opacidad",
+    "letra": "fuente tam", "tipografia": "fuente",
+    "tamano": "tam", "grande": "tam", "chico": "tam", "chica": "tam",
+    "apagar": "nunca", "desactivar": "nunca", "prender": "siempre",
+    "micro": "microfono", "sensibilidad": "vad umbral",
+    "noche": "horario", "tirones": "fps", "trabado": "fps",
+    "atajo": "hotkey tecla", "boton": "hotkey tecla",
+    "ventana": "consola tablero", "actividad": "consola tablero",
+    "color": "tema colores", "fondo": "fondo tema",
+}
+
+
+def catalogo(bloque=None, seccion: str = "") -> list[dict]:
+    """Cada ajuste con lo que hace falta para encontrarlo y explicarlo.
+
+    Devuelve `[{clave, etiqueta, seccion, ayuda, opciones}]`. Sale del MISMO
+    arbol que dibuja el panel, asi que no puede desfasarse de lo que el usuario
+    ve -- que es toda la razon de que el registro exista.
+
+    La `ayuda` se toma del `Ayuda` que viene JUSTO DESPUES del control, que es
+    como estan escritas: el texto explica la fila de arriba. Sin esa regla habria
+    que anotar a mano cual ayuda es de cual, y anotar a mano es lo que se
+    desfasa.
+    """
+    if bloque is None:
+        bloque = [item for tabla in TABLAS for item in tabla]
+    salida: list[dict] = []
+    ultimo: dict | None = None
+    for item in bloque:
+        if isinstance(item, Seccion):
+            salida.extend(catalogo(item.hijos, item.titulo))
+            ultimo = None
+        elif isinstance(item, Fila):
+            salida.extend(catalogo(item.hijos, seccion))
+            ultimo = None
+        elif isinstance(item, (Campo, Interruptor)):
+            ultimo = {"clave": item.clave, "etiqueta": item.etiqueta,
+                      "seccion": seccion, "ayuda": "",
+                      # Un `str` es el NOMBRE de un metodo del panel y no la
+                      # lista: esas se arman al abrir --las voces salen de
+                      # consultar el sistema-- asi que aca no hay lista que
+                      # dar. Devolverlo dejaba las opciones deletreadas letra
+                      # por letra.
+                      "opciones": (None
+                                   if isinstance(getattr(item, "opciones", None), str)
+                                   else getattr(item, "opciones", None))}
+            salida.append(ultimo)
+        elif isinstance(item, Colores):
+            # Ocho por prefijo, con el rotulo de su rol. Sin esto, un tercio de
+            # los ajustes del tema no se pueden encontrar por nombre.
+            for rol, etiqueta in ROLES_ETIQUETA:
+                salida.append({"clave": f"{item.prefijo}_color_{rol}",
+                               "etiqueta": f"{etiqueta} (color)",
+                               "seccion": seccion, "ayuda": "",
+                               "opciones": None})
+            ultimo = None
+        elif isinstance(item, Fondo):
+            for sufijo, etiqueta in _PARTES_FONDO:
+                salida.append({"clave": f"{item.prefijo}{sufijo}",
+                               "etiqueta": etiqueta,
+                               "seccion": seccion or item.titulo, "ayuda": "",
+                               "opciones": None})
+            ultimo = None
+        elif isinstance(item, Ayuda) and ultimo is not None:
+            # Solo la primera: varias `Ayuda` seguidas suelen ser parrafos del
+            # mismo texto, y pegarlos todos devuelve media pantalla por ajuste.
+            if not ultimo["ayuda"]:
+                ultimo["ayuda"] = item.texto
+        else:
+            ultimo = None
+    return salida
+
+
+def buscar(consulta: str, excluir=(), tope: int = 8) -> list[dict]:
+    """Los ajustes que coinciden con lo que se pregunto, mejor primero.
+
+    Existe para que Eve deje de ADIVINAR nombres de clave. Puede escribir 121
+    opciones y ninguna viaja en el prompt, asi que hoy prueba un nombre,
+    `ajustar` contesta "No existe la opcion X", y reintenta. Ese ciclo es el
+    gasto que este plan viene a sacar.
+
+    Se busca en rotulo, clave, seccion y ayuda, porque el usuario no habla en
+    nombres de clave: dice "transparencia" y la clave es `hud_opacidad`. La
+    ayuda es justamente donde vive esa palabra.
+
+    `excluir` es para las claves que Eve no puede escribir. Ofrecerle una opcion
+    frenada seria hacerle gastar una llamada para que le digan que no.
+    """
+    palabras = [p for p in _normalizar(consulta).split() if len(p) > 2]
+    # Cada palabra suma la suya y las que el panel usa para lo mismo. Sin esto,
+    # "poneme el cartel mas transparente" no encontraba `hud_opacidad`.
+    for palabra in list(palabras):
+        palabras.extend(SINONIMOS.get(palabra, "").split())
+    if not palabras:
+        return []
+    fuera = set(excluir)
+    puntuadas = []
+    for entrada in catalogo():
+        if entrada["clave"] in fuera:
+            continue
+        campos = ((_normalizar(entrada["clave"]), 6),
+                  (_normalizar(entrada["etiqueta"]), 5),
+                  (_normalizar(entrada["seccion"]), 2),
+                  (_normalizar(entrada["ayuda"]), 1))
+        punto = 0
+        tocadas = 0
+        en_nombre = 0
+        for palabra in palabras:
+            mejor = 0
+            for i, (texto, peso) in enumerate(campos):
+                if palabra in texto:
+                    # Palabra entera vale mas que pedazo: buscando "voz" no
+                    # tiene que ganar "vozarron" sobre el ajuste que se llama voz.
+                    mejor = max(mejor, peso * (2 if f" {palabra} " in f" {texto} " else 1))
+                    if i < 2:            # clave o etiqueta, no seccion ni ayuda
+                        en_nombre += 1
+            if mejor:
+                tocadas += 1
+                punto += mejor
+        if not tocadas:
+            continue
+        # Que coincidan TODAS las palabras pesa mas que coincidir mucho con una.
+        punto += tocadas * 10
+        # Y coincidir en el NOMBRE pesa mas que coincidir en la ayuda. Sin esto
+        # ganaba siempre el ajuste con la ayuda mas larga: `perfil_reglas`
+        # explica horarios y programas, asi que se llevaba "cambiar la tecla" y
+        # "que no me escuche de noche" por encima de `hotkey` y `stt_horario`.
+        punto += en_nombre * 25
+        puntuadas.append((punto, entrada))
+    puntuadas.sort(key=lambda par: -par[0])
+    return [entrada for _punto, entrada in puntuadas[:tope]]
+
+
+def _normalizar(texto: str) -> str:
+    """Minusculas y sin acentos: se busca por lo que se dice, no por como se
+    escribe. Quien pregunta por "opacidad" no tiene por que poner la tilde."""
+    import unicodedata
+
+    sin = unicodedata.normalize("NFD", str(texto or "").lower())
+    return "".join(c for c in sin if unicodedata.category(c) != "Mn")

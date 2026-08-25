@@ -92,7 +92,7 @@ def piezas(cfg: dict) -> dict:
         "brief": store.load_brief(),
         "catalog": apps.catalog(_usados(cfg)),
         "catalog_header": apps.catalog_header(bool(_usados(cfg))),
-        "integrations": integrations.prompt_section(),
+        "integrations": integrations.prompt_section(cfg),
         "interfaz": store.bloque_interfaz(cfg),
         "dialecto": store.bloque_dialecto(cfg),
         "tono": store.bloque_tono(cfg),

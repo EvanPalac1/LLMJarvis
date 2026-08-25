@@ -48,33 +48,57 @@ exactamente el mismo camino que el asistente: si el botón dice que anda, anda.
 El prompt de sistema se arma en un solo lugar (`eve/prompt.py`) y **se puede ver
 desglosado**: el módulo `contexto` dibuja cuánto pesa cada parte.
 
-Medido sobre esta instalación, con el catálogo recortado y el modo ayuda en
-`codigo`:
+Medido sobre esta instalación, todo de fábrica:
 
 | Parte | Caracteres | |
 |---|---:|---:|
-| Integraciones (los comandos `E …`) | 5 458 | 46.1% |
-| Tu resumen personal (`brief`) | 3 481 | 29.4% |
-| Esquema de módulos (modo ayuda) | 1 352 | 11.4% |
-| Tono | 435 | 3.7% |
-| Encabezado del catálogo | 352 | 3.0% |
-| Andamiaje de la plantilla | 333 | 2.8% |
-| Catálogo de programas | 274 | 2.3% |
-| Dialecto | 130 | 1.1% |
-| Rutas, idioma, nombre | 34 | 0.3% |
-| **Total** | **11 849** | ≈ 2 960 tokens |
+| Integraciones (los comandos `E …`) | 5 494 | 50.3% |
+| Tu resumen personal (`brief`) | 3 481 | 31.8% |
+| Tono | 421 | 3.9% |
+| Encabezado del catálogo | 352 | 3.2% |
+| Catálogo de programas | 349 | 3.2% |
+| Andamiaje de la plantilla | 333 | 3.0% |
+| Vocabulario de interfaz | 310 | 2.8% |
+| Dialecto | 145 | 1.3% |
+| Rutas, idioma, nombre | 45 | 0.4% |
+| **Total** | **10 930** | ≈ 2 730 tokens |
 
 La suma cierra exactamente con el prompt armado: el andamiaje es la plantilla con
 los huecos vaciados, y hay un test que lo comprueba.
 
-Dos ajustes mueven ese número de verdad:
+Cuatro ajustes mueven ese número de verdad:
 
 | Ajuste | Total | Diferencia |
 |---|---:|---|
-| `catalogo_modo = usados` (de fábrica) | 11 849 | — |
-| `catalogo_modo = completo` | 15 785 | **+3 936** (+33%) |
-| `ayuda_alcance = codigo` o `datos` | 11 849 | — |
-| `ayuda_alcance = nada` | 10 497 | **−1 352** (−11%) |
+| **de fábrica** | 10 930 | — |
+| `catalogo_modo = completo` | 14 791 | **+3 861** (+35%) |
+| `ayuda_vocabulario = completo` | 11 972 | **+1 042** (+9.5%) |
+| `ayuda_vocabulario = minimo` | 11 105 | +175 (+1.6%) |
+| `archivos_alcance = escribir` | 11 279 | +349 (+3.2%) |
+| `archivos_alcance = explorar` | 11 177 | +247 (+2.3%) |
+| `ayuda_alcance = nada` | 10 620 | −310 (−2.8%) |
+
+**El que más sorprende es `ayuda_vocabulario`, porque hasta hace poco no
+existía y su valor era el caro.** El diccionario entero de módulos —los trece
+tipos con todas sus props, 1 352 caracteres— viajaba en **cada** llamada,
+incluida "qué hora es". Y de las 121 opciones de config que Eve sí puede
+escribir, no viajaba ninguna: adivinaba el nombre de la clave, `E ajustar`
+contestaba *"No existe la opción X"*, y reintentaba. Se pagaba siempre por lo
+que casi nunca se usa, y **una vuelta perdida cuesta una llamada entera**,
+bastante más que 1 352 caracteres.
+
+De fábrica ya no lleva el diccionario: lleva **cómo pedirlo**. `E ui buscar
+transparencia` devuelve la clave exacta, cuánto vale ahora y qué valores acepta,
+buscando sobre el mismo índice que dibuja el buscador del panel —o sea que lo
+que Eve encuentra es exactamente lo que vos ves, y no una segunda lista que se
+despega. Se paga una consulta extra las veces que sí toca la interfaz, y se
+ahorra el 9.5% en todas las demás. Si preferís lo de antes, `completo` sigue
+estando.
+
+Los dos de `archivos_alcance` **suman en vez de restar**, y eso es lo correcto:
+son capacidades que de fábrica Eve no tiene. Lo que importa de esa fila es que
+con `exacto` el costo es **cero** —no aparece ni el nombre del comando— en vez
+de mandar una capacidad apagada y esperar que no la use.
 
 El catálogo recortado manda solo los programas que aparecen en el log de uso. Si
 Eve no encuentra uno, lo busca con `E programa`: recortar no le quita capacidad,
@@ -99,6 +123,8 @@ tiene su implementación del lado de Eve.
 | Correo | `E outlook-leer`, `E outlook-contacto`, `E gmail-enviar` |
 | Web | `E leer URL` (texto limpio, sin publicidad), `E buscar` |
 | La propia Eve | `E modulo crear`, `E modulo editar`, `E perfil aplicar`, `E ajustar` |
+| Buscar un ajuste | `E ui buscar <palabras>`, `E ui ver CLAVE` |
+| Archivos | `E archivo listar`, `E archivo buscar`, `E archivo escribir` — solo los que `archivos_alcance` habilite |
 | Programas | `E programa NOMBRE`, más el catálogo |
 | Addons | `E addon obs …`, `E addon spotify …` |
 
@@ -111,22 +137,36 @@ al navegador. Abrir Chrome para leer tres renglones es salirse del programa.
 
 Los frenos no son configurables desde adentro. Eso es a propósito.
 
-**Seis claves que Eve nunca puede escribir**, ni con `E ajustar` ni pidiéndolo
+**Ocho claves que Eve nunca puede escribir**, ni con `E ajustar` ni pidiéndolo
 amablemente:
 
 ```
-confirm_destructive · workdirs · addons_aprobados
-autoridad · claves_del_usuario · cc_permission_mode
+confirm_destructive · workdirs · addons_aprobados · autoridad
+claves_del_usuario · cc_permission_mode · ayuda_alcance · archivos_alcance
 ```
 
 Son exactamente las que le sueltan las manos. Se encontró que `E ajustar` podía
-escribir las seis —incluida la de aprobar addons, o sea que todo el trabajo de
-meter los addons bajo el freno era decorativo.
+escribir las seis primeras —incluida la de aprobar addons, o sea que todo el
+trabajo de meter los addons bajo el freno era decorativo.
+
+**Las dos últimas se sumaron después, y por el mismo camino.** Son los dos
+techos que elegís vos —hasta dónde arma sola, y hasta dónde llega con los
+archivos— y estuvieron escribibles por ella hasta que se agregaron: con
+`ayuda_alcance` suelta podía pasarse de `datos` a `codigo` y habilitarse a
+dejar escrito un addon `.py`; con `archivos_alcance` suelta, de `exacto` a
+`escribir`. **Un techo que el limitado puede subir no es un techo.** El chequeo
+que debía atraparlas era una heurística sobre el nombre de la clave que no
+miraba la palabra `alcance`; ahora la mira, así que la tercera que aparezca no
+va a depender de que alguien se acuerde.
 
 Lo demás:
 
 - **Rutas permitidas.** Fuera de ellas el sistema pide confirmación, y
-  `E mostrar --archivo` solo lee adentro.
+  `E mostrar --archivo` solo lee adentro. `archivos_alcance` decide qué hace
+  **dentro** de esas rutas, sin agrandarlas nunca: `exacto` (de fábrica) solo
+  lee una ruta que le dictes, `explorar` además lista y busca por nombre, y
+  `escribir` además crea y reemplaza —pisar un archivo que ya existe pasa por
+  la misma confirmación que los destructivos, y queda en el log de acciones.
 - **Acciones riesgosas de addons.** Cada addon declara sus riesgos y pasa por el
   mismo freno que todo lo demás, que es *fail-closed*: lo que no reconoce, lo
   pregunta.
