@@ -2634,11 +2634,20 @@ def test_una_sola_eve():
             store.latir({"motor": "api"})
             assert store.otro_asistente() == 0
 
-            # El proceso padre: seguro que esta vivo y seguro que no somos
-            # nosotros. Antes decia `os.getpid() + 1`, que da por sentado que ese
-            # pid existe: en el runner de macOS ARM no existia y el test se caia
-            # sin que el producto tuviera nada malo.
-            ajeno = os.getppid()
+            # Un hijo NUESTRO, no el proceso padre. Ya fueron dos intentos:
+            # `os.getpid() + 1` daba por sentado que ese pid existe --en el
+            # runner de macOS ARM no existia-- y `os.getppid()` da por sentado
+            # que el padre sigue vivo, que tampoco es nuestro para garantizar:
+            # bajo Git Bash hay un shell intermedio que se va, y este test fallo
+            # una de cada dos corridas sin que el producto tuviera nada malo.
+            #
+            # Un hijo que lanzamos y matamos nosotros es el unico proceso ajeno
+            # cuya vida controlamos.
+            import subprocess
+
+            hijo = subprocess.Popen([sys.executable, "-c",
+                                     "import time; time.sleep(30)"])
+            ajeno = hijo.pid
             with open(store.LATIDO_PATH, "w", encoding="utf-8") as f:
                 json.dump({"ts": time.time(), "pid": ajeno}, f)
             assert store.otro_asistente() == ajeno
@@ -2648,6 +2657,9 @@ def test_una_sola_eve():
             with open(store.LATIDO_PATH, "w", encoding="utf-8") as f:
                 json.dump({"ts": time.time() - 3600, "pid": ajeno}, f)
             assert store.otro_asistente() == 0, "un latido viejo no traba nada"
+
+            hijo.kill()
+            hijo.wait(timeout=10)
 
             # Y matarla a la fuerza deja un latido RECIENTE de un proceso que ya
             # no existe: Eve borra el archivo al salir bien, pero un kill no
@@ -6124,6 +6136,43 @@ def test_a_tk_no_se_le_pasan_imagenes_con_transparencia():
         assert salida.getpixel((30, 40))[:3] == (255, 200, 100)
     finally:
         raiz.destroy()
+
+
+def test_el_readme_dice_la_version_real_de_lo_que_es_gpl():
+    """El aviso de copyleft tiene que nombrar la version que de verdad viaja.
+
+    Un aviso de licencias con datos viejos es peor que ninguno, porque parece
+    revisado. Y este numero ya envejecio: el README decia `piper-tts` 1.6.0 con
+    la 1.7.0 instalada, y "los cuatro instaladores" cuando se publican siete
+    archivos. Los dos son de la misma familia que "71 tests" y "tres motores".
+
+    `licencias/TERCEROS.md` no tiene este problema porque se GENERA en cada
+    compilacion. El README se escribe a mano, asi que necesita esto.
+    """
+    import importlib.metadata as meta
+
+    try:
+        version = meta.version("piper-tts")
+    except meta.PackageNotFoundError:
+        print("    (salteado: piper-tts no instalada)")
+        return
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(raiz, "README.md"), encoding="utf-8") as f:
+        readme = f.read()
+
+    hallado = re.search(r"`piper-tts` (\d+\.\d+\.\d+) es GPL", readme)
+    assert hallado, "el README dejo de decir que version de piper-tts es GPL"
+    assert hallado.group(1) == version, (
+        f"el README dice piper-tts {hallado.group(1)} y la instalada es "
+        f"{version}: un aviso de licencias con datos viejos parece revisado")
+
+    # Y que siga estando la oferta de fuente, que es lo que la GPL pide de
+    # verdad. Sin eso, nombrar la licencia es decorativo.
+    assert "github.com/OHF-voice/piper1-gpl" in readme, (
+        "falta de donde sacar el fuente de piper-tts")
+    assert "github.com/EvanPalac1/LLMJarvis" in readme, (
+        "falta de donde sacar el fuente de Eve")
 
 
 if __name__ == "__main__":

@@ -1584,26 +1584,51 @@ Eve es MIT, pero adentro del paquete viajan librerias que no lo son. `build.py` 
 cada compilacion un `licencias/TERCEROS.md` adentro de `dist/Eve`, leyendo los metadatos de
 lo instalado: nombre, version, licencia y de donde sale el fuente de cada una, mas el texto
 completo de las que obligan a adjuntarlo. Como la carpeta va adentro de `dist/Eve`, viaja
-sola en los cuatro instaladores sin tocar ningun guion de `packaging/`.
+sola en los siete archivos publicados sin tocar ningun guion de `packaging/`.
 
 **Se genera, no se escribe.** Un aviso de licencias hecho a mano se pudre en la primera
 dependencia nueva, y una lista vieja es peor que ninguna porque parece revisada.
 
 El build avisa por consola cuando encuentra **copyleft fuerte**, que es lo que separa
 "hay que dar aviso" de "la licencia alcanza al conjunto distribuido". Hoy hay uno:
-**`piper-tts` 1.6.0 es GPL-3.0-or-later** --es `piper1-gpl`, que enlaza espeak-ng-- y se
-empaqueta en los cinco instaladores. Aparecio revisando esto; verificado leyendo su
-`COPYING`, no la ficha de PyPI. Queda a la vista para decidirlo, que es de lo que se
-trataba: `pystray` es LGPLv3 y con enlace dinamico alcanza con el aviso, pero la GPL de
-Piper es otra cosa. La salida obvia si se decide no distribuirla es la que ya usan los
-modelos de voz: bajarla en la primera ejecucion en vez de empaquetarla.
+**`piper-tts` 1.7.0 es GPL-3.0-or-later** --es `piper1-gpl`, que enlaza espeak-ng-- y va
+adentro de los siete archivos que se publican. Aparecio revisando esto; verificado leyendo
+su `COPYING`, no la ficha de PyPI. `pystray` es LGPLv3 y con enlace dinamico alcanza con
+el aviso, pero la GPL de Piper es otra cosa.
+
+### Que significa, y que se decidio
+
+La GPL no cambia la licencia de este repositorio: **el codigo de Eve sigue siendo MIT**, y
+MIT y GPL son compatibles, asi que no hay conflicto entre ellas. Lo que la GPL alcanza es
+**el paquete distribuido**: quien recibe un instalador que lleva codigo GPL adentro tiene
+derecho a recibir tambien el fuente correspondiente.
+
+**Se decidio distribuirla**, no sacarla. La alternativa era bajar Piper en la primera
+ejecucion --como se hace con los modelos de voz-- pero eso le saca a Eve la propiedad de
+andar apenas se instala y sin internet, que es de las pocas cosas que la distinguen. La
+obligacion que eso trae se cumple asi:
+
+| que | donde |
+|---|---|
+| El fuente de Eve | Este mismo repositorio, publico: https://github.com/EvanPalac1/LLMJarvis |
+| El fuente de `piper-tts` | http://github.com/OHF-voice/piper1-gpl |
+| El texto completo de cada licencia | `licencias/` adentro de la carpeta instalada, con `TERCEROS.md` al lado |
+| Que version de cada cosa viajo | `licencias/TERCEROS.md`, generado en ESA compilacion |
+
+Tres cosas que esto **no** significa, porque son los miedos de siempre: no impide cobrar
+por el programa, no deja que nadie cierre este codigo --la GPL hace justamente lo
+contrario-- y no obliga a relicenciar el repositorio.
+
+**Lo que queda sin revisar** y es otra conversacion: las **voces** de Piper tienen su
+propia licencia, distinta de la del codigo, y cambia de voz en voz. No se empaquetan --se
+bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 
 ---
 
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 134 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 135 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```
