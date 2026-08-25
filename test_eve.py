@@ -6285,6 +6285,95 @@ def test_el_perfil_por_contexto_no_pisa_lo_que_tocaste_a_mano():
             store.CONFIG_PATH, store.PERFILES_PATH, plataforma.app_en_foco = reales
 
 
+def test_todo_tipo_portado_a_skia_dibuja_pixeles():
+    """Que `PORTADOS` no mienta. Es la peor forma de fallar que tiene esto.
+
+    `LienzoSkia.dibujar` saltea en silencio lo que no esta en `PORTADOS`, asi
+    que declarar portado un tipo que el despachador no sabe pintar hace que el
+    modulo DESAPAREZCA sin un solo error. Ni una excepcion, ni un log: la
+    ventana queda con un hueco.
+
+    No alcanza con que el codigo corra: se cuentan los PIXELES que cambiaron
+    contra el fondo. Un `_uno` que devuelve None sin dibujar pasa cualquier test
+    que solo mire que no reviente.
+
+    Corre sobre raster de CPU y no sobre GPU a proposito: asi vale en los cinco
+    objetivos y no solo donde hay tarjeta. Lo que se prueba es el DIBUJO, y ese
+    es el mismo por los dos caminos.
+    """
+    try:
+        import numpy as np
+        import skia
+    except ImportError:
+        print("    (salteado: skia-python no instalada)")
+        return
+
+    from eve import lienzo_skia as LS, modulos, tema
+
+    class SupCPU:
+        """La misma interfaz que `gpu.Superficie`, sobre raster."""
+
+        def __init__(self, w, h):
+            self.skia = skia
+            self.ancho, self.alto = w, h
+            self.superficie = skia.Surface(w, h)
+
+        @property
+        def lienzo(self):
+            return self.superficie.getCanvas()
+
+        def limpiar(self, rgba):
+            self.lienzo.clear(skia.Color(*rgba))
+
+        def presentar(self):
+            pass
+
+        def color(self, rgba):
+            return skia.Color(*rgba)
+
+        def pincel(self, rgba, suavizado=True):
+            return skia.Paint(Color=self.color(rgba), AntiAlias=suavizado)
+
+    cfg = dict(store.DEFAULTS)
+    paleta = tema.resolver(cfg, "hud")
+    salto = chr(10)
+    estado = {
+        "trabajando": True, "nivel": 0.6,
+        "onda": [0.2, 0.9, 0.4, 0.7] * 16,
+        "detalle": "midiendo", "usuario": "hola", "eve": "que tal",
+        "pagina": "Un parrafo largo que hay que cortar en varias lineas.",
+        "documento": {"titulo": "Informe",
+                      "texto": "Cuerpo." + salto + "Segunda linea."},
+        "historial": "Vos: hola" + salto + "Eve: que tal",
+        "acciones": "obs grabar -> ok",
+    }
+
+    sin_dibujar = []
+    for tipo in LS.PORTADOS:
+        assert tipo in modulos.TIPOS, f"`{tipo}` no es un tipo de modulo real"
+        sup = SupCPU(320, 200)
+        pintor = LS.LienzoSkia(sup, cfg, paleta)
+        modulo = {"id": "x", "tipo": tipo, "x": 0, "y": 0, "ancho": 320,
+                  "alto": 200, "z": 0, "opacidad": 100, "color": "texto",
+                  "tam": 14, "estilo": "barras", "muestras": 32,
+                  "cantidad": 200, "vida": 1.0, "gravedad": 40,
+                  "formato": "%H:%M", "origen": "fijo", "contenido": "Hola Eve",
+                  "etiqueta": "Escuchar", "accion": "escuchar", "lineas": 0,
+                  "cuantos": 5, "cuantas": 5, "resultado": True, "titulo": True}
+        pintor.dibujar([modulo], estado, ahora=1.0)
+
+        px = sup.superficie.toarray(colorType=skia.kRGBA_8888_ColorType)
+        fondo = px[0, 0].copy()
+        distintos = int(
+            (np.abs(px.astype(int) - fondo.astype(int)).max(axis=2) > 12).sum())
+        if distintos <= 30:
+            sin_dibujar.append(f"{tipo} ({distintos} px)")
+
+    assert not sin_dibujar, (
+        "declarados portados y no dibujan nada: " + ", ".join(sin_dibujar)
+        + ". El modulo desaparece de la ventana sin ningun error")
+
+
 if __name__ == "__main__":
     _CORRAL = _corral()
     fallo = ""
