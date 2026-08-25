@@ -6418,6 +6418,67 @@ def test_todo_tipo_portado_a_skia_dibuja_pixeles():
         + ". El modulo desaparece de la ventana sin ningun error")
 
 
+def test_el_modulo_nuevo_va_donde_lo_pediste():
+    """Reportado tal cual: "sigo sin saber como agregar modulos a actividad".
+
+    El boton Agregar del panel creaba el modulo con `{id, tipo}` y nada mas, asi
+    que `superficie` tomaba su valor de fabrica --`overlay`, o sea el cartel. El
+    usuario iba a armar la ventana de actividad, agregaba un modulo, y no
+    aparecia por ningun lado: en el tablero porque no estaba ahi, y en el cartel
+    porque en modo `auto` esta escondido hasta que Eve trabaja. Sin un error,
+    sin un aviso, sin nada que explicara por que.
+
+    Ahora se elige al crearlo, y de fabrica va al TABLERO: quien entra a
+    Modulos casi siempre viene a armar la ventana, no el cartel.
+    """
+    import tkinter as tk
+
+    from eve import gui, modulos as mods
+
+    # Config PROPIA y no la del corral compartido. Sin esto el test depende
+    # de lo que haya dejado otro: corriendolo dos veces en el mismo proceso,
+    # la segunda vuelta creaba `reloj2` y las aserciones seguian mirando el
+    # `reloj1` de la primera -- o sea que pasaba aunque el codigo estuviera
+    # roto. Lo descubri comprobando que fallara al revertir el arreglo, y no
+    # fallaba.
+    raiz_cfg = tempfile.mkdtemp()
+    real_cfg = store.CONFIG_PATH
+    store.CONFIG_PATH = os.path.join(raiz_cfg, "config.json")
+    store.save_config(dict(store.DEFAULTS))
+    try:
+        panel = gui.Panel()
+    except tk.TclError:
+        print("    (salteado: sin pantalla)")
+        return
+    panel.withdraw()
+    try:
+        assert panel.mod_donde.get() == "tablero", (
+            f"de fabrica agrega en {panel.mod_donde.get()!r}: quien entra a "
+            "Modulos viene a armar la ventana de actividad")
+
+        panel.mod_tipo.set("reloj")
+        panel._mods_agregar()
+        panel.mod_tipo.set("onda")
+        panel._mods_agregar()
+        panel.mod_donde.set("cartel")
+        panel.mod_tipo.set("icono")
+        panel._mods_agregar()
+
+        puestos = {m["id"]: m for m in mods.listar(store.load_config())}
+        assert puestos["reloj1"]["superficie"] == "tablero"
+        assert puestos["onda1"]["superficie"] == "tablero"
+        assert puestos["icono1"]["superficie"] == "overlay", (
+            "eligiendo 'cartel' fue a parar al tablero")
+
+        # Y en cascada: apilados en el mismo punto, el segundo tapa al primero
+        # y parece que el boton no hizo nada.
+        assert (puestos["reloj1"]["x"], puestos["reloj1"]["y"]) !=                (puestos["onda1"]["x"], puestos["onda1"]["y"]), (
+            "los dos del tablero salieron en el mismo lugar")
+    finally:
+        panel.destroy()
+        store.CONFIG_PATH = real_cfg
+
+
 if __name__ == "__main__":
     _CORRAL = _corral()
     fallo = ""

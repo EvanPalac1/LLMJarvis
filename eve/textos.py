@@ -222,6 +222,15 @@ EN = {
         "you have not talked yet",
     "Eve esta corriendo":
         "Eve is running",
+    # Los rotulos de "agregar un modulo EN tablero/cartel". Van cortos a
+    # proposito: la fila del panel es `[tipo] en [donde] [Agregar]` y un rotulo
+    # largo la parte en dos renglones.
+    "en":
+        "on",
+    "tablero":
+        "board",
+    "cartel":
+        "overlay",
     "Toca 'Armar el tablero' aca arriba para poner los de arranque.":
         "Hit 'Set up the board' above to drop in the starter ones.",
     "Perfil segun el contexto":

@@ -2153,6 +2153,17 @@ class Panel(tk.Tk):
         self.mod_tipo = tk.StringVar(value=mods.OPCIONES["tipo"][0])
         ttk.Combobox(fila, textvariable=self.mod_tipo, values=mods.OPCIONES["tipo"],
                      state="readonly", width=12).pack(side="left")
+        # DONDE va, elegido al crearlo. Antes no se preguntaba y el modulo
+        # nuevo caia en el cartel, que es el valor de fabrica de `superficie`.
+        # Quien venia a armar la ventana de actividad agregaba un modulo, no
+        # aparecia por ningun lado --el cartel en modo `auto` esta escondido
+        # hasta que Eve trabaja-- y no habia nada que explicara por que. Se
+        # reporto como "sigo sin saber como agregar modulos a actividad".
+        ttk.Label(fila, text=tr("en")).pack(side="left", padx=(8, 4))
+        self.mod_donde = tk.StringVar(value="tablero")
+        ttk.Combobox(fila, textvariable=self.mod_donde,
+                     values=[tr("tablero"), tr("cartel")],
+                     state="readonly", width=9).pack(side="left")
         ttk.Button(fila, text=tr("Agregar"), command=self._mods_agregar).pack(side="left", padx=6)
         ttk.Button(fila, text=tr("Duplicar"), command=self._mods_duplicar).pack(side="left")
         ttk.Button(fila, text=tr("Borrar"), command=self._mods_borrar).pack(side="left", padx=6)
@@ -2340,7 +2351,19 @@ class Panel(tk.Tk):
         while f"{tipo}{n}" in usados:
             n += 1
         ident = f"{tipo}{n}"
-        store.save_config(mods.guardar(cfg, {"id": ident, "tipo": tipo}))
+        # `tablero` es la ventana de actividad y `overlay` el cartel. El rotulo
+        # dice "cartel" porque es como se llama en todo el resto del panel;
+        # `overlay` es el nombre interno y no tiene por que salir a la pantalla.
+        donde = ("overlay" if self.mod_donde.get() in (tr("cartel"), "cartel")
+                 else "tablero")
+        nuevo = {"id": ident, "tipo": tipo, "superficie": donde}
+        # En cascada y no siempre en el mismo punto: apilados en 40,40 el
+        # segundo tapa al primero y parece que el boton no hizo nada. Es lo
+        # mismo que ya hacia el boton de la ventana de actividad.
+        cuantos = len([m for m in mods.listar(cfg) if m["superficie"] == donde])
+        nuevo["x"] = 40 + (cuantos % 6) * 30
+        nuevo["y"] = 40 + (cuantos % 6) * 30
+        store.save_config(mods.guardar(cfg, nuevo))
         self._mods_refrescar(ident)
 
     def _mods_duplicar(self) -> None:

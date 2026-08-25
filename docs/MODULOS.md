@@ -31,13 +31,34 @@ estar en las dos a la vez, con tamaños distintos.
 
 ## Agregar un módulo
 
-**Panel → Apariencia → Módulos → Agregar.**
+Hay dos caminos, y los dos sirven.
 
-Elegís el tipo, y el formulario de propiedades **se genera solo** a partir de ese
-tipo. No hay una pantalla distinta por tipo: si mañana aparece un tipo nuevo,
-trae sus controles puesto.
+### Desde el panel
 
-Para acomodarlos con el mouse: abrí la **ventana de actividad** y pasá a **Edit**.
+**Apariencia → Módulos**, y arriba de la lista:
+
+    [ tipo ▾ ]  en  [ tablero ▾ ]  [ Agregar ]
+
+**Elegí dónde antes de agregar.** `tablero` es la ventana de actividad y
+`cartel` es la tarjeta flotante sobre el escritorio. De fábrica va al tablero.
+
+El formulario de propiedades **se genera solo** a partir del tipo: no hay una
+pantalla distinta por cada uno, así que un tipo nuevo trae sus controles puesto.
+
+### Desde la propia ventana de actividad
+
+Abrila con el botón **Ventana de actividad** del pie del panel, pasá a **Edit**,
+y usá el **Agregar** de ahí. Ese siempre pone el módulo en el tablero, porque es
+donde estás mirando.
+
+Si la abrís y está vacía, te lo dice y trae un botón para armar un tablero de
+arranque.
+
+> **Si agregaste uno y no aparece**, casi siempre es una de dos: quedó en el
+> `cartel` en vez del tablero —fijate la columna en la lista de módulos— o el
+> cartel está en `auto`, que lo esconde hasta que Eve trabaja.
+
+Para acomodarlos con el mouse: **ventana de actividad → Edit**.
 
 | En Edit | |
 |---|---|
