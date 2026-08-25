@@ -609,27 +609,23 @@ class Lienzo:
     def _pintar_grafo(self, dibujo, modulo, ancho, alto, opac):
         """Lo que Eve hizo: herramientas y las que salen una detras de otra.
 
-        Se relee cada tantos cuadros y no en todos: leer el log en cada cuadro
-        serian treinta consultas por segundo a una base que casi nunca cambia.
-        El acomodado si avanza siempre, que es lo que se ve moverse.
+        El estado --relectura, acomodo y avance-- lo lleva `grafo.estado`, que
+        es el mismo para los dos renderers. Vivia duplicado aca y en el de
+        Skia, con el mismo defecto en las dos copias: tiraban el acomodo
+        entero cada 90 cuadros y lo rehacian desde una nube aleatoria, o sea
+        que el grafo se reiniciaba a la vista cada tres segundos.
         """
-        guardado = self._grafos.get(modulo["id"])
-        cuantas = int(modulo.get("cuantas", 150))
-        if guardado is None or guardado["cuadros"] > 90 or guardado["tam"] != (ancho, alto):
-            nodos, aristas = grafo_mod.leer(cuantas, self.cfg.get("workdirs"))
-            guardado = {"nodos": nodos, "aristas": aristas, "cuadros": 0,
-                        "tam": (ancho, alto),
-                        "acomodo": grafo_mod.Acomodo(len(nodos), ancho, alto)}
-            self._grafos[modulo["id"]] = guardado
-        guardado["cuadros"] += 1
+        guardado = grafo_mod.estado(
+            self._grafos.get(modulo["id"]), int(modulo.get("cuantas", 150) or 150),
+            self.cfg.get("workdirs"), ancho, alto)
+        self._grafos[modulo["id"]] = guardado
         nodos, aristas = guardado["nodos"], guardado["aristas"]
         if not nodos:
             dibujo.text((0, 0), "todavia no hice nada que graficar",
                         font=self._fuente_pt(10),
                         fill=_rgba(self.paleta["texto_tenue"], opac))
             return
-        guardado["acomodo"].avanzar(aristas)
-        pos = guardado["acomodo"].pos
+        pos = guardado["acomodo"].dibujables(guardado["t"])
 
         for a, b, veces in aristas:
             if a >= len(pos) or b >= len(pos):

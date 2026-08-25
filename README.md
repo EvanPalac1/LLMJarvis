@@ -1100,6 +1100,22 @@ Dos modos arriba, que no son dos pantallas: son quien puede escribir.
 **Work** lee el estado y lo dibuja. **Edit** vuelve editable el mismo dibujo: clic elige,
 Ctrl suma y saca, Shift agrega un rango, arrastrar mueve, `Ctrl+Z` deshace.
 
+**Y en Edit se elige que superficie se esta editando: el tablero o el cartel.** El cartel
+acepta modulos desde que los modulos existen --`superficie` es un campo y no una jerarquia
+de clases-- pero la unica forma de darles posicion era escribir `x` e `y` a mano en el
+panel, que para acomodar algo a ojo no es una forma. El selector reusa el modo Edit
+entero: el hit-test, el arrastre, la multiseleccion, el deshacer y el formulario de props
+ya eran genericos, y lo unico clavado en el tablero eran dos lineas.
+
+**No se edita ENCIMA del cartel**, y no es una limitacion que falte levantar: para
+recibir el arrastre el cartel tendria que dejar de ser una tarjeta que deja pasar los
+clics, que es exactamente la razon por la que uno lo quiere ahi. Como la ventana de
+actividad es mucho mas grande, editando el cartel se dibuja **un recuadro punteado con su
+tamaño real**: sin el se acomoda a ciegas y lo que quede pasado el borde no se ve nunca.
+
+El cartel sin modulos propios dibuja el diseño de siempre y no cambia nada. Quien nunca
+abrio esa pestaña no tiene por que notar que existe.
+
 Con varios modulos elegidos se muestran las props que **tienen en comun**. Agrupar una
 onda con unas particulas deja cambiar la opacidad de las dos --lo unico que comparten-- y
 no ofrece `estilo`, que es solo de la onda. Ofrecer todo pisaria props que el otro no
@@ -1114,6 +1130,27 @@ herramientas que se ejecutaron y los cuadrados los proyectos donde se ejecutaron
 aristas, lo que sale una detras de otra. Un proyecto es la primera carpeta que cuelga de
 un directorio permitido: no es arbitrario, es donde trabajas y lo unico que Eve puede
 tocar sin preguntar. Extraccion determinista, sin una sola llamada a un modelo.
+
+El acomodado es por fuerzas --repulsion entre todos, resortes en lo conectado-- y **relee
+el log cada tres segundos sin reiniciarse**. Esa ultima parte costo un arreglo: el
+`Acomodo` guardaba cuantos nodos habia y no cuales, asi que al releer no habia forma de
+saber quien era quien --salen ordenados por peso, y el orden cambia-- y lo unico posible
+era tirarlo y rehacerlo desde una nube aleatoria. **El grafo pegaba un salto de 149
+pixeles a la vista, tres veces cada diez segundos**, y eso era lo que se veia como "se
+reinicia el bucle". Ahora el acomodo guarda la identidad de cada nodo: releer no mueve
+nada --0 pixeles medidos-- y solo entran o salen los que de verdad cambiaron.
+
+Dos cosas mas del mismo arreglo. El grafo **se asienta antes del primer cuadro**, porque
+naciendo de una nube aleatoria el primer paso de fuerzas movia los nodos 93 pixeles de
+golpe y el modulo aparecia explotando. Y una vez asentado no queda del todo quieto: lleva
+una deriva de 1.6 pixeles, aplicada **al dibujar y no a la fisica** para que no pelee con
+los resortes ni impida converger. Medido sobre 200 cuadros, el salto maximo entre cuadros
+consecutivos es de 0.73 pixeles y ninguno pasa de 5.
+
+Todo eso vive en `eve/grafo.py` y no en quien dibuja: los dos renderers --Pillow y Skia--
+tenian **la misma copia** de esa logica, con el mismo defecto en las dos. Dos copias del
+mismo bug es lo que pasa cuando algo que no es dibujo vive en el que dibuja. Ahora los dos
+llaman a `grafo.estado()` y dan numeros identicos, comprobado.
 
 ### `mostrar` va a la ventana, no al navegador
 
@@ -1682,7 +1719,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 144 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 145 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

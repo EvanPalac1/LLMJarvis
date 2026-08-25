@@ -125,6 +125,27 @@ class Consola:
         # modulo con opacidad 0, con `cuando=trabajando`, tapado por otro o
         # arrastrado fuera de la ventana no se podia elegir de ninguna forma, y
         # no habia manera de crear uno sin volver al panel de control.
+        # Que superficie se esta editando. El cartel ya aceptaba modulos --el
+        # campo `superficie` existe desde que existen los modulos-- pero solo se
+        # les podia poner la posicion escribiendo numeros en el panel, que para
+        # acomodar cosas a ojo no sirve. Aca se reusa el modo Edit entero: el
+        # hit-test, el arrastre, la multiseleccion, el deshacer y el formulario
+        # de props ya son genericos, y lo unico que estaba clavado en "tablero"
+        # eran dos lineas.
+        #
+        # No se edita ENCIMA del cartel a proposito: esa era la feature de
+        # overlay clickable que se saco, y volver a ella significa partir la
+        # ventana en dos y perder el orden `z`.
+        cual = ttk.Frame(self.panel)
+        cual.pack(fill="x", padx=8, pady=(8, 0))
+        ttk.Label(cual, text=tr("Editando")).pack(side="left")
+        self.superficie = tk.StringVar(value=tr("tablero"))
+        combo_sup = ttk.Combobox(
+            cual, textvariable=self.superficie, state="readonly", width=9,
+            values=(tr("tablero"), tr("cartel")))
+        combo_sup.pack(side="left", padx=4)
+        combo_sup.bind("<<ComboboxSelected>>", lambda _e: self._cambiar_superficie())
+
         alta = ttk.Frame(self.panel)
         alta.pack(fill="x", padx=8, pady=(8, 2))
         self.tipo_nuevo = tk.StringVar(value="texto")
@@ -209,9 +230,12 @@ class Consola:
             return
         lista, vista = getattr(self, "_por_dibujar", ([], {}))
         if lista:
-            self.pintor.dibujar(lista, vista,
-                                seleccion=(self.seleccion
-                                           if self.modo.get() == "edit" else ()))
+            editando = self.modo.get() == "edit"
+            self.pintor.dibujar(
+                lista, vista,
+                seleccion=self.seleccion if editando else (),
+                guia=(self._medida_del_cartel()
+                      if editando and self._cual() == "overlay" else None))
         else:
             paleta = tema.resolver(self.cfg, "ui")
             crudo = (paleta["fondo"] or "#101010").lstrip("#")
@@ -220,11 +244,25 @@ class Consola:
             except ValueError:
                 rgb = (16, 16, 16)
             self._sup.limpiar((*rgb, 255))
-            self.pintor.vacio(
-                tr("Esta ventana esta vacia porque el tablero no tiene modulos."),
-                tr("Toca 'Armar el tablero' aca arriba para poner los de arranque."),
-                self._sup.ancho, self._sup.alto)
+            titulo, ayuda = self._texto_vacio()
+            self.pintor.vacio(titulo, ayuda.replace(chr(10), " "),
+                              self._sup.ancho, self._sup.alto)
             self._sup.presentar()
+
+    def _texto_vacio(self) -> tuple:
+        """Las dos lineas del estado vacio, segun que superficie se este viendo.
+
+        Estan aca y no en cada camino de dibujo porque los dos --tkinter y
+        Skia-- las escriben, y tenerlas duplicadas ya habia dejado dos textos
+        que decian lo mismo con distintas palabras.
+        """
+        if self._cual() == "overlay":
+            return (tr("El cartel no tiene modulos propios."),
+                    tr("Agregalos con el boton de aca al lado. Sin ninguno, el\n"
+                       "cartel dibuja el diseno de siempre y no cambia nada."))
+        return (tr("Esta ventana esta vacia porque el tablero no tiene modulos."),
+                tr("Toca 'Armar el tablero' aca arriba para poner los de arranque,\n"
+                   "o agregalos uno por uno desde el panel, en Apariencia > Modulos."))
 
     def _dibujar_vacio(self) -> None:
         """Que la ventana diga por que esta vacia en vez de estarlo y ya.
@@ -239,15 +277,13 @@ class Consola:
         paleta = tema.resolver(self.cfg, "ui")
         ancho = max(1, self.lienzo.winfo_width())
         alto = max(1, self.lienzo.winfo_height())
+        titulo, ayuda = self._texto_vacio()
         self.lienzo.create_text(
             ancho // 2, alto // 2 - 24, tags="vacio", fill=paleta["texto"],
-            font=(None, 13), justify="center",
-            text=tr("Esta ventana esta vacia porque el tablero no tiene modulos."))
+            font=(None, 13), justify="center", text=titulo)
         self.lienzo.create_text(
             ancho // 2, alto // 2 + 12, tags="vacio", fill=paleta["texto_tenue"],
-            font=(None, 10), justify="center",
-            text=tr("Toca 'Armar el tablero' aca arriba para poner los de arranque,\n"
-                    "o agregalos uno por uno desde el panel, en Apariencia > Modulos."))
+            font=(None, 10), justify="center", text=ayuda)
 
     def _aplicar_tema(self) -> None:
         paleta = tema.resolver(self.cfg, "ui")
@@ -293,10 +329,31 @@ class Consola:
 
     # --- seleccion --------------------------------------------------------
 
+    def _cual(self) -> str:
+        """La superficie que se esta editando, como la guarda la config."""
+        elegido = getattr(self, "superficie", None)
+        valor = elegido.get() if elegido is not None else ""
+        return "overlay" if valor in (tr("cartel"), "cartel", "overlay") else "tablero"
+
     def _modulos(self) -> list:
         if self._lista is None:
-            self._lista = modulos.listar(self.cfg, "tablero")
+            self._lista = modulos.listar(self.cfg, self._cual())
         return self._lista
+
+    def _cambiar_superficie(self) -> None:
+        """Pasar de una superficie a la otra: otra lista, nada elegido.
+
+        La seleccion NO sobrevive el cambio: son ids de la otra superficie, y
+        dejarlos puestos hacia que el formulario de props editara modulos que
+        ya no se estan viendo.
+        """
+        self.seleccion = []
+        self._lista = None
+        self._refrescar_props()
+        self._dibujar_seleccion()
+        self.aviso.config(text=(
+            tr("Editando el cartel. El recuadro es su tamano real.")
+            if self._cual() == "overlay" else tr("Editando el tablero.")))
 
     def _en(self, x: int, y: int, solo_interactivos: bool = False) -> str:
         """Cual esta debajo del punto. De arriba hacia abajo por orden de dibujo.
@@ -460,9 +517,21 @@ class Consola:
             # lo demas: no hay items sueltos que borrar y volver a crear.
             return
         self.lienzo.delete("marca")
-        if self.modo.get() != "edit":
+        if self.modo.get() != "edit" or self.pintor is None:
             return
         paleta = self.pintor.paleta
+        if self._cual() == "overlay":
+            # Donde termina el cartel. La ventana de actividad es mucho mas
+            # grande, asi que sin esto se acomoda a ciegas y todo lo que quede
+            # pasado el borde simplemente no se ve cuando el cartel se dibuja.
+            ancho_c, alto_c = self._medida_del_cartel()
+            self.lienzo.create_rectangle(
+                0, 0, ancho_c, alto_c, outline=paleta["texto_tenue"],
+                dash=(2, 4), tags="marca")
+            self.lienzo.create_text(
+                ancho_c + 6, 4, anchor="nw", fill=paleta["texto_tenue"],
+                font=(None, 8), tags="marca",
+                text=f"{tr('borde del cartel')} · {ancho_c}x{alto_c}")
         for m in self._modulos():
             if m["id"] in self.seleccion:
                 self.lienzo.create_rectangle(
@@ -524,8 +593,20 @@ class Consola:
         # en ella se come el clic siguiente.
         self._refrescar_props(tocar_lista=False)
 
+    def _medida_del_cartel(self) -> tuple:
+        """El tamaño real del cartel, para poder acomodar contra sus bordes.
+
+        Sale de las mismas constantes que usa el cartel de verdad; leerlas de
+        `overlay` en vez de repetir 460x128 es lo que hace que el recuadro guia
+        siga siendo cierto si alguna vez cambian.
+        """
+        from . import overlay as ov
+
+        esc = max(0.4, float(self.cfg.get("hud_escala", 100) or 100) / 100.0)
+        return int(ov.ANCHO * esc), int(ov.ALTO * esc)
+
     def _agregar(self) -> None:
-        """Un modulo nuevo del tipo elegido, en el tablero y visible.
+        """Un modulo nuevo del tipo elegido, en la superficie elegida.
 
         Va en cascada y no siempre en el mismo punto: apilados en 40,40 el
         segundo tapa al primero y parece que el boton no hizo nada.
@@ -540,10 +621,19 @@ class Consola:
         ident = f"{tipo}{n}"
         paso = 24 * (len(self._modulos()) % 8)
         # `superficie` explicita: de fabrica vale "overlay", asi que sin esto el
-        # modulo nuevo aparece en el cartel y no en la ventana donde se lo creo.
+        # modulo nuevo aparecia en el cartel y no en la ventana donde se lo creo.
+        # Ahora la decide el selector, y la cascada se acota al cartel, que es
+        # chico: 40+paso con paso hasta 168 dejaba el modulo nuevo fuera de un
+        # cartel de 460x128, o sea invisible justo cuando se lo acaba de crear.
+        donde = self._cual()
+        if donde == "overlay":
+            ancho_c, alto_c = self._medida_del_cartel()
+            x = min(12 + paso, max(8, ancho_c - 60))
+            y = min(12 + paso // 2, max(8, alto_c - 30))
+        else:
+            x, y = 40 + paso, 40 + paso
         cfg = modulos.guardar(cfg, {"id": ident, "tipo": tipo,
-                                    "superficie": "tablero",
-                                    "x": 40 + paso, "y": 40 + paso})
+                                    "superficie": donde, "x": x, "y": y})
         self._guardar(cfg)
         self.seleccion = [ident]
         self._dibujar_seleccion()
@@ -662,7 +752,8 @@ class Consola:
         self._lista = None
         self._partes = None
         self.mtime = self._mtime()
-        self.pintor.aplicar(cfg)
+        if self.pintor is not None:
+            self.pintor.aplicar(cfg)
         self._dibujar_seleccion()
 
     # --- ciclo ------------------------------------------------------------
@@ -682,7 +773,8 @@ class Consola:
         self.cfg = store.load_config()
         self._lista = None
         self._partes = None
-        self.pintor.aplicar(self.cfg)
+        if self.pintor is not None:
+            self.pintor.aplicar(self.cfg)
         self._aplicar_tema()
         self._dibujar_seleccion()
         # El panel de control y `E modulo crear` escriben el mismo config.json:
@@ -820,7 +912,7 @@ class Consola:
             # afuera del contexto no pinta nada y no avisa.
             self._por_dibujar = (lista, vista)
             self.lienzo.tkExpose()
-        else:
+        elif self.pintor is not None:
             self.pintor.dibujar(lista, vista)
         # Sin modulos no hay nada que dibujar y la ventana queda negra, que es
         # indistinguible de "no arranco". Se dice por que, y aparece el boton.
@@ -833,7 +925,9 @@ class Consola:
             # `winfo_manager` y no `winfo_ismapped`: el segundo es False mientras
             # la ventana este oculta, asi que esto volveria a empaquetar el boton
             # treinta veces por segundo sin que se vea nada raro.
-            if not self.boton_semilla.winfo_manager():
+            if self._cual() == "overlay":
+                self.boton_semilla.pack_forget()   # ese boton llena el tablero
+            elif not self.boton_semilla.winfo_manager():
                 self.boton_semilla.pack(side="left", padx=6)
         if editando and not self.gpu:
             # Solo el canvas de tkinter tiene items que reordenar. Por GPU el

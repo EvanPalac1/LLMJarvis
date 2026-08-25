@@ -162,6 +162,20 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Agregalos con el boton de aca al lado. Sin ninguno, el\n"
+    "cartel dibuja el diseno de siempre y no cambia nada.":
+        "Add them with the button next to this one. With none, the\n"
+        "card draws its usual design and nothing changes.",
+    "Editando":
+        "Editing",
+    "Editando el cartel. El recuadro es su tamano real.":
+        "Editing the card. The outline is its real size.",
+    "Editando el tablero.":
+        "Editing the board.",
+    "El cartel no tiene modulos propios.":
+        "The card has no modules of its own.",
+    "borde del cartel":
+        "edge of the card",
     "Cuadros por segundo":
         "Frames per second",
     "Fluidez":
@@ -231,8 +245,6 @@ EN = {
         "board",
     "cartel":
         "overlay",
-    "Toca 'Armar el tablero' aca arriba para poner los de arranque.":
-        "Hit 'Set up the board' above to drop in the starter ones.",
     "Perfil segun el contexto":
         "Profile by context",
     "Cambia de perfil solo, segun la hora o el programa que\n"

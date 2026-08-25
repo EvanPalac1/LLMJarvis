@@ -737,7 +737,7 @@ def test_edit_lista_los_modulos_y_deja_agregar():
                                      "ancho": 80, "alto": 30, "opacidad": 0})
             store.save_config(cfg)
 
-            ventana = consola.Consola()
+            ventana = _abrir_consola()
             ventana.raiz.withdraw()
             ventana.modo.set("edit")
             ventana._cambio_modo()
@@ -795,6 +795,136 @@ def test_edit_lista_los_modulos_y_deja_agregar():
             store.CONFIG_PATH = real
 
 
+def test_el_modo_edit_tambien_acomoda_el_cartel():
+    """El cartel acepta modulos, y ahora se pueden acomodar arrastrando.
+
+    Aceptarlos los aceptaba desde siempre --`superficie` es un campo, no una
+    jerarquia-- pero la unica forma de darles posicion era escribir `x` e `y`
+    a mano en el panel, que para acomodar algo a ojo no es una forma. El modo
+    Edit ya tenia todo lo que hace falta: hit-test, arrastre, multiseleccion,
+    deshacer y el formulario de props, todo generico. Lo unico clavado en el
+    tablero eran dos lineas.
+
+    Lo que se comprueba es que el cambio de superficie sea REAL: que la lista
+    cambie, que agregar caiga del lado correcto, que arrastrar mueva el modulo
+    del cartel y no otro, y que la seleccion no sobreviva al cambio --son ids
+    de la otra superficie, y dejarlos editaba lo que no se esta viendo.
+    """
+    import tkinter as tk
+
+    from eve import consola
+    from eve import modulos as mods
+
+    class Ev:
+        def __init__(self, x, y, state=0):
+            self.x, self.y, self.state = x, y, state
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (sin pantalla, se saltea)")
+        return
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        ventana = None
+        try:
+            cfg = dict(store.DEFAULTS)
+            cfg = mods.guardar(cfg, {"id": "t1", "tipo": "texto",
+                                     "superficie": "tablero", "x": 40, "y": 40,
+                                     "ancho": 300, "alto": 60, "cuando": "siempre"})
+            cfg = mods.guardar(cfg, {"id": "c1", "tipo": "reloj",
+                                     "superficie": "overlay", "x": 20, "y": 20,
+                                     "ancho": 90, "alto": 30, "cuando": "siempre"})
+            store.save_config(cfg)
+
+            ventana = _abrir_consola()
+            ventana.raiz.withdraw()
+            ventana.modo.set("edit")
+            ventana._cambio_modo()
+
+            # De fabrica se edita el tablero, como siempre.
+            assert ventana._cual() == "tablero"
+            assert [m["id"] for m in ventana._modulos()] == ["t1"]
+
+            ventana._clic(Ev(60, 60))
+            assert ventana.seleccion == ["t1"], ventana.seleccion
+
+            # Pasar al cartel: otra lista, y NADA elegido.
+            ventana.superficie.set("cartel")
+            ventana._cambiar_superficie()
+            assert ventana._cual() == "overlay"
+            assert [m["id"] for m in ventana._modulos()] == ["c1"]
+            assert ventana.seleccion == [], "la seleccion cruzo de superficie"
+
+            # El clic elige el modulo DEL CARTEL, no el del tablero que estaba
+            # en el mismo punto de la ventana.
+            ventana._clic(Ev(40, 30))
+            assert ventana.seleccion == ["c1"], ventana.seleccion
+
+            # Y arrastrarlo mueve ese y no el otro.
+            antes_t = mods.leer(store.load_config(), "t1")["x"]
+            ventana._mover(Ev(70, 30))
+            ventana._soltar(Ev(70, 30))
+            despues = mods.leer(store.load_config(), "c1")
+            assert despues["x"] != 20, "no se movio el del cartel"
+            assert mods.leer(store.load_config(), "t1")["x"] == antes_t, \
+                "movio el del tablero estando en el cartel"
+
+            # Agregar cae en la superficie que se esta editando, y adentro del
+            # cartel: la cascada del tablero --40 + hasta 168-- deja el modulo
+            # nuevo fuera de un cartel de 460x128, o sea invisible justo cuando
+            # se lo acaba de crear.
+            ventana.tipo_nuevo.set("onda")
+            ventana._agregar()
+            nuevo = ventana._modulos()[-1]
+            assert nuevo["superficie"] == "overlay", nuevo
+            ancho_c, alto_c = ventana._medida_del_cartel()
+            assert nuevo["x"] < ancho_c and nuevo["y"] < alto_c, (nuevo, ancho_c, alto_c)
+            assert all(m["superficie"] == "overlay" for m in ventana._modulos())
+
+            # Y volver al tablero no se llevo nada puesto.
+            ventana.superficie.set("tablero")
+            ventana._cambiar_superficie()
+            assert [m["id"] for m in ventana._modulos()] == ["t1"]
+
+            # El texto de "esta vacio" cambia con la superficie: mandar a armar
+            # el tablero a quien estaba mirando el cartel es mandarlo a llenar
+            # la superficie equivocada.
+            ventana.superficie.set("cartel")
+            ventana._cambiar_superficie()
+            assert "cartel" in ventana._texto_vacio()[0]
+            ventana.superficie.set("tablero")
+            ventana._cambiar_superficie()
+            assert "tablero" in ventana._texto_vacio()[0]
+        finally:
+            if ventana is not None:
+                try:
+                    ventana.raiz.destroy()
+                except Exception:  # noqa: BLE001
+                    pass
+            store.CONFIG_PATH = real
+
+
+def _abrir_consola():
+    """La ventana de actividad por el camino de Pillow, a proposito.
+
+    Los tests que la abren miran items de canvas de tkinter --`find_withtag`,
+    `lista_mods`, el contorno de seleccion-- y por GPU esos items no existen:
+    Skia pinta pixeles sobre una superficie y no hay nada que buscar por
+    etiqueta. Sin clavar el motor, lo que se prueba depende de si la maquina
+    tiene `skia-python` instalada. Como las tres dependencias van comentadas en
+    `requirements.txt`, en CI no la tiene y en la maquina de desarrollo puede
+    tenerla: el mismo test verde de un lado y rojo del otro, que es peor que
+    rojo en los dos. El camino por GPU se prueba aparte, contando pixeles.
+    """
+    from eve import consola
+
+    store.save_config({**store.load_config(), "motor_dibujo": "pillow"})
+    return consola.Consola()
+
+
 def test_consola_agrupa_y_edita_lo_compartido():
     """Modo Edit: elegir, agrupar y cambiar lo que los elegidos tienen en comun.
 
@@ -831,7 +961,7 @@ def test_consola_agrupa_y_edita_lo_compartido():
                                          "cuando": "siempre"})
             store.save_config(cfg)
 
-            ventana = consola.Consola()
+            ventana = _abrir_consola()
             ventana.raiz.withdraw()
             assert len(ventana._modulos()) == 3
 
@@ -3078,10 +3208,41 @@ def test_grafo_de_lo_que_hizo():
                                    [trabajo]) == "Tres"
 
             # El acomodado no puede sacar los nodos del rectangulo.
-            acomodo = grafo.Acomodo(len(nodos), 200, 120)
+            claves = [(n["clase"], n["nombre"]) for n in nodos]
+            acomodo = grafo.Acomodo(claves, 200, 120)
             acomodo.avanzar(aristas, pasos=40)
             assert (acomodo.pos[:, 0] >= 0).all() and (acomodo.pos[:, 0] <= 200).all()
             assert (acomodo.pos[:, 1] >= 0).all() and (acomodo.pos[:, 1] <= 120).all()
+
+            # Y releer el log NO reinicia el acomodo. Es el bug que se veia:
+            # cada 90 cuadros se tiraba el `Acomodo` entero y se rehacia desde
+            # una nube aleatoria, asi que el grafo pegaba un salto de 149 px a
+            # la vista, tres veces por cada diez segundos.
+            asentado = acomodo.pos.copy()
+            acomodo.sincronizar(claves)
+            assert abs(acomodo.pos - asentado).max() == 0, "releer movio los nodos"
+
+            # Un nodo que aparece entra sin arrastrar a los demas.
+            acomodo.sincronizar(claves + [("herramienta", "recien-llegada")])
+            assert len(acomodo.pos) == len(claves) + 1
+            assert abs(acomodo.pos[:len(claves)] - asentado).max() == 0
+
+            # Y uno que se va deja su lugar sin mover al resto.
+            acomodo.sincronizar(claves[1:])
+            assert abs(acomodo.pos - asentado[1:]).max() == 0
+
+            # Cambiar de tamaño escala, no rehace: agrandar la ventana de
+            # actividad era la otra puerta al mismo reinicio.
+            acomodo.redimensionar(400, 240)
+            assert abs(acomodo.pos - asentado[1:] * 2).max() < 1e-9
+
+            # La deriva del dibujo es minima y NO toca la fisica: un acomodado
+            # por fuerzas converge, y quieto del todo no se distingue de
+            # colgado. Son 1.6 px, aplicados al dibujar.
+            antes = acomodo.pos.copy()
+            for t in (0.0, 1.0, 2.5, 7.0):
+                assert abs(acomodo.dibujables(t) - acomodo.pos).max() <= 1.61 * 1.5
+            assert abs(acomodo.pos - antes).max() == 0, "la deriva movio la fisica"
         finally:
             store.DB_PATH = real
             store._migradas.discard(os.path.join(raiz, "eve.db"))
@@ -5383,7 +5544,7 @@ def test_la_ventana_vacia_dice_que_esta_vacia():
     store.save_config(dict(store.DEFAULTS))
     c = None
     try:
-        c = consola.Consola()
+        c = _abrir_consola()
         c.raiz.withdraw()
         assert not c._modulos(), "de fabrica el tablero viene vacio"
 
@@ -5664,7 +5825,7 @@ def test_lo_no_interactivo_deja_pasar_el_clic():
                                     "ancho": 240, "alto": 60, "z": 0})
         store.save_config(cfg)
 
-        c = consola.Consola()
+        c = _abrir_consola()
         c.raiz.withdraw()
         punto = (180, 110)   # adentro de los dos
         assert c._en(*punto) == "doc", "el de arriba es el documento"

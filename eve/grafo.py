@@ -18,6 +18,7 @@ que ya existe en vez de uno nuevo.
 
 import ast
 import json
+import os
 import re
 
 import numpy as np
@@ -207,16 +208,80 @@ def leer(limite: int = 150, workdirs=None) -> tuple[list, list]:
 
 
 class Acomodo:
-    """Posiciones que se van acomodando solas, cuadro a cuadro."""
+    """Posiciones que se van acomodando solas, cuadro a cuadro.
 
-    def __init__(self, cuantos: int, ancho: int, alto: int):
+    Guarda la IDENTIDAD de cada nodo --su (clase, nombre)-- y no solo cuantos
+    son. Esa es toda la diferencia entre una animacion continua y una que se
+    reinicia sola: el log se relee cada tantos cuadros, y al releerlo el orden
+    de los nodos cambia --salen ordenados por peso-- asi que sin la identidad
+    lo unico que se podia hacer era tirar el acomodo y empezar de nuevo desde
+    una nube aleatoria. Cada tres segundos, a la vista.
+
+    Con la identidad, releer no mueve nada: los que ya estaban se quedan donde
+    estan, los que aparecen entran cerca del centro, y los que se fueron dejan
+    su lugar. Solo se ve moverse lo que de verdad cambio.
+    """
+
+    def __init__(self, claves, ancho: int, alto: int):
         self.ancho, self.alto = max(1, ancho), max(1, alto)
-        rng = np.random.default_rng(7)
+        self.rng = np.random.default_rng(7)
+        self.claves = []
+        self.pos = np.zeros((0, 2))
+        self.vel = np.zeros((0, 2))
+        self.fase = np.zeros(0)
+        self.sincronizar(claves)
+
+    # --- identidad --------------------------------------------------------
+
+    def _sembrar(self, cuantos: int) -> np.ndarray:
+        """Posiciones de arranque para nodos nuevos: cerca del centro.
+
+        Cerca y no en el centro exacto porque la repulsion divide por la
+        distancia: dos nodos en el mismo punto se disparan a los bordes.
+        """
         centro = np.array([self.ancho / 2, self.alto / 2])
-        self.pos = centro + (rng.random((max(1, cuantos), 2)) - 0.5) * min(ancho, alto) * 0.6
-        self.vel = np.zeros_like(self.pos)
+        radio = min(self.ancho, self.alto) * 0.18
+        return centro + (self.rng.random((max(0, cuantos), 2)) - 0.5) * radio
+
+    def sincronizar(self, claves) -> None:
+        """Deja el acomodo con estos nodos, conservando lo que ya estaba.
+
+        `claves` es la lista de (clase, nombre) en el orden en que se van a
+        dibujar, o sea el mismo orden que `leer()` devolvio.
+        """
+        claves = [tuple(c) for c in claves]
+        if claves == self.claves:
+            return
+        donde = {c: i for i, c in enumerate(self.claves)}
+        pos = self._sembrar(len(claves))
+        vel = np.zeros((len(claves), 2))
+        fase = self.rng.random(len(claves)) * 6.283185
+        for i, clave in enumerate(claves):
+            j = donde.get(clave)
+            if j is not None:
+                pos[i] = self.pos[j]
+                vel[i] = self.vel[j]
+                fase[i] = self.fase[j]
+        self.claves, self.pos, self.vel, self.fase = claves, pos, vel, fase
+
+    def redimensionar(self, ancho: int, alto: int) -> None:
+        """Otro tamaño de modulo NO es otro grafo: se escala, no se rehace.
+
+        Redimensionar reseteando era el mismo reinicio por otra puerta, y
+        saltaba con solo agrandar la ventana de actividad.
+        """
+        ancho, alto = max(1, ancho), max(1, alto)
+        if (ancho, alto) == (self.ancho, self.alto):
+            return
+        if len(self.pos):
+            self.pos *= np.array([ancho / self.ancho, alto / self.alto])
+        self.ancho, self.alto = ancho, alto
+
+    # --- fisica -----------------------------------------------------------
 
     def avanzar(self, aristas, pasos: int = 1) -> None:
+        if not len(self.pos):
+            return
         for _ in range(pasos):
             # Repulsion de todos contra todos: sin esto se apilan en el centro.
             resta = self.pos[:, None, :] - self.pos[None, :, :]
@@ -239,6 +304,66 @@ class Acomodo:
             self.vel = (self.vel + fuerza) * 0.82
             self.pos += self.vel
             np.clip(self.pos, [14, 14], [self.ancho - 14, self.alto - 14], out=self.pos)
+
+    def dibujables(self, t: float) -> np.ndarray:
+        """Donde se dibuja cada nodo: lo acomodado mas una deriva minima.
+
+        Un acomodado por fuerzas CONVERGE --el amortiguado es 0.82, en unos dos
+        segundos la velocidad es cero-- y a partir de ahi la imagen queda
+        completamente quieta. Eso esta bien para un diagrama y mal para algo
+        que se mira: quieto del todo no se distingue de colgado, y era parte de
+        por que el reinicio cada tres segundos pasaba por "la animacion".
+
+        La deriva son 1.6 pixeles, cada nodo con su propia fase, y va ACA y no
+        en las fuerzas a proposito: metida en la fisica pelearia con los
+        resortes y nunca dejaria converger. Aplicada al dibujar no puede
+        desestabilizar nada.
+        """
+        if not len(self.pos):
+            return self.pos
+        deriva = np.stack((np.sin(t * 0.7 + self.fase),
+                           np.cos(t * 0.5 + self.fase * 1.3)), axis=1) * 1.6
+        return self.pos + deriva
+
+
+def estado(guardado, cuantas: int, workdirs, ancho: int, alto: int,
+           cada: int = 90):
+    """El estado del grafo listo para dibujar, releido sin reiniciarse.
+
+    Vive aca y no en cada renderer porque los dos --Pillow y Skia-- tenian la
+    MISMA copia de esta logica, con el mismo defecto: tiraban el `Acomodo`
+    entero cada `cada` cuadros y lo reconstruian desde una nube aleatoria. Dos
+    copias del mismo bug es exactamente lo que pasa cuando algo que no es
+    dibujo vive en el que dibuja.
+
+    Devuelve el dict de siempre; el llamador lo guarda por id de modulo.
+    """
+    if guardado is None:
+        nodos, aristas = leer(cuantas, workdirs)
+        acomodo = Acomodo([(n["clase"], n["nombre"]) for n in nodos], ancho, alto)
+        # Se asienta ANTES del primer cuadro. Naciendo de una nube aleatoria, el
+        # primer paso de fuerzas mueve los nodos 93 pixeles de golpe --medido--
+        # asi que el modulo aparecia explotando y recien despues se ordenaba.
+        # Treinta pasos sobre 24 nodos como mucho es una vez y no se nota.
+        acomodo.avanzar(aristas, pasos=30)
+        return {"nodos": nodos, "aristas": aristas, "cuadros": 0, "t": 0.0,
+                "cuantas": cuantas, "acomodo": acomodo}
+
+    guardado["cuadros"] += 1
+    guardado["t"] = guardado.get("t", 0.0) + 1.0 / 30.0
+    guardado["acomodo"].redimensionar(ancho, alto)
+    # Releer cambia los DATOS y nunca el acomodo. Tambien cuando cambia
+    # `cuantas`, que antes ni se miraba: tocarlo en el panel no hacia nada
+    # hasta la siguiente relectura, y entonces se veia como un reinicio mas.
+    if guardado["cuadros"] > cada or guardado.get("cuantas") != cuantas:
+        guardado["cuadros"] = 0
+        guardado["cuantas"] = cuantas
+        nodos, aristas = leer(cuantas, workdirs)
+        guardado["nodos"], guardado["aristas"] = nodos, aristas
+        guardado["acomodo"].sincronizar([(n["clase"], n["nombre"]) for n in nodos])
+    if guardado["nodos"]:
+        guardado["acomodo"].avanzar(guardado["aristas"])
+    return guardado
 
 
 def programas_usados(nombres, limite: int = 400) -> list:

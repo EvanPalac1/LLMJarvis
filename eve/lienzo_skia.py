@@ -295,7 +295,7 @@ def pintar_grafo(sup, guardado, ancho, alto, borde, acento, texto_rgba, vacio,
         lienzo.drawString(vacio, 0, -m.fAscent, f, sup.pincel(texto_rgba))
         return
 
-    pos = guardado["acomodo"].pos
+    pos = guardado["acomodo"].dibujables(guardado["t"])
     for a, b, veces in aristas:
         if a >= len(pos) or b >= len(pos):
             continue
@@ -411,6 +411,24 @@ class LienzoSkia:
             lienzo.drawRect(self.sup.skia.Rect(x - 1, y - 1, x + w, y + h),
                             pincel)
 
+    def _guia(self, medida) -> None:
+        """El borde de otra superficie, punteado y tenue.
+
+        Tenue y no con el acento a proposito: no es una seleccion, es una
+        referencia, y con el mismo color que el contorno de agarre las dos
+        cosas se leen como lo mismo.
+        """
+        try:
+            ancho, alto = (float(x) for x in medida)
+        except (TypeError, ValueError):
+            return
+        lienzo = self.sup.lienzo
+        pincel = self.sup.pincel(self._rol("texto_tenue"))
+        pincel.setStyle(self.sup.skia.Paint.kStroke_Style)
+        pincel.setStrokeWidth(1.0)
+        pincel.setPathEffect(self.sup.skia.DashPathEffect.Make([2.0, 4.0], 0.0))
+        lienzo.drawRect(self.sup.skia.Rect(0, 0, ancho, alto), pincel)
+
     def vacio(self, texto: str, sub: str, ancho, alto) -> None:
         """El cartel de "no hay modulos", centrado.
 
@@ -494,26 +512,18 @@ class LienzoSkia:
     def _grafo(self, modulo, ancho, alto):
         """El grafo del log, releido cada tantos cuadros y acomodado siempre.
 
-        Mismo criterio que el otro camino: leer el log en cada cuadro serian
-        treinta consultas por segundo a una base que casi nunca cambia, pero el
-        acomodado si tiene que avanzar, que es lo que se ve moverse.
+        Todo eso --relectura, acomodo y avance-- lo hace `grafo.estado`, que es
+        el mismo para los dos renderers: tener una copia por cada uno daba dos
+        dibujos distintos del mismo log, y de hecho dio el mismo bug dos veces.
         """
         from . import grafo as grafo_mod
 
         ident = modulo["id"]
-        guardado = self._grafos.get(ident)
-        cuantas = int(modulo.get("cuantas", 150) or 150)
-        if (guardado is None or guardado["cuadros"] > 90
-                or guardado["tam"] != (ancho, alto)):
-            nodos, aristas = grafo_mod.leer(cuantas, self.cfg.get("workdirs"))
-            guardado = {"nodos": nodos, "aristas": aristas, "cuadros": 0,
-                        "tam": (ancho, alto),
-                        "acomodo": grafo_mod.Acomodo(len(nodos), ancho, alto)}
-            self._grafos[ident] = guardado
-        guardado["cuadros"] += 1
+        guardado = grafo_mod.estado(
+            self._grafos.get(ident), int(modulo.get("cuantas", 150) or 150),
+            self.cfg.get("workdirs"), ancho, alto)
+        self._grafos[ident] = guardado
         guardado["etiquetas"] = bool(modulo.get("etiquetas", True))
-        if guardado["nodos"]:
-            guardado["acomodo"].avanzar(guardado["aristas"])
         return guardado
 
     def _rol(self, nombre):
@@ -629,8 +639,15 @@ class LienzoSkia:
         # error de programacion y no del usuario.
         return None
 
-    def dibujar(self, lista, estado, ahora=None, seleccion=()):
+    def dibujar(self, lista, estado, ahora=None, seleccion=(), guia=None):
         """Un cuadro entero. Devuelve cuantos modulos dibujo de verdad.
+
+        `guia` es un (ancho, alto) opcional: el borde de OTRA superficie
+        dibujado encima de esta. Sirve para acomodar los modulos del cartel
+        desde la ventana de actividad, que es mucho mas grande: sin ese
+        rectangulo se acomoda a ciegas y lo que quede pasado el borde no se ve
+        cuando el cartel se dibuja de verdad. El camino de Pillow lo hace con
+        un item de canvas; aca hace falta pintarlo, porque no hay items.
 
         Los tipos que no estan en `PORTADOS` se saltan en silencio: mezclar los
         dos motores en la misma superficie no se puede, asi que mientras la
@@ -670,6 +687,8 @@ class LienzoSkia:
         # con cada uno, el de abajo se lo comeria el de arriba. En el camino de
         # Pillow eso lo resuelve un item de canvas con su propia etiqueta; aca,
         # el orden.
+        if guia:
+            self._guia(guia)
         if seleccion:
             self._marcar(lista, seleccion)
         self.sup.presentar()

@@ -47,16 +47,36 @@ pantalla distinta por cada uno, así que un tipo nuevo trae sus controles puesto
 
 ### Desde la propia ventana de actividad
 
-Abrila con el botón **Ventana de actividad** del pie del panel, pasá a **Edit**,
-y usá el **Agregar** de ahí. Ese siempre pone el módulo en el tablero, porque es
-donde estás mirando.
+Abrila con el botón **Ventana de actividad** del pie del panel y pasá a **Edit**.
+Arriba del panel de la derecha:
+
+    Editando  [ tablero ▾ ]
+    [ tipo ▾ ]  [ Agregar ]
+
+**El selector decide sobre qué superficie estás trabajando**, y vale para todo lo
+que hagas ahí: lo que se lista, lo que elegís con el clic, lo que arrastrás y
+dónde cae el **Agregar**.
 
 Si la abrís y está vacía, te lo dice y trae un botón para armar un tablero de
 arranque.
 
-> **Si agregaste uno y no aparece**, casi siempre es una de dos: quedó en el
-> `cartel` en vez del tablero —fijate la columna en la lista de módulos— o el
-> cartel está en `auto`, que lo esconde hasta que Eve trabaja.
+> **Si agregaste uno y no aparece**, casi siempre es una de dos: quedó en la
+> superficie que no mirabas —fijate el selector y la columna en la lista de
+> módulos— o el cartel está en `auto`, que lo esconde hasta que Eve trabaja.
+
+### Acomodar los del cartel
+
+Los módulos del cartel **se acomodan desde la ventana de actividad**, poniendo el
+selector en `cartel`. No se editan encima del cartel mismo: para eso tendría que
+dejar de ser una tarjeta que deja pasar los clics, y ahí perdés la razón por la
+que está ahí.
+
+Como la ventana de actividad es mucho más grande que el cartel, en `cartel`
+aparece **un recuadro punteado con el tamaño real** (460×128, por la escala del
+cartel). Lo que quede pasado ese borde no se va a ver cuando el cartel se dibuje.
+
+> El cartel sin módulos propios **no cambia nada**: dibuja el diseño de siempre.
+> Recién con el primero pasa a ser tuyo.
 
 Para acomodarlos con el mouse: **ventana de actividad → Edit**.
 
@@ -87,6 +107,12 @@ sin querer.
 | `reloj` | La hora | `formato` (como en `strftime`: `%H:%M`) |
 | `contexto` | Cuánto del presupuesto de tokens se lleva cada parte del prompt | `detalle` (`barra` o `numeros`) |
 | `grafo` | Qué ejecutó Eve y en qué proyectos, sacado del log de auditoría | `cuantas`, `etiquetas` |
+
+El `grafo` se **acomoda solo**: los nodos se empujan entre sí y las líneas
+tiran como resortes hasta encontrar su lugar, y ahí se quedan con una deriva
+mínima. Relee el log cada tres segundos, y releerlo **no lo mueve**: los nodos
+que ya estaban se quedan donde están y solo entran o salen los que cambiaron.
+`cuantas` es cuántas acciones del log mira; subirlo lo hace más denso.
 | `historial` | La conversación | `tam`, `lineas`, `cuantos` |
 | `acciones` | El log de auditoría: qué corrió y cómo salió | `tam`, `lineas`, `cuantas`, `resultado` |
 
@@ -284,3 +310,5 @@ que te pasan no puede cambiarte cómo trabaja el asistente ni llevarse tus clave
 | Un módulo no se ve | `opacidad` (se multiplica con la de la ventana), `cuando`, y `pantalla` si tenés dos monitores |
 | Un botón no responde | Tiene que estar en modo **Work**. En Edit el clic elige, no acciona |
 | Va a tirones | **Apariencia → Tema → Fluidez**: bajá `ui_fps` antes que apagar módulos |
+| Puse uno en el cartel y no lo encuentro | En la ventana de actividad, modo Edit, poné **Editando: cartel** |
+| Un módulo del cartel se ve cortado | Está pasado del recuadro punteado: el cartel mide 460×128 por su escala |
