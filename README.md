@@ -1112,6 +1112,36 @@ una pestaña. Un boton de probar lejos de lo que prueba es un boton mas.
 
 ---
 
+## OpenRouter y LM Studio
+
+Los dos entran por el motor `compat`, que habla el protocolo de OpenAI. No hay
+un motor por servicio a proposito: OpenRouter es un router en la nube y LM
+Studio un servidor en tu maquina, pero los dos exponen
+`/v1/chat/completions` y `/v1/models`, asi que escribir uno para cada uno seria
+tener tres copias del mismo cliente HTTP esperando a divergir.
+
+**Panel > Cuentas > Otros motores.** Elegis proveedor, y el boton **Buscar
+modelos** se los pregunta al propio servicio en vez de que tengas que saber el
+identificador exacto: OpenRouter publica cientos y LM Studio sirve el que hayas
+cargado. Era un campo de texto libre, que es el mismo problema que ya se
+arreglo con las claves de config --escribir a ciegas, fallar, reintentar.
+
+| | |
+|---|---|
+| `lmstudio` | `http://localhost:1234/v1`, **sin clave**: escucha en tu maquina |
+| `openrouter` | `https://openrouter.ai/api/v1`, clave en Cuentas |
+| `propio` | cualquier servidor que hable el protocolo, con tu URL |
+
+Con OpenRouter se mandan `HTTP-Referer` y `X-Title`. Son opcionales, pero sin
+ellas los pedidos entran como anonimos y sus modelos gratuitos limitan mas
+fuerte a quien no se identifica. No viaja nada del usuario: el nombre del
+programa y su repositorio, que ya son publicos.
+
+Y lo mismo vale para **Ollama**, que ademas de su propia API expone una
+compatible en `/v1`: sirve por los dos caminos.
+
+---
+
 ## El cartel, redisenado
 
 Esquinas redondeadas y contorno cerrado de fabrica. El cartel flota sobre el
@@ -1851,7 +1881,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 162 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 164 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

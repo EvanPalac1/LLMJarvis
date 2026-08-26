@@ -2049,6 +2049,91 @@ class Panel(tk.Tk):
         sel = self.voz_tree.selection()
         return self.voz_tree.item(sel[0], "values")[0] if sel else ""
 
+    def compat_buscar_modelos(self):
+        """Le pregunta al servicio que modelos tiene y te deja elegir uno.
+
+        En un hilo porque sale a la red: OpenRouter tarda lo que tarde, y el
+        panel no puede quedarse congelado mientras tanto. Lo que vuelve se
+        aplica con `_ui`, que es el unico camino seguro para tocar tkinter
+        desde un worker.
+        """
+        import threading
+
+        from . import compat_engine
+
+        rotulo = getattr(self, "compat_estado", None)
+
+        def decir(texto):
+            if rotulo is not None:
+                try:
+                    rotulo.config(text=texto)
+                except tk.TclError:
+                    pass
+
+        decir(tr("preguntando..."))
+
+        def trabajo():
+            try:
+                motor = compat_engine.CompatEve.__new__(compat_engine.CompatEve)
+                motor.cfg = self._cfg_de_pantalla()
+                motor._destino(motor.cfg)
+                lista = motor.modelos()
+            except Exception as exc:  # noqa: BLE001 - la red falla de mil formas
+                fallo = str(exc)[:120]
+                self._ui(lambda: decir(f"{tr('no pude preguntarle')}: {fallo}"))
+                return
+            self._ui(lambda: self._elegir_modelo(lista, decir))
+
+        threading.Thread(target=trabajo, daemon=True).start()
+
+    def _cfg_de_pantalla(self) -> dict:
+        """La config con lo que hay ESCRITO en el panel, sin guardar todavia.
+
+        Hace falta porque uno cambia el proveedor y aprieta buscar sin guardar:
+        leer del disco preguntaria al servicio anterior y devolveria una lista
+        que no tiene nada que ver con lo que se esta mirando.
+        """
+        cfg = dict(self.cfg)
+        for clave in ("compat_proveedor", "compat_url", "compat_modelo"):
+            var = self.vars.get(clave)
+            if var is not None:
+                cfg[clave] = var.get().strip()
+        return cfg
+
+    def _elegir_modelo(self, lista, decir) -> None:
+        """La lista que devolvio el servicio, para elegir de ahi."""
+        if not lista:
+            decir(tr("el servicio no publica ninguno"))
+            return
+        decir(f"{len(lista)} " + tr("disponibles"))
+        v = tk.Toplevel(self)
+        v.title(tr("Modelos disponibles"))
+        v.geometry("520x420")
+        v.transient(self)
+        caja = tk.Listbox(v, activestyle="none")
+        caja.pack(fill="both", expand=True, padx=12, pady=(12, 6))
+        for nombre in lista:
+            caja.insert("end", nombre)
+        actual = (self.vars.get("compat_modelo").get().strip()
+                  if self.vars.get("compat_modelo") else "")
+        if actual in lista:
+            caja.selection_set(lista.index(actual))
+            caja.see(lista.index(actual))
+
+        def elegir(_e=None):
+            sel = caja.curselection()
+            if sel and self.vars.get("compat_modelo") is not None:
+                self.vars["compat_modelo"].set(lista[sel[0]])
+                decir(f"{tr('elegido')}: {lista[sel[0]]}")
+            v.destroy()
+
+        caja.bind("<Double-Button-1>", elegir)
+        fila = ttk.Frame(v)
+        fila.pack(fill="x", padx=12, pady=(0, 12))
+        ttk.Button(fila, text=tr("Usar este"), command=elegir,
+                   style="Principal.TButton").pack(side="right")
+        ttk.Button(fila, text=tr("Cerrar"), command=v.destroy).pack(side="right", padx=6)
+
     def voces_buscar(self):
         self.voz_estado.config(text=tr("consultando catalogo..."))
 

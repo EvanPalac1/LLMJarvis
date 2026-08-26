@@ -103,6 +103,47 @@ class CompatEve(OllamaEve):
         self.modelo = str(cfg.get("compat_modelo", "")).strip() or modelo
         self.clave = store.get_key(nombre_clave) if nombre_clave else ""
 
+    def _cabeceras(self) -> dict:
+        """Las cabeceras de cada pedido, con lo que cada proveedor espera.
+
+        OpenRouter usa `HTTP-Referer` y `X-Title` para saber que aplicacion
+        habla: son opcionales, pero sin ellas los pedidos entran como anonimos
+        y sus modelos gratuitos limitan mas fuerte a quien no se identifica.
+        Cuestan dos lineas y no mandan nada del usuario --el nombre del
+        programa y su repositorio, que ya son publicos.
+        """
+        cabeceras = {"Content-Type": "application/json"}
+        if self.clave:
+            cabeceras["Authorization"] = f"Bearer {self.clave}"
+        if self.proveedor == "openrouter":
+            cabeceras["HTTP-Referer"] = "https://github.com/EvanPalac1/LLMJarvis"
+            cabeceras["X-Title"] = "LLMJarvis"
+        return cabeceras
+
+    def modelos(self, timeout: int = 15) -> list:
+        """Los modelos que el servicio dice tener, preguntandoselos.
+
+        Existe porque el modelo era un campo de texto libre, y eso es el mismo
+        problema que ya se arreglo con las claves de config: OpenRouter publica
+        cientos de modelos y LM Studio sirve el que hayas cargado, asi que
+        habia que saber el identificador exacto, escribirlo bien, y descubrir
+        el error recien al hablarle.
+
+        `GET /v1/models` es parte del protocolo de OpenAI, asi que lo contestan
+        los tres: OpenRouter, LM Studio y cualquier servidor propio.
+        """
+        if not self.host:
+            return []
+        r = requests.get(f"{self.host}/models", headers=self._cabeceras(),
+                         timeout=timeout)
+        r.raise_for_status()
+        datos = r.json()
+        filas = datos.get("data") if isinstance(datos, dict) else datos
+        if not isinstance(filas, list):
+            return []
+        nombres = [str(f.get("id") or "") for f in filas if isinstance(f, dict)]
+        return sorted(n for n in nombres if n)
+
     def comprobar(self) -> tuple[bool, str]:
         """Se llama en el constructor: sin esto el error aparece recien al hablar."""
         if not self.host:
@@ -118,9 +159,7 @@ class CompatEve(OllamaEve):
 
     def _pedir(self, mensajes: list[dict]) -> dict:
         """Una vuelta del chat. Devuelve el mensaje del asistente."""
-        cabeceras = {"Content-Type": "application/json"}
-        if self.clave:
-            cabeceras["Authorization"] = f"Bearer {self.clave}"
+        cabeceras = dict(self._cabeceras())
         cuerpo = {
             "model": self.modelo,
             "messages": mensajes,

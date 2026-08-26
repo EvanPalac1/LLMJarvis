@@ -162,6 +162,36 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Buscar modelos":
+        "Find models",
+    "Modelos disponibles":
+        "Available models",
+    "Usar este":
+        "Use this one",
+    "disponibles":
+        "available",
+    "preguntando...":
+        "asking...",
+    "no pude preguntarle":
+        "could not ask it",
+    "el servicio no publica ninguno":
+        "the service does not publish any",
+    "El modelo era un campo de texto libre, y eso obliga a saber el\n"
+    "identificador exacto: OpenRouter publica cientos y LM Studio\n"
+    "sirve el que hayas cargado. El boton se los pregunta al propio\n"
+    "servicio --`GET /v1/models` es parte del protocolo-- y te deja\n"
+    "elegir de la lista.\n"
+    "\n"
+    "LM Studio y Ollama NO piden clave: escuchan en tu maquina. Los de\n"
+    "la nube si, y va en Cuentas.":
+        "The model used to be a free text field, which means knowing the exact\n"
+        "identifier: OpenRouter publishes hundreds and LM Studio serves\n"
+        "whichever one you loaded. The button asks the service itself --\n"
+        "`GET /v1/models` is part of the protocol -- and lets you pick from\n"
+        "the list.\n"
+        "\n"
+        "LM Studio and Ollama do NOT ask for a key: they listen on your own\n"
+        "machine. The cloud ones do, and that goes under Accounts.",
     "elegido":
         "picked",
     "Un clic para elegirlo, dos para aplicarlo. Vienen con el programa y no\n"

@@ -632,6 +632,17 @@ GENERAL = (
             Campo("compat_proveedor", "compat: proveedor", "_proveedores_compat"),
             Campo("compat_modelo", "compat: modelo"),
             Campo("compat_url", "compat: URL propia", None, 40),
+            Fila((
+                Boton("Buscar modelos", "compat_buscar_modelos"),
+                Salida("compat_estado"),
+            )),
+            Ayuda("El modelo era un campo de texto libre, y eso obliga a saber el\n"
+                  "identificador exacto: OpenRouter publica cientos y LM Studio\n"
+                  "sirve el que hayas cargado. El boton se los pregunta al propio\n"
+                  "servicio --`GET /v1/models` es parte del protocolo-- y te deja\n"
+                  "elegir de la lista.\n"
+                  "\nLM Studio y Ollama NO piden clave: escuchan en tu maquina. Los de\n"
+                  "la nube si, y va en Cuentas."),
             Propio("_ayuda_compat"),
             Campo("ollama_host", "Ollama: host"),
             Campo("ollama_model", "Ollama: modelo"),

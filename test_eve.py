@@ -6044,6 +6044,117 @@ def test_los_perfiles_que_vienen_se_ven_antes_de_aplicarlos():
             store.CONFIG_PATH, store.PERFILES_PATH = previos
 
 
+def test_openrouter_y_lmstudio_estan_y_se_configuran_solos():
+    """Los dos hablan el protocolo de OpenAI, y por eso no hay motor nuevo.
+
+    OpenRouter es un router en la nube y LM Studio un servidor en tu maquina,
+    pero los dos exponen `/v1/chat/completions` y `/v1/models`. Escribir un
+    motor por cada uno seria tener tres copias del mismo cliente HTTP
+    esperando a divergir.
+
+    Lo que se comprueba es lo que los distingue de verdad: que el local NO
+    pida clave, que el de la nube SI, y que OpenRouter se identifique.
+    """
+    from eve import compat_engine as ce
+
+    assert "openrouter" in ce.PROVEEDORES and "lmstudio" in ce.PROVEEDORES
+
+    url, clave, modelo = ce.PROVEEDORES["openrouter"]
+    assert url.startswith("https://"), "un servicio de la nube va por https"
+    assert clave, "OpenRouter necesita clave"
+    url, clave, modelo = ce.PROVEEDORES["lmstudio"]
+    assert url.startswith("http://localhost"), url
+    assert not clave, "LM Studio escucha en tu maquina y no pide clave"
+
+    def motor(**cfg):
+        e = ce.CompatEve.__new__(ce.CompatEve)
+        e.cfg = {**store.DEFAULTS, "engine": "compat", **cfg}
+        e._destino(e.cfg)
+        return e
+
+    # El local arranca sin clave. Es la diferencia que hace que un modelo en tu
+    # maquina se pueda usar sin cuenta en ningun lado.
+    local = motor(compat_proveedor="lmstudio")
+    ok, dicho = local.comprobar()
+    assert ok, dicho
+    assert local.clave == ""
+
+    # Y OpenRouter se identifica. Son opcionales, pero sin ellas los pedidos
+    # entran como anonimos y sus modelos gratuitos limitan mas fuerte.
+    router = motor(compat_proveedor="openrouter")
+    cab = router._cabeceras()
+    assert cab.get("HTTP-Referer") and cab.get("X-Title"), cab
+    # Y NO se mandan a los demas: son de OpenRouter, no del protocolo.
+    assert "X-Title" not in local._cabeceras()
+
+    # Un servicio de la nube sin clave se frena ANTES de hablarle, con el
+    # motivo, en vez de fallar con un 401 a mitad de una respuesta.
+    with tempfile.TemporaryDirectory() as raiz:
+        previo = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        try:
+            nube = motor(compat_proveedor="openrouter")
+            nube.clave = ""
+            ok, dicho = nube.comprobar()
+            assert not ok and "clave" in dicho.lower(), dicho
+        finally:
+            store.CONFIG_PATH = previo
+
+
+def test_los_modelos_se_preguntan_en_vez_de_adivinarse():
+    """`GET /v1/models` en vez de un campo de texto libre.
+
+    Es el mismo problema que el de las claves de config: OpenRouter publica
+    cientos de modelos y LM Studio sirve el que hayas cargado, asi que habia
+    que saber el identificador exacto, escribirlo bien, y descubrir el error
+    recien al hablarle.
+
+    Se prueba contra un servidor falso y no contra uno real: lo que importa es
+    que se lea la forma de la respuesta del protocolo, y un test que necesita
+    LM Studio instalado no corre en CI.
+    """
+    from eve import compat_engine as ce
+
+    class Falsa:
+        def __init__(self, datos):
+            self.datos = datos
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.datos
+
+    e = ce.CompatEve.__new__(ce.CompatEve)
+    e.cfg = {**store.DEFAULTS, "compat_proveedor": "lmstudio"}
+    e._destino(e.cfg)
+
+    real = ce.requests.get
+    try:
+        # La forma que devuelve el protocolo de OpenAI.
+        ce.requests.get = lambda *a, **k: Falsa(
+            {"object": "list", "data": [{"id": "b"}, {"id": "a"}]})
+        assert e.modelos() == ["a", "b"], "vienen ordenados para poder buscarlos"
+
+        # Una lista pelada tambien: algunos servidores propios contestan asi.
+        ce.requests.get = lambda *a, **k: Falsa([{"id": "x"}])
+        assert e.modelos() == ["x"]
+
+        # Y lo que no se entiende no rompe el panel: devuelve vacio y quien
+        # llama lo dice. Un boton que tira una excepcion deja al usuario sin
+        # saber si fue la red, la URL o el servicio.
+        ce.requests.get = lambda *a, **k: Falsa({"data": "no es una lista"})
+        assert e.modelos() == []
+        ce.requests.get = lambda *a, **k: Falsa({"data": [{"sin_id": 1}, {}]})
+        assert e.modelos() == []
+    finally:
+        ce.requests.get = real
+
+    # Sin host no se le pregunta a nadie.
+    e.host = ""
+    assert e.modelos() == []
+
+
 def test_monitores():
     """Enumerar pantallas, que tkinter no sabe hacer en ningun sistema.
 
