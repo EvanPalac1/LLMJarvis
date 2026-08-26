@@ -811,7 +811,44 @@ CARTEL = (
 # Todas las tablas migradas. Va al final porque nombra las de arriba, y existe
 # para que el chequeo de traduccion las recorra sin que nadie tenga que
 # acordarse de sumar cada pestaña nueva a mano.
-TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA, GENERAL, CARTEL)
+# Las secciones que hablan de MODELOS se juntan en una tabla propia.
+#
+# Estaban repartidas en tres lados --el motor y su ajuste fino en General, el
+# reconocimiento y la voz en Voz, las claves en Cuentas-- y configurar un
+# proveedor obligaba a saltar entre las tres: elegis `compat`, vas a Cuentas a
+# cargar la clave, volves a General a poner el modelo. Son un solo trabajo.
+#
+# Se COMPONEN por titulo en vez de mudar el texto de las declaraciones. Asi
+# cada seccion se sigue leyendo donde un lector la busca --lo del habla, junto
+# a lo del habla-- y el diff no es mover doscientas lineas de un lado a otro,
+# que es donde se pierde una fila sin que nadie lo note.
+_A_MODELOS = (
+    "Quien piensa por ella", "Otros motores", "Ajuste fino del modelo",
+    "Como te escucha", "Ajuste fino del reconocimiento",
+    "Despertarla diciendo su nombre",
+    "Como te habla", "Ajuste fino de la voz",
+)
+
+
+def _partir(tabla):
+    """(las que se van a Modelos, las que se quedan), en su orden original."""
+    van = tuple(s for s in tabla if s.titulo in _A_MODELOS)
+    quedan = tuple(s for s in tabla if s.titulo not in _A_MODELOS)
+    return van, quedan
+
+
+_de_general, GENERAL = _partir(GENERAL)
+_de_voz, VOZ = _partir(VOZ)
+# Primero quien piensa, despues quien te escucha, despues quien te habla: es el
+# orden en que se configura, no el orden en que estaban escritas.
+MODELOS = _de_general + _de_voz
+
+# Si un titulo de `_A_MODELOS` deja de existir --un renombre-- esa seccion se
+# quedaria callada donde estaba y nadie se enteraria. Se avisa al importar.
+_perdidos = set(_A_MODELOS) - {s.titulo for s in MODELOS}
+assert not _perdidos, f"secciones que _A_MODELOS nombra y no existen: {_perdidos}"
+
+TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA, GENERAL, CARTEL, MODELOS)
 
 
 # Las siete piezas de un bloque de fondo, con el sufijo REAL de su clave. Los

@@ -162,6 +162,12 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Modelos y claves":
+        "Models and keys",
+    "Cual piensa, cual te escucha, cual te habla, y la clave de cada uno.":
+        "Which one thinks, which one hears you, which one speaks, and each one's key.",
+    "Las apps a las que Eve le escribe. Todo opcional.":
+        "The apps Eve writes to. All optional.",
     "Asignar tecla":
         "Assign a key",
     "apreta la tecla que quieras...":
@@ -705,8 +711,6 @@ EN = {
         "Empty = whatever the webhook has configured in Discord. It always\n"
         "worked; what was missing was somewhere to type it without editing\n"
         "the config by hand.",
-    "Con que se conecta. Todo opcional salvo el motor que elegiste.":
-        "What it connects to. All optional except the engine you picked.",
     "Conexiones con apps (todas opcionales)":
         "App connections (all optional)",
     "Configuracion guardada.\n"

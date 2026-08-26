@@ -5927,9 +5927,10 @@ def test_la_barra_lateral_navega_igual_que_las_pestanas():
 
                 assert (panel._riel is not None) is espera_riel, nav
                 assert (panel._nb is None) is espera_riel, nav
-                # Las siete estan por los dos caminos, y con el mismo nombre.
-                assert panel.rotulos_navegacion()[:3] == ["General", "Cuentas", "Voz"], nav
-                assert len(panel._tabs) == 7, (nav, list(panel._tabs))
+                # Las ocho estan por los dos caminos, y con el mismo nombre.
+                assert panel.rotulos_navegacion()[:4] == [
+                    "General", "Modelos y claves", "Cuentas", "Voz"], nav
+                assert len(panel._tabs) == 8, (nav, list(panel._tabs))
 
                 def a_la_vista():
                     return [t for t, m in panel._tabs.items() if m.winfo_manager()]

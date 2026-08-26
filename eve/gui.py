@@ -164,11 +164,12 @@ class Panel(tk.Tk):
         self.vars: dict[str, tk.Variable] = {}
         self._barra_superior(self)
 
-        # Siete pestañas agrupadas por lo que uno viene a hacer, no por
+        # Ocho pestañas agrupadas por lo que uno viene a hacer, no por
         # modulo. El rotulo traducido va aca, con el texto LITERAL adentro de
         # `tr(...)`: con una variable el chequeo de traduccion no lo ve.
         pestanas = (
             ("General", tr("General"), self._tab_general),
+            ("Modelos", tr("Modelos y claves"), self._tab_modelos),
             ("Cuentas", tr("Cuentas"), self._tab_cuentas),
             ("Voz", tr("Voz"), self._tab_voz),
             ("Contactos", tr("Contactos"), self._tab_contactos),
@@ -1184,10 +1185,23 @@ class Panel(tk.Tk):
             [self._bloque_perfiles, self._bloque_general],
         )
 
+    def _tab_modelos(self, nb):
+        return self._componer(
+            nb, tr("Modelos y claves"),
+            tr("Cual piensa, cual te escucha, cual te habla, y la clave de cada uno."),
+            [self._bloque_modelos, self._bloque_claves_ia],
+        )
+
+    def _bloque_modelos(self, nb):
+        """Generado desde `registro.MODELOS`."""
+        t = ttk.Frame(nb)
+        self._pintar_registro(t, registro.MODELOS)
+        return t
+
     def _tab_cuentas(self, nb):
         return self._componer(
             nb, tr("Cuentas"),
-            tr("Con que se conecta. Todo opcional salvo el motor que elegiste."),
+            tr("Las apps a las que Eve le escribe. Todo opcional."),
             [self._bloque_claves, self._bloque_correo],
         )
 
@@ -1707,7 +1721,14 @@ class Panel(tk.Tk):
         return t
 
 
-    def _bloque_claves(self, nb):
+    def _bloque_claves_ia(self, nb):
+        """La sesion de Claude Code y las claves de los proveedores de modelo.
+
+        Se separo de `_bloque_claves` --que se quedo con las de apps: Discord,
+        el correo-- porque son dos cosas distintas con el mismo nombre. Estas
+        habilitan al que PIENSA, escucha o habla, asi que viven al lado del
+        selector de modelo; las otras habilitan a quien Eve le escribe.
+        """
         t = ttk.Frame(nb)
 
         # --- sesion de Claude Code (motor 'claude-code', sin API key) ---
@@ -1742,6 +1763,11 @@ class Panel(tk.Tk):
         ]:
             self._campo_clave(t, provider, label)
 
+        return t
+
+    def _bloque_claves(self, nb):
+        """Las claves de las apps a las que Eve le escribe. Ver `_bloque_claves_ia`."""
+        t = ttk.Frame(nb)
         box = self._seccion(t, tr("Conexiones con apps (todas opcionales)"))
         ttk.Label(
             box,
