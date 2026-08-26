@@ -489,6 +489,15 @@ TEMA = (
             Interruptor("ui_pintar_panel", "Pintar tambien este panel con el tema"),
             Ayuda("Pintar el panel obliga a dibujar los controles por nuestra cuenta: Windows\n"
                   "no deja cambiarle el color a los suyos. El cambio se ve al instante."),
+            Campo("ui_cromo", "Secciones", ["tarjeta", "plano"]),
+            Ayuda("Como se ve cada seccion:\n"
+                  "  tarjeta  en una tarjeta con esquinas redondeadas\n"
+                  "  plano    filas sueltas, como era antes\n"
+                  "Las esquinas redondeadas ttk no las tiene, asi que el marco se\n"
+                  "dibuja aparte. Los CONTROLES siguen siendo los de siempre en los\n"
+                  "dos casos: uno dibujado seria invisible para un lector de\n"
+                  "pantalla, y eso no se cambia por una esquina.\n"
+                  "\nNecesita el tema aplicado al panel, aca arriba."),
             Interruptor("ui_sin_animacion", "No animar los GIF (dejar el primer cuadro)"),
         ),
     ),

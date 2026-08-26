@@ -299,27 +299,40 @@ def repintar_tk(widget, paleta: dict) -> None:
     Canvas, Text, Listbox, Frame de tk puro y los Toplevel tienen su color
     propio y el motor de estilos no los toca nunca. Se recorren a mano.
 
+    **Los widgets de ttk se saltean**, y eso no es un detalle: un `ttk.Label`
+    ACEPTA la opcion `background`, y ponersela PISA lo que diga el estilo. Este
+    recorrido se la ponia a todo, asi que venia peleando con el motor de
+    estilos y ganando -- y con el default de los widgets en `panel`, eso dejaba
+    cada rotulo y cada ayuda con el color de la pagina encima de su tarjeta,
+    como un recuadro mas claro que no queria decir nada. Los ttk los pinta
+    `aplicar_ttk`; aca solo va lo que el motor de estilos no toca nunca.
+
+    Igual se baja a los hijos: un `ttk.Frame` puede contener un `tk.Text`.
+
     Se saltea lo marcado con `_eve_color_propio`: las muestras del selector de
     color SON su color, y pintarlas con el del tema las dejaba todas iguales y
     vacias, que es justo lo contrario de para lo que estan.
     """
+    from tkinter import ttk
+
     if getattr(widget, "_eve_color_propio", False):
         return
-    opciones = {
-        "background": paleta["fondo"],
-        "bg": paleta["fondo"],
-    }
-    clase = widget.winfo_class()
-    if clase in ("Text", "Listbox", "Entry"):
-        opciones = {"background": paleta["panel"], "foreground": paleta["texto"],
-                    "insertbackground": paleta["texto"]}
-    elif clase in ("Label", "Checkbutton", "Radiobutton"):
-        opciones = {"background": paleta["fondo"], "foreground": paleta["texto"]}
-    for clave, valor in opciones.items():
-        try:
-            widget.configure(**{clave: valor})
-        except Exception:  # noqa: BLE001 - el widget no tiene esa opcion; se sigue
-            pass
+    if not isinstance(widget, ttk.Widget):
+        opciones = {
+            "background": paleta["fondo"],
+            "bg": paleta["fondo"],
+        }
+        clase = widget.winfo_class()
+        if clase in ("Text", "Listbox", "Entry"):
+            opciones = {"background": paleta["panel"], "foreground": paleta["texto"],
+                        "insertbackground": paleta["texto"]}
+        elif clase in ("Label", "Checkbutton", "Radiobutton"):
+            opciones = {"background": paleta["fondo"], "foreground": paleta["texto"]}
+        for clave, valor in opciones.items():
+            try:
+                widget.configure(**{clave: valor})
+            except Exception:  # noqa: BLE001 - no tiene esa opcion; se sigue
+                pass
     for hijo in widget.winfo_children():
         repintar_tk(hijo, paleta)
 
@@ -335,22 +348,41 @@ def aplicar_ttk(style, paleta: dict) -> None:
     texto, tenue = paleta["texto"], paleta["texto_tenue"]
     acento, borde = paleta["acento"], paleta["borde"]
 
-    style.configure(".", background=fondo, foreground=texto,
+    # El fondo por defecto de los widgets es `panel` y NO `fondo`, y esto es
+    # lo que hace posible la tarjeta dibujada.
+    #
+    # Una tarjeta se pinta sobre un Canvas --ttk no tiene esquinas
+    # redondeadas-- y adentro lleva widgets de ttk de verdad. Si el `TFrame`
+    # que va adentro trae `fondo`, pinta un rectangulo mas oscuro ENCIMA del
+    # relleno de la tarjeta y el `panel` solo asoma como un anillo por los
+    # bordes: la tarjeta queda al reves. Y no alcanza con darle un estilo al
+    # marco de la tarjeta, porque cada fila crea sus propios `ttk.Frame` y
+    # `ttk.Label` hijos, que volverian al default.
+    #
+    # Con `panel` como default, lo que necesita el color de la pagina --el
+    # area de scroll, que es lo que se ve ENTRE las tarjetas-- lo pide con
+    # `Fondo.TFrame`. Son unos pocos contenedores estructurales contra decenas
+    # de widgets de contenido, asi que el default es el que conviene.
+    style.configure(".", background=panel, foreground=texto,
                     fieldbackground=panel, bordercolor=borde,
                     lightcolor=panel, darkcolor=panel, focuscolor=acento)
-    style.configure("TFrame", background=fondo)
-    style.configure("TLabel", background=fondo, foreground=texto)
-    style.configure("Ayuda.TLabel", background=fondo, foreground=tenue)
-    style.configure("Error.TLabel", background=fondo, foreground=paleta["alerta"])
-    style.configure("Ok.TLabel", background=fondo, foreground=acento)
+    style.configure("TFrame", background=panel)
+    style.configure("TLabel", background=panel, foreground=texto)
+    style.configure("Ayuda.TLabel", background=panel, foreground=tenue)
+    style.configure("Error.TLabel", background=panel, foreground=paleta["alerta"])
+    style.configure("Ok.TLabel", background=panel, foreground=acento)
+    # Lo estructural: el color de la pagina, entre tarjeta y tarjeta.
+    style.configure("Fondo.TFrame", background=fondo)
+    style.configure("Fondo.TLabel", background=fondo, foreground=texto)
+    style.configure("FondoAyuda.TLabel", background=fondo, foreground=tenue)
     # El titulo va en `texto` y NO en `acento`: el acento significa "esto se
     # puede tocar" --la accion principal, el anillo de foco, la seccion activa--
     # y gastarlo en un titulo que no hace nada le quita ese significado a los
     # otros tres. La jerarquia sale del tamano y del peso, que es de donde
     # tiene que salir.
-    style.configure("Titulo.TLabel", background=fondo, foreground=texto)
-    style.configure("TLabelframe", background=fondo, bordercolor=borde)
-    style.configure("TLabelframe.Label", background=fondo, foreground=tenue)
+    style.configure("Titulo.TLabel", background=panel, foreground=texto)
+    style.configure("TLabelframe", background=panel, bordercolor=borde)
+    style.configure("TLabelframe.Label", background=panel, foreground=tenue)
     style.configure("TButton", background=panel, foreground=texto, bordercolor=borde)
     style.map("TButton",
               background=[("active", borde), ("pressed", acento)],
@@ -372,8 +404,8 @@ def aplicar_ttk(style, paleta: dict) -> None:
                     foreground=texto, arrowcolor=acento)
     style.map("TCombobox", fieldbackground=[("readonly", panel)],
               foreground=[("readonly", texto)])
-    style.configure("TCheckbutton", background=fondo, foreground=texto)
-    style.map("TCheckbutton", background=[("active", fondo)],
+    style.configure("TCheckbutton", background=panel, foreground=texto)
+    style.map("TCheckbutton", background=[("active", panel)],
               indicatorcolor=[("selected", acento)])
     style.configure("TNotebook", background=fondo, bordercolor=borde)
     style.configure("TNotebook.Tab", background=fondo, foreground=tenue)
@@ -387,4 +419,6 @@ def aplicar_ttk(style, paleta: dict) -> None:
     style.configure("TScrollbar", background=panel, troughcolor=fondo,
                     bordercolor=borde, arrowcolor=tenue)
     style.configure("TSeparator", background=borde)
-    style.configure("TScale", background=fondo, troughcolor=panel)
+    # El deslizador vive DENTRO de una tarjeta, asi que su fondo es el de la
+    # tarjeta; la canaleta va un escalon mas oscura para que se vea el riel.
+    style.configure("TScale", background=panel, troughcolor=fondo)

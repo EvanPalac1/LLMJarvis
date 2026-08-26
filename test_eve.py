@@ -5604,6 +5604,138 @@ def test_el_panel_no_elige_colores_a_mano():
             "piso de contraste.")
 
 
+def test_la_tarjeta_dibuja_el_marco_y_deja_los_controles_de_ttk():
+    """El trato del cromo dibujado: se pinta el marco, no los controles.
+
+    ttk no tiene esquinas redondeadas, asi que la tarjeta se pinta sobre un
+    Canvas. Pero un control dibujado sobre un Canvas **es invisible para un
+    lector de pantalla** --no tiene rol, ni nombre, ni estado que anunciar-- y
+    ademas habria que rehacer a mano el tabulador, el cursor de texto, la
+    seleccion y el IME. Las HIG ponen la accesibilidad por encima de lo visual.
+
+    Asi que lo que se comprueba aca no es que la tarjeta se vea linda: es que
+    lo que hay adentro siga siendo ttk de verdad. Si alguien alguna vez
+    reemplaza un campo por algo dibujado, esto se pone rojo.
+    """
+    import tkinter as tk
+    from tkinter import ttk
+
+    from eve import chrome, tema
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        print("    (sin pantalla, se saltea)")
+        return
+    try:
+        raiz.withdraw()
+        pal = tema.PALETAS["oscuro"]
+        estilo = ttk.Style(raiz)
+        estilo.theme_use("clam")
+        tema.aplicar_ttk(estilo, pal)
+
+        t = chrome.Tarjeta(raiz, pal)
+        t.pack(fill="x")
+        ttk.Label(t.cuerpo, text="Reconocedor").pack()
+        combo = ttk.Combobox(t.cuerpo, values=["a", "b"], state="readonly")
+        combo.pack()
+        raiz.update_idletasks()
+        # Con la ventana oculta el Canvas mide 1 px de ancho, y a ese tamano el
+        # radio se acota a 0 y la tarjeta sale cuadrada --con razon. Se le da un
+        # ancho de verdad para probar el dibujo de verdad.
+        t.configure(width=420)
+        t.pintar()
+
+        # 1. El marco es un poligono en el Canvas, no un rectangulo: si fuera
+        #    `create_rectangle` no habria esquinas redondeadas y este modulo no
+        #    tendria razon de existir.
+        formas = [t.type(i) for i in t.find_all()]
+        assert "polygon" in formas, formas
+        # 2. Y lo de adentro es una ventana con widgets de verdad.
+        assert "window" in formas, formas
+        assert isinstance(combo, ttk.Widget), "el control dejo de ser de ttk"
+        assert combo.winfo_class() == "TCombobox"
+        # Un widget de ttk entra en el tabulador; uno dibujado no existe para el.
+        assert combo.cget("takefocus") != "0", "el control quedo fuera del tabulador"
+
+        # 3. La tarjeta mide lo que mide su contenido. Sin esto, plegar una
+        #    seccion deja el hueco y desplegarla la recorta.
+        alto = t.winfo_reqheight() or int(t.cget("height"))
+        assert alto >= t.cuerpo.winfo_reqheight(), (alto, t.cuerpo.winfo_reqheight())
+
+        # 4. El relleno es `panel` y NO `fondo`: al reves, los widgets de
+        #    adentro --que traen `panel` por defecto-- pintarian mas claro que
+        #    su propia tarjeta y el marco se leeria invertido.
+        assert t.itemcget(t._forma, "fill") == pal["panel"]
+        assert t.itemcget(t._forma, "outline") == pal["borde"]
+        assert estilo.lookup("TLabel", "background") == pal["panel"]
+        assert estilo.lookup("Fondo.TFrame", "background") == pal["fondo"]
+
+        # 5. Y cambia de tema en vivo: un Canvas no consulta el motor de
+        #    estilos, hay que avisarle.
+        claro = tema.PALETAS["claro"]
+        t.aplicar(claro)
+        assert t.itemcget(t._forma, "fill") == claro["panel"]
+    finally:
+        raiz.destroy()
+
+
+def test_el_riel_se_maneja_con_el_teclado():
+    """La barra lateral esta dibujada, pero no deja de ser accesible.
+
+    Es la otra mitad del trato: si el riel dibujado solo respondiera al raton,
+    seria exactamente lo que este modulo dice que no hay que hacer. Entra en el
+    tabulador, las flechas mueven, Enter y espacio activan.
+    """
+    import tkinter as tk
+    from tkinter import ttk  # noqa: F401 - hace falta para el motor de estilos
+
+    from eve import chrome, tema
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        print("    (sin pantalla, se saltea)")
+        return
+    try:
+        raiz.withdraw()
+        elegidos = []
+        r = chrome.Riel(raiz, tema.PALETAS["oscuro"],
+                        [("g", "General"), ("v", "Voz"), ("a", "Apariencia")],
+                        elegidos.append)
+        r.pack()
+        raiz.update_idletasks()
+
+        assert r.cget("takefocus"), "el riel no entra en el tabulador"
+        assert r.elegido == "g"
+
+        r._mover(1)
+        assert r.elegido == "v" and elegidos[-1] == "v"
+        r._mover(1)
+        assert r.elegido == "a"
+        # No se pasa del final: una flecha que no hace nada es mejor que una
+        # que salta al principio sin avisar.
+        r._mover(1)
+        assert r.elegido == "a"
+        r._mover(-5)
+        assert r.elegido == "g"
+
+        # Dibuja una pastilla para la activa y el texto de cada item.
+        r.pintar()
+        textos = [r.itemcget(i, "text") for i in r.find_all() if r.type(i) == "text"]
+        assert textos == ["General", "Voz", "Apariencia"], textos
+        assert any(r.type(i) == "polygon" for i in r.find_all()), "sin pastilla"
+
+        # Con el foco puesto, el anillo: es la unica senal de que el teclado
+        # esta aca, y ttk no lo dibuja sobre un Canvas.
+        sin_foco = sum(1 for i in r.find_all() if r.type(i) == "polygon")
+        r._entra_foco()
+        con_foco = sum(1 for i in r.find_all() if r.type(i) == "polygon")
+        assert con_foco > sin_foco, "el foco no se ve"
+    finally:
+        raiz.destroy()
+
+
 def test_monitores():
     """Enumerar pantallas, que tkinter no sabe hacer en ningun sistema.
 

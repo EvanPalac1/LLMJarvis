@@ -267,6 +267,14 @@ DEFAULTS = {
     # Windows los dibuja el sistema y no respeta colores. Ahora se pinta de
     # fabrica, que es lo que hace que la app tenga UNA cara.
     "ui_pintar_panel": True,
+    # Como se dibujan las secciones del panel.
+    #   tarjeta  cada una en una tarjeta con esquinas redondeadas, pintada
+    #            sobre un Canvas porque ttk no las tiene
+    #   plano    filas sueltas, como era antes
+    # Los CONTROLES son ttk de verdad en los dos casos: lo que se dibuja es el
+    # marco. Un control pintado sobre un Canvas es invisible para un lector de
+    # pantalla, y eso no se negocia por una esquina redondeada.
+    "ui_cromo": "tarjeta",
     "ui_color_fondo": "",
     "ui_color_panel": "",
     "ui_color_texto": "",

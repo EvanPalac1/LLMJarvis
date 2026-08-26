@@ -162,6 +162,26 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Secciones":
+        "Sections",
+    "Como se ve cada seccion:\n"
+    "  tarjeta  en una tarjeta con esquinas redondeadas\n"
+    "  plano    filas sueltas, como era antes\n"
+    "Las esquinas redondeadas ttk no las tiene, asi que el marco se\n"
+    "dibuja aparte. Los CONTROLES siguen siendo los de siempre en los\n"
+    "dos casos: uno dibujado seria invisible para un lector de\n"
+    "pantalla, y eso no se cambia por una esquina.\n"
+    "\n"
+    "Necesita el tema aplicado al panel, aca arriba.":
+        "How each section looks:\n"
+        "  tarjeta  in a card with rounded corners\n"
+        "  plano    plain rows, the way it used to be\n"
+        "Rounded corners are not something ttk has, so the frame is drawn\n"
+        "separately. The CONTROLS are the usual ones either way: a drawn\n"
+        "one would be invisible to a screen reader, and that is not worth\n"
+        "trading for a corner.\n"
+        "\n"
+        "Needs the theme applied to the panel, just above.",
     "Cerrar":
         "Close",
     "Grabar":

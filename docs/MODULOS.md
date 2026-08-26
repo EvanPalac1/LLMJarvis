@@ -314,6 +314,22 @@ escritorio, donde una tarjeta clara compite con todo lo que tenga detrás.
 | `tactico`, `ambar`, `fosforo`, `magenta` | Con color. Son personalidad, y viajan en los perfiles que exportás |
 | `personalizado` | Las ocho claves, tuyas |
 
+### Las secciones
+
+**Apariencia → Tema → Secciones**, con dos valores: `tarjeta` (de fábrica) pone
+cada sección en una tarjeta con esquinas redondeadas, y `plano` deja las filas
+sueltas como antes. Necesita el tema aplicado al panel.
+
+Las esquinas redondeadas **ttk no las tiene** —no es una opción que falte
+activar, el vocabulario del motor de temas no las incluye— así que el marco se
+dibuja aparte, sobre un Canvas.
+
+> **Lo que se dibuja es el marco, nunca el control.** El campo, el desplegable y
+> la casilla siguen siendo widgets de verdad puestos encima. Uno dibujado sería
+> invisible para un lector de pantalla —no tiene rol, ni nombre, ni estado que
+> anunciar— y habría que rehacer a mano el tabulador, el cursor de texto y el
+> portapapeles. Eso no se cambia por una esquina redondeada.
+
 ### El piso de contraste
 
 Cada par de roles que tiene que leerse junto está medido con la fórmula de WCAG

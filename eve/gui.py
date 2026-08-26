@@ -92,6 +92,9 @@ class Panel(tk.Tk):
         # para poder abrirlas desde el.
         self._indice: list[dict] = []
         self._secciones: list = []
+        # Las tarjetas dibujadas, para poder repintarlas al cambiar de tema:
+        # un Canvas no consulta el motor de estilos de ttk, hay que avisarle.
+        self._tarjetas: list = []
         self._tabs: dict = {}
         self._subtabs: dict = {}
         self._subnb = None
@@ -280,6 +283,14 @@ class Panel(tk.Tk):
         self.configure(background=paleta["fondo"])
         # Y lo que no pasa por ttk.Style se recorre a mano.
         tema_mod.repintar_tk(self, paleta)
+        # Las tarjetas son Canvas, y un Canvas no consulta el motor de estilos:
+        # sin esto el tema cambia en vivo en todo menos en el marco dibujado,
+        # que es justo lo que mas se nota.
+        for tarjeta in list(self._tarjetas):
+            try:
+                tarjeta.aplicar(paleta)
+            except tk.TclError:
+                self._tarjetas.remove(tarjeta)
 
     def _rueda(self, lienzo, dentro) -> None:
         """La rueda del mouse mueve el area que tenes debajo del puntero.
@@ -358,7 +369,11 @@ class Panel(tk.Tk):
 
         lienzo = tk.Canvas(marco, highlightthickness=0, borderwidth=0)
         barra = ttk.Scrollbar(marco, orient="vertical", command=lienzo.yview)
-        dentro = ttk.Frame(lienzo)
+        # `Fondo.TFrame`: es el color de la PAGINA, lo que se ve entre una
+        # tarjeta y la siguiente. El default de los widgets es `panel`, porque
+        # casi todos viven adentro de una tarjeta; los pocos contenedores
+        # estructurales como este lo piden explicito.
+        dentro = ttk.Frame(lienzo, style="Fondo.TFrame")
         ventana = lienzo.create_window((0, 0), window=dentro, anchor="nw")
 
         def ajustar(_e=None):
@@ -775,8 +790,16 @@ class Panel(tk.Tk):
         que se puede accionar.
         """
         abierta = nivel == BASICO or str(self.cfg.get("ui_modo_panel", "esencial")) != "esencial"
-        caja = ttk.Frame(padre)
-        caja.pack(fill="x", padx=(0, PAD), pady=(0, 8))
+        if self._con_tarjetas():
+            from . import chrome, tema as tema_mod
+
+            tarjeta = chrome.Tarjeta(padre, tema_mod.resolver(self.cfg, "ui"))
+            tarjeta.pack(fill="x", padx=(0, PAD), pady=(0, 10))
+            self._tarjetas.append(tarjeta)
+            caja = tarjeta.cuerpo
+        else:
+            caja = ttk.Frame(padre)
+            caja.pack(fill="x", padx=(0, PAD), pady=(0, 8))
         cuerpo = ttk.Frame(caja)
         estado = {"abierta": abierta, "titulo": titulo, "cuenta": 0, "nivel": nivel}
 
@@ -808,6 +831,18 @@ class Panel(tk.Tk):
         self._ctx_abrir = estado["abrir"]
         pintar()
         return cuerpo
+
+    def _con_tarjetas(self) -> bool:
+        """Si las secciones van en tarjeta dibujada.
+
+        Pide el panel pintado: sin eso los widgets los dibuja el sistema con su
+        propio gris y una tarjeta de color debajo se ve como un error, no como
+        un diseno.
+        """
+        from . import tema as tema_mod
+
+        return (tema_mod.pinta_panel(self.cfg)
+                and str(self.cfg.get("ui_cromo", "tarjeta")) == "tarjeta")
 
     def _contar_secciones(self) -> None:
         """Cuantos controles quedaron adentro de cada seccion.
@@ -1240,7 +1275,11 @@ class Panel(tk.Tk):
         marco = ttk.Frame(padre)
         lienzo = tk.Canvas(marco, highlightthickness=0, borderwidth=0)
         barra = ttk.Scrollbar(marco, orient="vertical", command=lienzo.yview)
-        dentro = ttk.Frame(lienzo)
+        # `Fondo.TFrame`: es el color de la PAGINA, lo que se ve entre una
+        # tarjeta y la siguiente. El default de los widgets es `panel`, porque
+        # casi todos viven adentro de una tarjeta; los pocos contenedores
+        # estructurales como este lo piden explicito.
+        dentro = ttk.Frame(lienzo, style="Fondo.TFrame")
         ventana = lienzo.create_window((0, 0), window=dentro, anchor="nw")
 
         def ajustar(_e=None):
