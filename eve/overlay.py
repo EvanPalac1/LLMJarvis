@@ -247,9 +247,9 @@ class Pintor:
             x = 26 * e + alto_icono + 22 * e
         _texto(c, x, self.alto * 0.30, titulo.upper(), p["acento"],
                (self.fuente, self._tam_titulo(titulo, self.ancho - x - 22 * e), "bold"),
-               tema.contraste(p["acento"]), anchor="w")
+               tema.halo_de(p["acento"]), anchor="w")
         _texto(c, x, self.alto * 0.50, linea2, p["texto_tenue"],
-               (self.fuente, int(10 * e)), tema.contraste(p["texto_tenue"]),
+               (self.fuente, int(10 * e)), tema.halo_de(p["texto_tenue"]),
                anchor="w")
         self._onda(c, x, self.alto * 0.74, self.ancho - x - 22 * e, 30 * e)
 
@@ -607,7 +607,7 @@ class Subtitulos(Ventana):
         y = 8 * self.esc
         for texto, color in filas:
             item = _texto(c, margen, y, texto, color, (self.fuente, self.tam),
-                          tema.contraste(color), anchor="nw", width=ancho_texto)
+                          tema.halo_de(color), anchor="nw", width=ancho_texto)
             # Cuantos renglones ocupa no se sabe hasta dibujarlo. Si no entra, se
             # sacan palabras del principio: en un subtitulo importa el final.
             palabras = texto.split()

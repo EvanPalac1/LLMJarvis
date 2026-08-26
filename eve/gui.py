@@ -20,7 +20,11 @@ from .textos import t as tr
 CREATE_NEW_CONSOLE = 0x00000010
 
 PAD = 12
-GRIS, ROJO, VERDE = "#666666", "#c0392b", "#1e8449"
+# Los colores NO se escriben aca. Vivian tres constantes --#666666,
+# #c0392b, #1e8449-- y el problema no era cual: era que no seguian a la
+# paleta, asi que con un tema oscuro la ayuda quedaba en 3.29:1. Ahora los
+# estilos salen de `tema.resolver`, que es lo unico que pasa por el piso de
+# contraste. Ver `tema.PISOS`.
 
 # Cuanto se muestra de una. `esencial` deja abiertas las secciones que usa
 # cualquiera y cierra las de ajuste fino; `completo` abre todo.
@@ -217,12 +221,24 @@ class Panel(tk.Tk):
             if nombre in s.theme_names():
                 s.theme_use(nombre)
                 break
-        base = ("Segoe UI", 9) if plataforma.WINDOWS else ("Helvetica", 11)
+        # El cuerpo sale de la escala y no de un numero puesto aca. Subio de
+        # 9 a 10 puntos: 9pt de Segoe UI son ~12px, chico para una ayuda de
+        # tres renglones, y las HIG piden que el cuerpo sea comodo antes que
+        # denso. Los otros pasos se cuentan DESDE este, asi que sube todo junto.
+        familia = "Segoe UI" if plataforma.WINDOWS else "Helvetica"
+        base = (familia, tema_mod.CUERPO if plataforma.WINDOWS else tema_mod.CUERPO + 1)
         self.option_add("*Font", base)
-        s.configure("Titulo.TLabel", font=(base[0], base[1] + 4, "bold"))
-        s.configure("Ayuda.TLabel", foreground=GRIS)
-        s.configure("Error.TLabel", foreground=ROJO)
-        s.configure("Ok.TLabel", foreground=VERDE)
+        # Los colores de texto salen de la paleta incluso SIN pintar el panel:
+        # el tema nativo de Windows ignora los fondos que uno le pone, pero el
+        # color de la letra si lo respeta. Cuando no se pinta, la referencia es
+        # la paleta clara, porque el tema `vista` dibuja claro sea cual sea el
+        # tema del cartel --y un `texto_tenue` oscuro sobre el gris del sistema
+        # es justo el caso que fallaba al reves.
+        pal = tema_mod.resolver(self.cfg, "ui") if pintar else tema_mod.PALETAS["claro"]
+        s.configure("Titulo.TLabel", font=(base[0], tema_mod.pt("titulo", base[1]), "bold"))
+        s.configure("Ayuda.TLabel", foreground=pal["texto_tenue"])
+        s.configure("Error.TLabel", foreground=pal["alerta"])
+        s.configure("Ok.TLabel", foreground=pal["acento"])
         s.configure("Seccion.TLabelframe.Label", font=(base[0], base[1], "bold"))
         # La cabecera de una seccion plegable es un boton, pero no tiene que
         # parecer uno: el relieve de boton al lado de otros botones de verdad
@@ -257,7 +273,7 @@ class Panel(tk.Tk):
         paleta = tema_mod.resolver(cfg, "ui")
         tema_mod.aplicar_ttk(s, paleta)
         # Reconfigurar el estilo base se lleva puestos los tipos de letra.
-        s.configure("Titulo.TLabel", font=(base[0], base[1] + 4, "bold"))
+        s.configure("Titulo.TLabel", font=(base[0], tema_mod.pt("titulo", base[1]), "bold"))
         s.configure("Seccion.TLabelframe.Label", font=(base[0], base[1], "bold"))
         s.configure("Seccion.TButton", anchor="w", padding=(8, 6), relief="flat",
                     font=(base[0], base[1], "bold"))
@@ -893,9 +909,30 @@ class Panel(tk.Tk):
         """
         return tr("Buscar un ajuste...   (Ctrl+F)")
 
+    def _borde(self) -> str:
+        """El color de contorno de la paleta puesta. Ver `_tenue`."""
+        from . import tema as tema_mod
+
+        if not tema_mod.pinta_panel(self.cfg):
+            return tema_mod.PALETAS["claro"]["borde"]
+        return tema_mod.resolver(self.cfg, "ui")["borde"]
+
+    def _tenue(self) -> str:
+        """El color de lo secundario, siguiendo la paleta que este puesta.
+
+        Hace falta como funcion --y no como constante-- porque el tema se
+        cambia en vivo desde el propio panel: una constante quedaria del tema
+        anterior hasta reabrir la ventana.
+        """
+        from . import tema as tema_mod
+
+        if not tema_mod.pinta_panel(self.cfg):
+            return tema_mod.PALETAS["claro"]["texto_tenue"]
+        return tema_mod.resolver(self.cfg, "ui")["texto_tenue"]
+
     def _pista_buscador(self) -> None:
         self.buscar_var.set(self._pista())
-        self.buscar_entry.config(foreground=GRIS)
+        self.buscar_entry.config(foreground=self._tenue())
 
     def _pista_limpiar(self, _e=None) -> None:
         if self.buscar_var.get() == self._pista():
@@ -1493,7 +1530,7 @@ class Panel(tk.Tk):
             text=tr("Sin esto Eve igual abre WhatsApp, Discord, Telegram y el mail con el\n"
             "mensaje escrito, para que lo mandes tu. Estas claves solo agregan leer\n"
             "y enviar sin pasar por la app."),
-            foreground="#666",
+            style="Ayuda.TLabel",
             justify="left",
         ).pack(anchor="w", padx=12, pady=(8, 6))
         self._campo_clave(box, "discord_webhook", tr("Discord: URL del webhook"))
@@ -1529,7 +1566,7 @@ class Panel(tk.Tk):
             "o la administra tu organizacion. Alternativa sin claves: agrega el Gmail a\n"
             "Outlook (Archivo > Agregar cuenta) y Eve lo lee y escribe por ahi.\n"
             "Webhook: Editar canal > Integraciones > Webhooks. Steam key: steamcommunity.com/dev/apikey"),
-            foreground="#666",
+            style="Ayuda.TLabel",
             justify="left",
         ).pack(anchor="w", padx=12, pady=(6, 10))
         return t
@@ -1556,7 +1593,7 @@ class Panel(tk.Tk):
             "discord_dm    = su chat privado. Activa Ajustes > Avanzado > Modo desarrollador,\n"
             "                boton derecho sobre la conversacion > Copiar ID\n"
             "discord_canal = un canal de servidor. Boton derecho > Copiar enlace"),
-            foreground="#666",
+            style="Ayuda.TLabel",
             justify="left",
         ).pack(anchor="w", padx=12, pady=(10, 6))
 
@@ -1717,7 +1754,7 @@ class Panel(tk.Tk):
             t,
             text=tr("Voces entrenadas por la comunidad (Piper). Gratis, offline, y las unicas\n"
             "que suenan igual en Windows, macOS y Linux. Se verifica el md5 al descargar."),
-            foreground="#666",
+            style="Ayuda.TLabel",
             justify="left",
         ).pack(anchor="w", padx=12, pady=(10, 6))
 
@@ -1728,7 +1765,7 @@ class Panel(tk.Tk):
         self.voz_combo = ttk.Combobox(barra, textvariable=self.voz_idioma, width=22, state="readonly")
         self.voz_combo.pack(side="left", padx=6)
         ttk.Button(barra, text=tr("Buscar"), command=self.voces_buscar).pack(side="left")
-        self.voz_estado = ttk.Label(barra, text="", foreground="#666")
+        self.voz_estado = ttk.Label(barra, text="", style="Ayuda.TLabel")
         self.voz_estado.pack(side="left", padx=10)
 
         cols = ("key", "calidad", "mb", "estado")
@@ -1899,7 +1936,7 @@ class Panel(tk.Tk):
         ttk.Label(
             out,
             text=tr("No necesita ninguna clave: Eve usa la sesion que ya tiene Outlook en esta PC."),
-            foreground="#666",
+            style="Ayuda.TLabel",
         ).pack(anchor="w", padx=10, pady=(8, 4))
         self.outlook_label = ttk.Label(out, text=tr("consultando..."), justify="left")
         self.outlook_label.pack(anchor="w", padx=10)
@@ -1918,7 +1955,7 @@ class Panel(tk.Tk):
             "La otra via es una contrasena de aplicacion (16 letras minusculas). Si Google\n"
             "dice que no esta disponible, es que tu cuenta no tiene verificacion en dos\n"
             "pasos, o la administra tu organizacion."),
-            foreground="#666",
+            style="Ayuda.TLabel",
             justify="left",
         ).pack(anchor="w", padx=10, pady=(8, 4))
         self._row(gm, tr("Tu direccion de Gmail"), "gmail_address", width=38)
@@ -2047,7 +2084,7 @@ class Panel(tk.Tk):
             try:
                 muestra.configure(bg=valor)
             except tk.TclError:
-                pass  # a medio escribir "#4fc" no es un color todavia
+                pass  # a medio escribir, #4fc todavia no es un color
 
         def elegir():
             elegido = colorchooser.askcolor(color=muestra.cget("bg"), parent=self)[1]
@@ -2689,7 +2726,11 @@ class Panel(tk.Tk):
 
         def repintar(*_a):
             try:
-                muestra.configure(bg=var.get().strip() or "#808080")
+                # Sin color elegido se muestra el `borde` de la paleta, que es
+                # lo que ya significa "un contorno, nada mas". Antes era un
+                # gris puesto a mano, que sobre un tema oscuro parecia un
+                # color elegido en vez de un hueco.
+                muestra.configure(bg=var.get().strip() or self._borde())
             except tk.TclError:
                 pass
 
@@ -2754,7 +2795,7 @@ class Panel(tk.Tk):
         bar = ttk.Frame(t)
         bar.pack(fill="x", padx=8, pady=(8, 0))
         ttk.Button(bar, text=tr("Limpiar historial"), command=self.clear_history).pack(side="left")
-        self.hist_count = ttk.Label(bar, text="", foreground="#666")
+        self.hist_count = ttk.Label(bar, text="", style="Ayuda.TLabel")
         self.hist_count.pack(side="left", padx=10)
         self.hist_box = tk.Text(t, wrap="word")
         self.hist_box.pack(fill="both", expand=True, padx=8, pady=8)

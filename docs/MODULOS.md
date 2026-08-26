@@ -299,6 +299,37 @@ bajarla atenúa el fondo pero el texto sigue entero.
 
 ---
 
+## El tema
+
+**Apariencia → Tema.** Seis paletas más la tuya, y las ocho claves se llaman por
+su papel —`fondo`, `texto`, `acento`— y no por su tono, así que cambiar de
+paleta no obliga a tocar ningún dibujo.
+
+De fábrica: **claro en el panel, oscuro en el cartel**. El cartel flota sobre el
+escritorio, donde una tarjeta clara compite con todo lo que tenga detrás.
+
+| | |
+|---|---|
+| `claro`, `oscuro` | Neutras. Son las de fábrica y las únicas diseñadas contra el piso de contraste |
+| `tactico`, `ambar`, `fosforo`, `magenta` | Con color. Son personalidad, y viajan en los perfiles que exportás |
+| `personalizado` | Las ocho claves, tuyas |
+
+### El piso de contraste
+
+Cada par de roles que tiene que leerse junto está medido con la fórmula de WCAG
+y comprobado en cada corrida de los tests. El mínimo para texto es **4.5:1**.
+
+Dos fallas reales convivieron con el proyecto hasta que existió esa medición:
+un gris `#666` escrito a mano en trece lugares del panel, que sobre las paletas
+oscuras daba **3.29:1**, y la etiqueta del botón principal en la paleta clara,
+**3.60:1**. Las dos eran el mismo error —un color elegido a mano en vez de
+tomado del rol— y las dos tenían el arreglo ya escrito en la paleta.
+
+> Si armás la tuya y algún par no llega al piso, el test lo dice con el número y
+> el par, no con "hay un problema de color".
+
+---
+
 ## Cómo se dibuja: Pillow o la GPU
 
 **Apariencia → Tema → Fluidez → Motor de dibujo**, con tres valores:

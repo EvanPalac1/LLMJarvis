@@ -3714,13 +3714,21 @@ def test_colores_del_cartel():
     from eve import tema
 
     # El halo se calcula contra el color del texto, no sale de un rol fijo.
-    assert tema.contraste("#ffffff") == "#000000", "texto claro -> halo oscuro"
-    assert tema.contraste("#f0f0f0") == "#000000"
+    assert tema.halo_de("#ffffff") == "#000000", "texto claro -> halo oscuro"
+    assert tema.halo_de("#f0f0f0") == "#000000"
     assert tema.luminancia("#000000") == 0
     assert abs(tema.luminancia("#ffffff") - 1) < 1e-9  # los pesos no suman exacto
     assert abs(tema.luminancia("#808080") - 0.5) < 0.03
-    oscuro = tema.contraste("#101010")
+    oscuro = tema.halo_de("#101010")
     assert oscuro != "#000000", "texto oscuro no lleva halo negro encima"
+
+    # `halo_de` devuelve SIEMPRE un color oscuro, y por eso no puede elegir el
+    # color de una etiqueta. Eso es lo que fallaba: se lo usaba para las dos
+    # cosas y la etiqueta del boton principal quedaba oscura sobre un acento
+    # oscuro. Son dos funciones porque son dos preguntas distintas.
+    assert tema.luminancia(tema.halo_de("#101010")) < 0.2, "un halo es oscuro"
+    assert tema.sobre("#101010") == "#ffffff", "sobre un fondo oscuro va blanco"
+    assert tema.sobre("#ffffff") == "#111111"
 
     # Un tema a medio definir: solo 'panel'. Los demas caen al preset.
     paleta = tema.resolver({"ui_tema": "personalizado", "ui_color_panel": "#400080"})
@@ -5511,6 +5519,89 @@ def test_el_panel_abre_el_grabador_sin_romperse():
                 except Exception:  # noqa: BLE001
                     pass
             store.CONFIG_PATH, store.BASE = previos
+
+
+def test_ninguna_paleta_baja_del_piso_de_contraste():
+    """Todas las paletas, todos los pares, contra el minimo de WCAG AA.
+
+    Es lo que convierte "se ve bien" en un numero que no se puede romper sin
+    que algo se ponga rojo. Hasta que existio, dos fallas reales convivieron
+    con el proyecto sin que nadie las viera:
+
+      - `#666` puesto a mano en trece lugares de `gui.py`, que sobre las cinco
+        paletas oscuras daba **3.29 a 3.48:1** contra un minimo de 4.5.
+      - la etiqueta del boton principal en la paleta clara, **3.60:1**, porque
+        salia de `halo_de`, que devuelve un color oscuro en las dos ramas y por
+        lo tanto no puede elegir el color de un texto.
+
+    Las dos son el mismo error --un color elegido a mano en vez de tomado del
+    rol-- y las dos tenian su arreglo ya escrito en la paleta.
+    """
+    from eve import tema
+
+    # La formula, contra los dos extremos que se conocen de memoria.
+    assert abs(tema.ratio("#000000", "#ffffff") - 21.0) < 0.01
+    assert abs(tema.ratio("#808080", "#808080") - 1.0) < 0.01
+
+    for nombre, paleta in tema.PALETAS.items():
+        malos = tema.revisar(paleta)
+        assert not malos, "la paleta {} falla: {}".format(
+            nombre, "; ".join(f"{f}/{d} da {r} y necesita {piso} ({para})"
+                              for f, d, r, piso, para in malos))
+
+    # Y el par que NO es de roles: la etiqueta de la accion principal. Se
+    # comprueba aparte porque su color no sale de la paleta, lo calcula
+    # `sobre()`, que es justo la funcion que faltaba.
+    for nombre, paleta in tema.PALETAS.items():
+        et = tema.sobre(paleta["acento"])
+        r = tema.ratio(et, paleta["acento"])
+        assert r >= 4.5, f"{nombre}: etiqueta {et} sobre {paleta['acento']} = {r:.2f}"
+
+    # Con la paleta a medio definir tampoco se rompe: `revisar` mira lo que
+    # hay. Una paleta personalizada incompleta no puede tumbar el panel.
+    assert tema.revisar({"acento": "#2563eb"}) == []
+
+
+def test_el_panel_no_elige_colores_a_mano():
+    """Ningun color hexadecimal suelto en el codigo de la interfaz.
+
+    La regla que sale de las dos fallas de arriba: si un color se escribe en
+    una linea de `gui.py` en vez de salir de un rol, deja de seguir a la paleta
+    --y la paleta es lo unico que se disenio contra el piso de contraste.
+
+    `tema.py` es la excepcion obvia: ahi es donde viven los colores. Y el
+    color magico del chroma-key del cartel tambien, porque no es un color que
+    se vea: es un valor centinela que Windows usa para recortar.
+    """
+    import re
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    patron = re.compile(r'["\']#[0-9a-fA-F]{3,8}["\']')
+    # El tope es EXACTO y no un margen: dejar holgura es dejar que entren de a
+    # uno. Cada uno de estos esta contado y se sabe cual es.
+    topes = {
+        # El panel no elige ni uno: todo sale de un rol.
+        "eve/gui.py": 0,
+        "eve/lienzo.py": 0,
+        # `MAGICO`, el centinela del chroma-key. No es un color que se vea: es
+        # el valor que Windows usa para recortar la ventana del cartel.
+        "eve/overlay.py": 1,
+        # El respaldo de "todavia no hay ventana de donde leer el fondo".
+        "eve/consola.py": 1,
+        # Tres del mismo tipo: `paleta.get(rol) or <algo>`, para que una paleta
+        # a medio definir no tumbe el dibujo por GPU a mitad de un cuadro.
+        "eve/lienzo_skia.py": 3,
+    }
+    for rel, tope in topes.items():
+        ruta = os.path.join(raiz, *rel.split("/"))
+        if not os.path.exists(ruta):
+            continue
+        with open(ruta, encoding="utf-8") as f:
+            cuantos = len(patron.findall(f.read()))
+        assert cuantos <= tope, (
+            f"{rel} tiene {cuantos} colores escritos a mano y el tope es {tope}. "
+            "Un color que no sale de un rol no sigue a la paleta ni pasa por el "
+            "piso de contraste.")
 
 
 def test_monitores():

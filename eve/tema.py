@@ -38,20 +38,63 @@ PALETAS = {
         "texto_tenue": "#a97ba0", "acento": "#ff4fd8", "acento2": "#8a1b74",
         "borde": "#6f1f60", "alerta": "#ffca28",
     },
+    # Las dos neutras son las de fabrica --clara en el panel, oscura en el
+    # cartel-- y por eso son las unicas que se disenaron contra `PISOS` en vez
+    # de a ojo. Las cuatro con color de arriba son la personalidad de alguien y
+    # viajan en los perfiles exportados; estas dos son el default, que es otra
+    # responsabilidad.
     "oscuro": {
-        "fondo": "#101114", "panel": "#1c1e24", "texto": "#e8eaed",
-        "texto_tenue": "#9aa0a6", "acento": "#8ab4f8", "acento2": "#3c5a86",
-        "borde": "#3c4043", "alerta": "#f28b82",
+        "fondo": "#16181d", "panel": "#1e2127", "texto": "#e7e9ee",
+        "texto_tenue": "#a2a9b4", "acento": "#7aa2f7", "acento2": "#41598a",
+        "borde": "#2e333d", "alerta": "#f7768e",
     },
     "claro": {
-        "fondo": "#f5f6f8", "panel": "#ffffff", "texto": "#1f2328",
-        "texto_tenue": "#616a75", "acento": "#0b6bcb", "acento2": "#9fc4ec",
-        "borde": "#d0d7de", "alerta": "#c0392b",
+        "fondo": "#f6f7f9", "panel": "#ffffff", "texto": "#1a1d23",
+        "texto_tenue": "#59616c", "acento": "#2563eb", "acento2": "#9dbaf7",
+        # El borde se oscurecio de #dde1e6 a este: aquel daba 1.23 contra el
+        # fondo y no se veia. Un borde invisible no es un borde sutil.
+        "borde": "#c9d0d9", "alerta": "#c0342f",
     },
 }
 
 NOMBRES = [*PALETAS, "personalizado"]
 BASE_PERSONALIZADO = "tactico"
+
+# La escala tipografica, en PUNTOS y como desplazamiento sobre el cuerpo.
+#
+# Antes habia cuatro tamanos sueltos y ninguno se llamaba de ninguna manera:
+# `base`, `base + 4`, un `10` puesto a mano en el cartel, y uno que se calcula
+# encogiendo de 19 a 11 hasta que el titulo entre. Cinco pasos con nombre
+# significa que "esto es un subtitulo" se decide una vez y no en cada linea.
+#
+# El cuerpo sube de 9 a 10: 9pt de Segoe UI son ~12px, que es chico para leer
+# ayudas de tres renglones, y las HIG piden que el cuerpo sea comodo antes que
+# denso. Los otros cuatro se cuentan DESDE el cuerpo, asi que subir el cuerpo
+# --o que el usuario ponga su propio tamano-- mueve la escala entera junta.
+CUERPO = 10
+ESCALA = {
+    "ayuda": -1,      # ayudas y notas al pie
+    "cuerpo": 0,      # rotulos, campos, lo que se lee
+    "subtitulo": +3,  # cabeceras de seccion
+    "titulo": +7,     # el nombre de la pestana
+    "display": +12,   # el nombre del asistente en el cartel
+}
+
+# La escala de espaciado, en pixeles. Antes cada padding se decidia en su
+# linea: (8,6), (14,7), (10,4), (18,5), padx=12, pady=(4,10). Seis valores, y
+# nada fuera de ellos: lo que hace que un panel se vea prolijo no es que cada
+# hueco sea el correcto, es que haya pocos huecos distintos.
+ESPACIO = (4, 8, 12, 16, 24, 32)
+
+
+def pt(nombre: str, cuerpo: int = 0) -> int:
+    """El tamano de un paso de la escala, en puntos.
+
+    `cuerpo` permite partir del tamano que el usuario haya elegido en vez del
+    de fabrica, que es lo que hace que su preferencia mueva toda la escala en
+    vez de un solo texto.
+    """
+    return max(7, (cuerpo or CUERPO) + ESCALA.get(nombre, 0))
 
 
 def resolver(cfg: dict, prefijo: str = "ui") -> dict:
@@ -91,15 +134,95 @@ def luminancia(color: str) -> float:
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
 
 
-def contraste(color: str) -> str:
-    """Un color que se lea ENCIMA del que le pases: negro o blanco.
+def _lineal(c: float) -> float:
+    """Un canal de 0-255 a luz lineal, como lo define WCAG."""
+    c /= 255
+    return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
 
-    Para el halo del texto del cartel hay que calcularlo y no tomarlo de un rol
-    fijo: si alguien deja el rol `fondo` en el default oscuro y pinta el panel de
-    violeta, un halo tomado de `fondo` dibuja manchas negras alrededor de cada
-    letra. Lo que tiene que contrastar es con el texto, no con la paleta.
+
+def ratio(uno: str, otro: str) -> float:
+    """El contraste entre dos colores, 1 (iguales) a 21 (negro sobre blanco).
+
+    Es la formula de WCAG y no la resta de `luminancia`: aquella pesa los
+    canales pero no linealiza el gamma, asi que sirve para decidir "esto es
+    claro u oscuro" y NO para decir si un texto se lee. La diferencia importa
+    justo en los grises medios, que es donde estaban las dos fallas.
+    """
+    a, b = sorted((sum(k * _lineal(v) for k, v in zip((0.2126, 0.7152, 0.0722), _rgb(c)))
+                   for c in (uno, otro)), reverse=True)
+    return (a + 0.05) / (b + 0.05)
+
+
+def sobre(fondo: str) -> str:
+    """Blanco o negro, el que se LEA sobre ese fondo. Para etiquetas.
+
+    Existe aparte de `halo_de` porque durante mucho tiempo fueron la misma
+    funcion, y eso costo una falla de contraste real: `halo_de` devuelve un
+    color oscuro en las dos ramas --tiene que hacerlo, es un halo-- asi que la
+    etiqueta del boton principal sobre la paleta clara quedaba en #101014
+    sobre un azul oscuro: **3.60:1**, debajo del minimo de 4.5.
+
+    Una funcion que nunca devuelve blanco no puede elegir el color de un texto.
+    """
+    return "#ffffff" if ratio("#ffffff", fondo) >= ratio("#111111", fondo) else "#111111"
+
+
+def halo_de(color: str) -> str:
+    """El halo que va DETRAS de un texto de ese color, en el cartel.
+
+    Siempre oscuro, y a proposito: el halo existe para despegar el texto del
+    escritorio, que puede ser cualquier cosa. Si alguien deja el rol `fondo` en
+    el default oscuro y pinta el panel de violeta, un halo tomado de `fondo`
+    dibuja manchas negras alrededor de cada letra; lo que tiene que contrastar
+    es con el texto, no con la paleta.
+
+    NO sirve para elegir el color de una etiqueta: para eso esta `sobre`.
     """
     return "#000000" if luminancia(color) > 0.5 else "#101014"
+
+
+# Que par de roles tiene que contrastar con cual, y cuanto. Es la unica lista
+# de esto en el proyecto: el test la recorre, asi que agregar un rol nuevo sin
+# decir contra que se lee es lo que pone el test en rojo.
+#
+# 4.5 es el minimo de WCAG AA para texto normal. Los bordes no son texto y no
+# tienen minimo formal, pero un borde que no se ve no es un borde sutil: 1.4
+# es lo mas bajo que todavia dibuja una linea en una pantalla comun.
+PISOS = (
+    ("texto", "fondo", 4.5, "el cuerpo, sobre el fondo"),
+    ("texto", "panel", 4.5, "el cuerpo, sobre una tarjeta"),
+    ("texto_tenue", "fondo", 4.5, "las ayudas, sobre el fondo"),
+    ("texto_tenue", "panel", 4.5, "las ayudas, sobre una tarjeta"),
+    ("acento", "fondo", 3.0, "el acento como icono o anillo de foco"),
+    ("acento", "panel", 3.0, "el acento sobre una tarjeta"),
+    ("alerta", "fondo", 4.5, "un error se tiene que poder LEER"),
+    ("alerta", "panel", 4.5, "un error sobre una tarjeta"),
+    ("borde", "fondo", 1.4, "el contorno solo tiene que verse"),
+    ("borde", "panel", 1.2, "un separador dentro de una tarjeta"),
+)
+
+
+def revisar(paleta: dict) -> list:
+    """Los pares que NO llegan al piso. Lista vacia = la paleta sirve.
+
+    Devuelve (frente, fondo, medido, piso, para_que) para que quien lo reporte
+    pueda decir cual falla y por cuanto, en vez de "hay un problema de color".
+    """
+    malos = []
+    for frente, fondo, piso, para in PISOS:
+        if frente not in paleta or fondo not in paleta:
+            continue
+        r = ratio(paleta[frente], paleta[fondo])
+        if r < piso:
+            malos.append((frente, fondo, round(r, 2), piso, para))
+    # La etiqueta del boton principal no es un par de roles --el color lo
+    # calcula `sobre`-- pero es texto y se mide igual.
+    etiqueta = sobre(paleta["acento"])
+    r = ratio(etiqueta, paleta["acento"])
+    if r < 4.5:
+        malos.append(("etiqueta del boton", "acento", round(r, 2), 4.5,
+                      "la accion principal"))
+    return malos
 
 
 def mezclar(uno: str, otro: str, cuanto: float) -> str:
@@ -220,7 +343,12 @@ def aplicar_ttk(style, paleta: dict) -> None:
     style.configure("Ayuda.TLabel", background=fondo, foreground=tenue)
     style.configure("Error.TLabel", background=fondo, foreground=paleta["alerta"])
     style.configure("Ok.TLabel", background=fondo, foreground=acento)
-    style.configure("Titulo.TLabel", background=fondo, foreground=acento)
+    # El titulo va en `texto` y NO en `acento`: el acento significa "esto se
+    # puede tocar" --la accion principal, el anillo de foco, la seccion activa--
+    # y gastarlo en un titulo que no hace nada le quita ese significado a los
+    # otros tres. La jerarquia sale del tamano y del peso, que es de donde
+    # tiene que salir.
+    style.configure("Titulo.TLabel", background=fondo, foreground=texto)
     style.configure("TLabelframe", background=fondo, bordercolor=borde)
     style.configure("TLabelframe.Label", background=fondo, foreground=tenue)
     style.configure("TButton", background=panel, foreground=texto, bordercolor=borde)
@@ -229,8 +357,12 @@ def aplicar_ttk(style, paleta: dict) -> None:
               foreground=[("pressed", fondo)])
     # La accion principal va con el acento de fondo: se distingue por color Y
     # por peso de letra, no solo por color, que es lo que pide accesibilidad.
+    # `sobre(acento)` y NO `contraste(texto)`: la etiqueta va encima del
+    # acento, asi que es contra el acento que tiene que contrastar. Tomarlo del
+    # texto daba 3.60:1 en la paleta clara --texto oscuro, acento oscuro-- y
+    # ademas `contraste` no sabia devolver blanco.
     style.configure("Principal.TButton", background=acento,
-                    foreground=contraste(texto), bordercolor=acento)
+                    foreground=sobre(acento), bordercolor=acento)
     style.map("Principal.TButton",
               background=[("active", mezclar(acento, texto, 0.2)),
                           ("pressed", mezclar(acento, fondo, 0.3))])

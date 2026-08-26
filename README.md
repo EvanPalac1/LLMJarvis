@@ -1101,6 +1101,52 @@ una pestaña. Un boton de probar lejos de lo que prueba es un boton mas.
 
 ---
 
+## El tema, y por qué se mide
+
+Ocho roles --`fondo`, `panel`, `texto`, `texto_tenue`, `acento`, `acento2`,
+`borde`, `alerta`-- nombrados por su papel y no por su tono, asi que cambiar de
+paleta no obliga a tocar un solo dibujo. De fabrica **el panel viene claro y el
+cartel oscuro**: el cartel flota sobre el escritorio, donde una tarjeta clara
+compite con lo que tenga detras.
+
+Hasta la 1.15 eso no era asi, y el resultado era una app con **dos identidades
+que se contradecian**: `ui_tema` venia en `tactico` --cian sobre negro-- pero
+`ui_pintar_panel` venia apagado, asi que el tema no llegaba al panel y este se
+dibujaba con el gris estandar de Windows. No es que el panel estuviera mal
+disenado; es que no estaba disenado.
+
+**Cada par de roles que tiene que leerse junto esta medido**, con la formula de
+WCAG y no a ojo, y hay un test que lo comprueba en cada corrida. Existe porque
+dos fallas reales vivieron aca sin que nadie las viera:
+
+| | Medido | Minimo |
+|---|---:|---:|
+| `#666` escrito a mano, 13 veces en `gui.py`, sobre las paletas oscuras | **3.29 - 3.48:1** | 4.5:1 |
+| La etiqueta del boton principal, en la paleta clara | **3.60:1** | 4.5:1 |
+
+Las dos son el mismo error --un color elegido en una linea en vez de tomado del
+rol-- y las dos tenian el arreglo ya escrito en la paleta: `texto_tenue` da
+entre 5.07 y 7.15:1.
+
+La segunda ademas tenia una causa concreta que vale contar, porque es un error
+de diseno de API y no un color mal elegido: `tema.contraste()` devolvia
+`#000000` o `#101014`, **las dos oscuras, nunca blanco**. Estaba bien para lo
+que se escribio --el halo detras del texto del cartel, que siempre tiene que
+ser oscuro-- y mal para el segundo uso que se le dio. Una funcion que nunca
+puede devolver blanco no puede elegir el color de un texto. Ahora son dos:
+`halo_de()` para el halo y `sobre()` para las etiquetas.
+
+Tambien salieron de ahi las dos escalas. La **tipografica** son cinco pasos con
+nombre contados desde el cuerpo, que subio de 9 a 10 puntos --9pt de Segoe UI
+son ~12px, chico para una ayuda de tres renglones-- en vez de los cuatro
+tamanos sueltos que habia (`base`, `base+4`, un `10` en el cartel, y uno que se
+calculaba encogiendo de 19 a 11). La de **espaciado** son seis valores y nada
+fuera de ellos, contra los `(8,6)`, `(14,7)`, `(10,4)`, `(18,5)` que se decidian
+linea por linea. Lo que hace que algo se vea prolijo no es que cada hueco sea el
+correcto: es que haya pocos huecos distintos.
+
+---
+
 ## La ventana de actividad
 
 `Eve.exe --consola`, el boton **Ventana de actividad** del pie del panel --visible desde
@@ -1769,7 +1815,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 153 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 155 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

@@ -250,10 +250,23 @@ DEFAULTS = {
     # tiene que poder verse, y esconderla en un modo que no sabes que existe es
     # lo mismo que no tenerla.
     "ui_modo_panel": "esencial",
-    "ui_tema": "tactico",  # ver tema.NOMBRES
+    # Claro en el panel y oscuro en el cartel, y las dos son las paletas
+    # neutras --las unicas disenadas contra `tema.PISOS`.
+    #
+    # Antes esto era `tactico` con `ui_pintar_panel` apagado, y esa combinacion
+    # mandaba DOS identidades que se contradecian: una tarjeta cian sobre negro
+    # flotando en el escritorio, y un panel gris estandar de Windows. No es que
+    # el panel estuviera mal disenado; es que no estaba disenado, porque el
+    # tema no lo alcanzaba.
+    #
+    # Las cuatro paletas con color siguen ahi y siguen exportandose en los
+    # perfiles: son la personalidad de alguien. Lo que cambia es cual viene de
+    # fabrica, que es una responsabilidad distinta.
+    "ui_tema": "claro",  # ver tema.NOMBRES
     # Pintar el panel obliga a cambiar los widgets al tema `clam`: el nativo de
-    # Windows los dibuja el sistema y no respeta colores. Que sea una eleccion.
-    "ui_pintar_panel": False,
+    # Windows los dibuja el sistema y no respeta colores. Ahora se pinta de
+    # fabrica, que es lo que hace que la app tenga UNA cara.
+    "ui_pintar_panel": True,
     "ui_color_fondo": "",
     "ui_color_panel": "",
     "ui_color_texto": "",
@@ -269,7 +282,10 @@ DEFAULTS = {
     "ui_fuente": "",       # vacio = la del sistema
     "ui_fuente_tam": 0,    # 0 = la que traiga la fuente
     # El cartel puede tener su propio tema; vacio = hereda el del panel.
-    "hud_tema": "",
+    # Viene en oscuro a proposito y no vacio: flota sobre el escritorio, donde
+    # una tarjeta clara compite con todo lo que tenga detras, y ademas es donde
+    # vivia la identidad del proyecto.
+    "hud_tema": "oscuro",
     "hud_color_fondo": "",
     "hud_color_panel": "",
     "hud_color_texto": "",
