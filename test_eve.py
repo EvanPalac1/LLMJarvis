@@ -6087,14 +6087,15 @@ def test_openrouter_y_lmstudio_estan_y_se_configuran_solos():
     # Y NO se mandan a los demas: son de OpenRouter, no del protocolo.
     assert "X-Title" not in local._cabeceras()
 
-    # OmniRoute es la excepcion que rompio la regla vieja: corre en TU maquina
-    # --localhost:20128-- y SI pide clave, una que emite su propio panel. Con
-    # la regla anterior ("si es localhost no pide clave") pasaba la
-    # comprobacion y fallaba con un 401 a mitad de la primera respuesta, que es
-    # justo lo que `comprobar` existe para evitar.
+    # OmniRoute corre en TU maquina --localhost:20128-- y emite su propia
+    # clave, pero NO la exige: `REQUIRE_API_KEY` viene en `false`. Comprobado
+    # contra el servicio real: `/v1/models` devolvio 119 modelos y una
+    # completion entera salio sin mandar ninguna clave. Este assert existe
+    # porque la version anterior de este archivo afirmaba lo contrario y hacia
+    # que Eve rechazara la instalacion por defecto.
     url, clave, modelo = ce.PROVEEDORES["omniroute"]
     assert url.startswith("http://localhost"), url
-    assert clave, "OmniRoute emite su propia clave"
+    assert clave, "tiene nombre de cabecera: la manda SI esta cargada"
     assert not modelo, "enruta a cientos: elegir uno por el usuario seria adivinar"
 
     with tempfile.TemporaryDirectory() as raiz:
@@ -6104,10 +6105,14 @@ def test_openrouter_y_lmstudio_estan_y_se_configuran_solos():
             omni = motor(compat_proveedor="omniroute", compat_modelo="algun/modelo")
             omni.clave = ""
             ok, dicho = omni.comprobar()
-            assert not ok and "clave" in dicho.lower(), dicho
+            assert ok, f"sin clave tiene que pasar, y dijo: {dicho}"
 
-            # Y los que de verdad no piden siguen sin pedir: la regla ahora la
-            # decide el PROVEEDOR y no el host.
+            # Y con clave cargada la manda, que es lo que sirve cuando alguien
+            # enciende REQUIRE_API_KEY.
+            omni.clave = "sk-loquesea"
+            assert omni.comprobar()[0]
+            assert "sk-loquesea" in str(omni._cabeceras()), omni._cabeceras()
+
             lms = motor(compat_proveedor="lmstudio")
             assert lms.comprobar()[0]
 
