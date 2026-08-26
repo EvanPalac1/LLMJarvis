@@ -162,6 +162,22 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Importar voz...":
+        "Import a voice...",
+    "Elegi el .onnx de la voz":
+        "Pick the voice's .onnx",
+    "Voz de Piper":
+        "Piper voice",
+    "Todos":
+        "All",
+    "importada":
+        "imported",
+    "instalada":
+        "installed",
+    "propia":
+        "yours",
+    "no pude copiarla":
+        "could not copy it",
     "Buscar modelos":
         "Find models",
     "Modelos disponibles":

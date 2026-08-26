@@ -1982,6 +1982,8 @@ class Panel(tk.Tk):
         self.voz_combo = ttk.Combobox(barra, textvariable=self.voz_idioma, width=22, state="readonly")
         self.voz_combo.pack(side="left", padx=6)
         ttk.Button(barra, text=tr("Buscar"), command=self.voces_buscar).pack(side="left")
+        ttk.Button(barra, text=tr("Importar voz..."),
+                   command=self.voz_importar).pack(side="left", padx=6)
         self.voz_estado = ttk.Label(barra, text="", style="Ayuda.TLabel")
         self.voz_estado.pack(side="left", padx=10)
 
@@ -2144,6 +2146,7 @@ class Panel(tk.Tk):
                 idiomas = voices.idiomas()
                 lista = voices.listar(self.voz_idioma.get())
                 puestas = set(voices.instaladas())
+                propias = voices.propias()
             except Exception as exc:  # noqa: BLE001
                 fallo = str(exc)
                 self._ui(lambda: self.voz_estado.config(text=f"error: {fallo}"))
@@ -2152,6 +2155,15 @@ class Panel(tk.Tk):
             def pintar():
                 self.voz_combo["values"] = idiomas
                 self.voz_tree.delete(*self.voz_tree.get_children())
+                # Las tuyas primero y marcadas. Del catalogo salen nombre,
+                # idioma, calidad y tamano; de una voz entrenada por vos no hay
+                # nada de eso, asi que si la lista se armara solo del catalogo
+                # se podria usar pero no ver -- y habria que acordarse del
+                # nombre exacto y escribirlo a mano.
+                for clave in propias:
+                    self.voz_tree.insert(
+                        "", "end",
+                        values=(clave, tr("propia"), "", tr("instalada")))
                 for v in lista:
                     self.voz_tree.insert(
                         "", "end",
@@ -2166,6 +2178,39 @@ class Panel(tk.Tk):
             self._ui(pintar)
 
         threading.Thread(target=work, daemon=True).start()
+
+    def voz_importar(self):
+        """Trae una voz de Piper de cualquier carpeta a la de Eve.
+
+        El cargador SIEMPRE acepto una voz que el catalogo no conoce --nunca lo
+        consulto-- pero la unica forma de meterla era saber donde vive la
+        carpeta de datos y copiar los dos archivos a mano. Esto es lo unico que
+        faltaba para poder usar una voz entrenada por vos.
+        """
+        from tkinter import filedialog
+
+        from . import voices
+
+        ruta = filedialog.askopenfilename(
+            title=tr("Elegi el .onnx de la voz"), parent=self,
+            filetypes=[(tr("Voz de Piper"), "*.onnx"), (tr("Todos"), "*.*")],
+        )
+        if not ruta:
+            return
+        try:
+            clave = voices.importar(ruta)
+        except ValueError as exc:
+            messagebox.showerror(tr("Voces"), str(exc))
+            return
+        except OSError as exc:
+            messagebox.showerror(tr("Voces"), f"{tr('no pude copiarla')}: {exc}")
+            return
+        # Queda elegida: importar una voz y despues tener que ir a buscarla en
+        # una lista seria dejar el trabajo por la mitad.
+        if self.vars.get("piper_voice") is not None:
+            self.vars["piper_voice"].set(clave)
+        self.voz_estado.config(text=f"{tr('importada')}: {clave}")
+        self.voces_buscar()
 
     def voz_descargar(self):
         key = self._voz_sel()

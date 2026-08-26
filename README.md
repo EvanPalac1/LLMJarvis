@@ -1112,6 +1112,32 @@ una pestaña. Un boton de probar lejos de lo que prueba es un boton mas.
 
 ---
 
+## Voces propias
+
+**Voz > Importar voz...** trae un `.onnx` de Piper de cualquier carpeta. Sirve
+para una voz entrenada por vos, o para cualquiera que consigas fuera del
+catalogo.
+
+Esto NO agrega una capacidad: el cargador siempre acepto una voz que el catalogo
+no conoce --nunca lo consulto, solo busca el `.onnx` en la carpeta de voces.
+Agrega el CAMINO para usarla. Antes habia que saber donde vive la carpeta de
+datos, copiar los dos archivos a mano, y despues acordarse del nombre exacto
+para escribirlo, porque la lista del panel se arma desde el catalogo y una voz
+propia no esta ahi. Ahora aparecen arriba, marcadas como propias.
+
+**Una voz de Piper son DOS archivos**: `mivoz.onnx` y `mivoz.onnx.json`. El
+segundo lleva la tabla de fonemas, y sin el el modelo carga igual y falla recien
+al hablar --que es el peor momento para enterarse-- asi que se comprueba antes
+de copiar nada, junto con que el `.json` tenga lo que Piper necesita. Y no se
+pisa una voz que ya este: sobrescribir en silencio algo que costo entrenar seria
+el peor default posible.
+
+Para entrenar una: [TextyMcSpeechy](https://github.com/domesticatedviking/TextyMcSpeechy)
+o [esta guia](https://ssamjh.nz/create-custom-piper-tts-voice/). Partir de un
+checkpoint existente acorta mucho.
+
+---
+
 ## OpenRouter y LM Studio
 
 Los dos entran por el motor `compat`, que habla el protocolo de OpenAI. No hay
@@ -1881,7 +1907,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 164 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 165 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

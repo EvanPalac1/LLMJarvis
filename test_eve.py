@@ -6155,6 +6155,107 @@ def test_los_modelos_se_preguntan_en_vez_de_adivinarse():
     assert e.modelos() == []
 
 
+def test_una_voz_propia_se_importa_y_se_ve():
+    """Una voz de Piper entrenada por vos, sin copiar archivos a mano.
+
+    El cargador SIEMPRE acepto una voz que el catalogo no conoce --nunca lo
+    consulto, solo busca el `.onnx` en la carpeta-- asi que esto no agrega una
+    capacidad: agrega el camino para usarla. Antes habia que saber donde vive
+    la carpeta de datos, copiar los DOS archivos, y despues acordarse del
+    nombre exacto para escribirlo a mano, porque la lista del panel se arma
+    desde el catalogo y una voz propia no esta ahi.
+
+    Se prueba con archivos falsos y no con un modelo de verdad: lo que se
+    comprueba es la validacion y la copia, y un test que necesita 60 MB de
+    modelo no corre en CI.
+    """
+    import json
+    import shutil
+
+    from eve import voices
+
+    def voz_falsa(carpeta, nombre, ficha=None):
+        """Un par de archivos con la forma de una voz de Piper."""
+        onnx = os.path.join(carpeta, nombre + ".onnx")
+        with open(onnx, "wb") as f:
+            f.write(b"no es un modelo de verdad, pero tiene el nombre")
+        if ficha is not False:
+            datos = ficha if ficha is not None else {
+                "audio": {"sample_rate": 22050}, "phoneme_id_map": {},
+                "num_speakers": 1,
+            }
+            with open(onnx + ".json", "w", encoding="utf-8") as f:
+                json.dump(datos, f)
+        return onnx
+
+    with tempfile.TemporaryDirectory() as raiz:
+        afuera = os.path.join(raiz, "afuera")
+        adentro = os.path.join(raiz, "voices")
+        os.makedirs(afuera)
+        os.makedirs(adentro)
+        previo = voices.VOICES_DIR
+        voices.VOICES_DIR = adentro
+        try:
+            # 1. Lo que NO es una voz se rechaza ANTES de copiar nada.
+            ok, motivo = voices.revisar_voz(os.path.join(afuera, "cosa.txt"))
+            assert not ok and ".onnx" in motivo, motivo
+            ok, motivo = voices.revisar_voz(os.path.join(afuera, "fantasma.onnx"))
+            assert not ok and "existe" in motivo, motivo
+
+            # 2. Sin su `.json` tampoco. Es el caso que importa: el modelo
+            #    carga igual y falla recien al hablar, que es el peor momento
+            #    para enterarse.
+            solo = voz_falsa(afuera, "sinficha", ficha=False)
+            ok, motivo = voices.revisar_voz(solo)
+            assert not ok and "dos" in motivo, motivo
+
+            # 3. Y un `.json` que no es de Piper: se dice QUE le falta.
+            ajena = voz_falsa(afuera, "ajena", ficha={"hola": 1})
+            ok, motivo = voices.revisar_voz(ajena)
+            assert not ok, motivo
+            for clave in ("audio", "phoneme_id_map", "num_speakers"):
+                assert clave in motivo, motivo
+
+            # 4. La buena entra, con los DOS archivos.
+            buena = voz_falsa(afuera, "mi-voz")
+            assert voices.revisar_voz(buena) == (True, "")
+            clave = voices.importar(buena)
+            assert clave == "mi-voz"
+            assert os.path.exists(os.path.join(adentro, "mi-voz.onnx"))
+            assert os.path.exists(os.path.join(adentro, "mi-voz.onnx.json"))
+            assert clave in voices.instaladas()
+
+            # 5. Y se ve como PROPIA: es lo que la hace elegible desde el
+            #    panel, cuya lista se arma desde el catalogo.
+            assert clave in voices.propias()
+
+            # 6. No se pisa una que ya este. Sobrescribir en silencio una voz
+            #    que costo entrenar seria el peor default posible.
+            try:
+                voices.importar(buena)
+                raise AssertionError("dejo importar dos veces con el mismo nombre")
+            except ValueError as exc:
+                assert "mi-voz" in str(exc)
+
+            # 7. Con otro nombre si, y el original queda.
+            otra = voices.importar(buena, nombre="mi-voz-2")
+            assert otra == "mi-voz-2"
+            assert {"mi-voz", "mi-voz-2"} <= set(voices.instaladas())
+
+            # 8. Un nombre que no puede ser un archivo se rechaza y no escribe
+            #    nada. Es la unica entrada de texto libre de todo esto.
+            for malo in ("", "  ", "con/barra", "dos:puntos", "..\\\\arriba"):
+                try:
+                    voices.importar(buena, nombre=malo)
+                    raise AssertionError(f"acepto el nombre {malo!r}")
+                except ValueError:
+                    pass
+            assert len(voices.instaladas()) == 2, voices.instaladas()
+        finally:
+            voices.VOICES_DIR = previo
+            shutil.rmtree(raiz, ignore_errors=True)
+
+
 def test_monitores():
     """Enumerar pantallas, que tkinter no sabe hacer en ningun sistema.
 
