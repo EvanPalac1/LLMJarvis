@@ -162,6 +162,24 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Navegacion":
+        "Navigation",
+    "Como se pasa de una seccion a otra:\n"
+    "  lateral    una barra a la izquierda\n"
+    "  pestanas   las de arriba, como era antes\n"
+    "Siete pestañas arriba ya rozan el ancho de la ventana. La barra\n"
+    "esta dibujada pero se maneja con el teclado igual: entra en el\n"
+    "tabulador, las flechas mueven y Enter activa.\n"
+    "\n"
+    "El cambio se ve al reabrir el panel.":
+        "How you move from one section to another:\n"
+        "  lateral    a bar on the left\n"
+        "  pestanas   the tabs on top, the way it used to be\n"
+        "Seven tabs across the top already push the window's width. The bar\n"
+        "is drawn but it still works from the keyboard: it joins the tab\n"
+        "order, the arrows move and Enter activates.\n"
+        "\n"
+        "The change shows when you reopen the panel.",
     "Secciones":
         "Sections",
     "Como se ve cada seccion:\n"

@@ -314,6 +314,19 @@ escritorio, donde una tarjeta clara compite con todo lo que tenga detrás.
 | `tactico`, `ambar`, `fosforo`, `magenta` | Con color. Son personalidad, y viajan en los perfiles que exportás |
 | `personalizado` | Las ocho claves, tuyas |
 
+### La navegación
+
+**Apariencia → Tema → Navegación**: `lateral` (de fábrica) pone una barra a la
+izquierda; `pestanas` deja las de arriba. Siete pestañas ya rozan el ancho de la
+ventana —Ajustes de Windows 11 y de macOS usan barra lateral por lo mismo—.
+
+La barra está dibujada, pero **se maneja con el teclado igual**: entra en el
+tabulador, las flechas mueven la selección y Enter la activa. Una barra dibujada
+que solo respondiera al ratón sería exactamente lo que la nota de abajo dice que
+no hay que hacer.
+
+El cambio se ve al reabrir el panel.
+
 ### Las secciones
 
 **Apariencia → Tema → Secciones**, con dos valores: `tarjeta` (de fábrica) pone

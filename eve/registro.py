@@ -489,6 +489,14 @@ TEMA = (
             Interruptor("ui_pintar_panel", "Pintar tambien este panel con el tema"),
             Ayuda("Pintar el panel obliga a dibujar los controles por nuestra cuenta: Windows\n"
                   "no deja cambiarle el color a los suyos. El cambio se ve al instante."),
+            Campo("ui_nav", "Navegacion", ["lateral", "pestanas"]),
+            Ayuda("Como se pasa de una seccion a otra:\n"
+                  "  lateral    una barra a la izquierda\n"
+                  "  pestanas   las de arriba, como era antes\n"
+                  "Siete pestañas arriba ya rozan el ancho de la ventana. La barra\n"
+                  "esta dibujada pero se maneja con el teclado igual: entra en el\n"
+                  "tabulador, las flechas mueven y Enter activa.\n"
+                  "\nEl cambio se ve al reabrir el panel."),
             Campo("ui_cromo", "Secciones", ["tarjeta", "plano"]),
             Ayuda("Como se ve cada seccion:\n"
                   "  tarjeta  en una tarjeta con esquinas redondeadas\n"

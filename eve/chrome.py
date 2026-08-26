@@ -210,7 +210,13 @@ class Riel(tk.Canvas):
 
     def pintar(self) -> None:
         self.delete("all")
-        p, ancho = self.paleta, max(1, self.winfo_width())
+        p = self.paleta
+        ancho = self.winfo_width() if self.winfo_width() > 1 else int(self.cget("width"))
+        alto = self.winfo_height() if self.winfo_height() > 1 else int(self.cget("height"))
+        # La linea que separa la barra del contenido. Sin ella los dos lados
+        # comparten el color de la pagina y la barra no se lee como una zona
+        # aparte, que es justo lo que tiene que hacer.
+        self.create_line(ancho - 0.5, 0, ancho - 0.5, alto, fill=p["borde"])
         fuente = (self._familia(), tema.pt("cuerpo", self._tam()))
         for i, (clave, rotulo) in enumerate(self.items):
             y = self.SANGRIA + i * self.ALTO_ITEM

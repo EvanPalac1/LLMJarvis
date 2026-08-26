@@ -275,6 +275,14 @@ DEFAULTS = {
     # marco. Un control pintado sobre un Canvas es invisible para un lector de
     # pantalla, y eso no se negocia por una esquina redondeada.
     "ui_cromo": "tarjeta",
+    # Como se navega entre las siete secciones del panel.
+    #   lateral    una barra a la izquierda (por defecto)
+    #   pestanas   las pestañas de arriba, como era antes
+    # Siete pestañas arriba ya rozan el ancho de la ventana y no dejan lugar a
+    # nada mas; Ajustes de Windows 11 y de macOS usan barra lateral por lo
+    # mismo. La barra esta DIBUJADA pero se maneja con el teclado igual: entra
+    # en el tabulador, las flechas mueven y Enter activa.
+    "ui_nav": "lateral",
     "ui_color_fondo": "",
     "ui_color_panel": "",
     "ui_color_texto": "",

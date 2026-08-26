@@ -1815,7 +1815,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 157 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 158 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

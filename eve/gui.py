@@ -162,8 +162,42 @@ class Panel(tk.Tk):
         self.vars: dict[str, tk.Variable] = {}
         self._barra_superior(self)
 
-        nb = self._nb = ttk.Notebook(self)
-        nb.pack(side="top", fill="both", expand=True, padx=10, pady=(6, 6))
+        # Siete pestañas agrupadas por lo que uno viene a hacer, no por
+        # modulo. El rotulo traducido va aca, con el texto LITERAL adentro de
+        # `tr(...)`: con una variable el chequeo de traduccion no lo ve.
+        pestanas = (
+            ("General", tr("General"), self._tab_general),
+            ("Cuentas", tr("Cuentas"), self._tab_cuentas),
+            ("Voz", tr("Voz"), self._tab_voz),
+            ("Contactos", tr("Contactos"), self._tab_contactos),
+            ("Addons", tr("Addons"), self._tab_addons),
+            ("Apariencia", tr("Apariencia"), self._tab_apariencia),
+            ("Actividad", tr("Actividad"), self._tab_actividad),
+        )
+
+        # Barra lateral o pestañas. Las dos arman los MISMOS marcos y los
+        # guardan en `self._tabs`: lo unico que cambia es quien los muestra.
+        # Asi el buscador --que salta a una pestaña, abre una seccion y corre
+        # el scroll-- sigue funcionando igual por los dos caminos.
+        self._riel = None
+        nb = None
+        if self._con_riel():
+            from . import chrome, tema as tema_mod
+
+            fila = ttk.Frame(self, style="Fondo.TFrame")
+            fila.pack(side="top", fill="both", expand=True, padx=(10, 10), pady=(6, 6))
+            self._riel = chrome.Riel(
+                fila, tema_mod.resolver(self.cfg, "ui"),
+                [(clave, rotulo) for clave, rotulo, _a in pestanas],
+                self.mostrar_pestana, ancho=178)
+            self._riel.pack(side="left", fill="y", padx=(0, 10))
+            padre_tabs = self._area = ttk.Frame(fila, style="Fondo.TFrame")
+            self._area.pack(side="left", fill="both", expand=True)
+        else:
+            nb = ttk.Notebook(self)
+            nb.pack(side="top", fill="both", expand=True, padx=10, pady=(6, 6))
+            padre_tabs = nb
+        self._nb = nb
         # La rueda del mouse NO cambia el valor de una lista desplegable.
         #
         # Es el comportamiento de fabrica de ttk y es una trampa: las pestañas
@@ -179,27 +213,18 @@ class Panel(tk.Tk):
         self.bind_class("TSpinbox", "<MouseWheel>", lambda e: "break")
         self._nombres_pantalla = {}
         self.key_vars: dict[str, tk.Variable] = {}
-        # Siete pestañas agrupadas por lo que uno viene a hacer, no por modulo.
-        # En un bucle y no en siete lineas para que el titulo quede asociado a la
-        # pestaña: es lo que el buscador necesita para poder saltar hasta ella.
-        # El rotulo traducido va en la tupla y la clave queda aparte: `tr(titulo)`
-        # con una variable no lo ve el chequeo de traduccion, y ese fue justo el
-        # camino por el que tres textos salieron en espanol con el panel en ingles.
-        for titulo, rotulo, armar in (
-            ("General", tr("General"), self._tab_general),
-            ("Cuentas", tr("Cuentas"), self._tab_cuentas),
-            ("Voz", tr("Voz"), self._tab_voz),
-            ("Contactos", tr("Contactos"), self._tab_contactos),
-            ("Addons", tr("Addons"), self._tab_addons),
-            ("Apariencia", tr("Apariencia"), self._tab_apariencia),
-            ("Actividad", tr("Actividad"), self._tab_actividad),
-        ):
+        # En un bucle y no en siete lineas para que el titulo quede asociado a
+        # la pestaña: es lo que el buscador necesita para saltar hasta ella.
+        for titulo, rotulo, armar in pestanas:
             self._ctx_pestana, self._ctx_sub = titulo, ""
             self._ctx_pestana_rot, self._ctx_sub_rot = rotulo, ""
             self._ctx_seccion, self._ctx_abrir = "", None
-            marco = armar(nb)
-            nb.add(marco, text=f"  {rotulo}  ")
+            marco = armar(padre_tabs)
+            if nb is not None:
+                nb.add(marco, text=f"  {rotulo}  ")
             self._tabs[titulo] = marco
+        if self._riel is not None:
+            self.mostrar_pestana("General")
         self._contar_secciones()
         # De nuevo, ahora que los widgets existen: el repintado de lo que no es
         # ttk necesita recorrer el arbol, y en _estilo() todavia estaba vacio.
@@ -286,6 +311,11 @@ class Panel(tk.Tk):
         # Las tarjetas son Canvas, y un Canvas no consulta el motor de estilos:
         # sin esto el tema cambia en vivo en todo menos en el marco dibujado,
         # que es justo lo que mas se nota.
+        if getattr(self, "_riel", None) is not None:
+            try:
+                self._riel.aplicar(paleta)
+            except tk.TclError:
+                pass
         for tarjeta in list(self._tarjetas):
             try:
                 tarjeta.aplicar(paleta)
@@ -832,6 +862,48 @@ class Panel(tk.Tk):
         pintar()
         return cuerpo
 
+    def _con_riel(self) -> bool:
+        """Si la navegacion va por barra lateral en vez de pestañas."""
+        return str(self.cfg.get("ui_nav", "lateral")) == "lateral"
+
+    def rotulos_navegacion(self) -> list:
+        """Los rotulos de las siete secciones, como se ven en pantalla.
+
+        Existe porque hay dos navegaciones --barra lateral y pestañas-- y quien
+        quiere saber que dice la interfaz no tiene por que saber cual esta
+        puesta. Sin esto, el chequeo de traduccion leia el Notebook a mano y se
+        caia el dia que el Notebook dejo de existir.
+        """
+        if self._nb is not None:
+            return [self._nb.tab(i, "text").strip()
+                    for i in range(self._nb.index("end"))]
+        if self._riel is not None:
+            return [rotulo for _clave, rotulo in self._riel.items]
+        return []
+
+    def mostrar_pestana(self, clave: str) -> None:
+        """Deja a la vista la pestaña pedida. Sirve por los dos caminos.
+
+        Con pestañas delega en el Notebook; con barra lateral empaqueta el
+        marco que toca y esconde los demas. Es UN metodo y no dos porque el
+        buscador salta a una pestaña sin saber ni tener que saber como se
+        dibuja la navegacion.
+        """
+        marco = self._tabs.get(clave)
+        if marco is None:
+            return
+        if self._nb is not None:
+            self._nb.select(marco)
+            return
+        for titulo, otro in self._tabs.items():
+            if titulo == clave:
+                otro.pack(fill="both", expand=True)
+            else:
+                otro.pack_forget()
+        if self._riel is not None and self._riel.elegido != clave:
+            self._riel.elegido = clave
+            self._riel.pintar()
+
     def _con_tarjetas(self) -> bool:
         """Si las secciones van en tarjeta dibujada.
 
@@ -1033,7 +1105,7 @@ class Panel(tk.Tk):
         """
         try:
             if entrada["pestana"] in self._tabs:
-                self._nb.select(self._tabs[entrada["pestana"]])
+                self.mostrar_pestana(entrada["pestana"])
             if entrada["sub"] and entrada["sub"] in self._subtabs:
                 self._subnb.select(self._subtabs[entrada["sub"]])
             if entrada["abrir"]:

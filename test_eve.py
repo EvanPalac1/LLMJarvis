@@ -5736,6 +5736,84 @@ def test_el_riel_se_maneja_con_el_teclado():
         raiz.destroy()
 
 
+def test_la_barra_lateral_navega_igual_que_las_pestanas():
+    """Las dos navegaciones muestran lo mismo, y el buscador no sabe cual hay.
+
+    El panel puede navegarse por barra lateral --dibujada, por defecto-- o por
+    las pestañas de arriba. Lo que NO puede pasar es que el resto del panel
+    tenga que enterarse: el buscador salta a una pestaña, abre una seccion y
+    corre el scroll, y eso tiene que andar igual por los dos caminos. De ahi
+    que haya UN `mostrar_pestana` y no dos.
+
+    Se comprueba con el panel armado de verdad, no leyendo el codigo: la vez
+    que esto se rompa va a ser porque un marco quedo sin empaquetar, y eso solo
+    se ve preguntandole a tkinter quien esta a la vista.
+    """
+    import gc
+    import tkinter as tk
+
+    from eve import gui
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (sin pantalla, se saltea)")
+        return
+
+    for nav, espera_riel in (("lateral", True), ("pestanas", False)):
+        with tempfile.TemporaryDirectory() as raiz:
+            previos = (store.CONFIG_PATH, store.BASE)
+            store.CONFIG_PATH = os.path.join(raiz, "config.json")
+            store.BASE = raiz
+            panel = None
+            try:
+                store.save_config({**store.DEFAULTS, "ui_nav": nav})
+                panel = gui.Panel()
+                panel.withdraw()
+                panel.update_idletasks()
+
+                assert (panel._riel is not None) is espera_riel, nav
+                assert (panel._nb is None) is espera_riel, nav
+                # Las siete estan por los dos caminos, y con el mismo nombre.
+                assert panel.rotulos_navegacion()[:3] == ["General", "Cuentas", "Voz"], nav
+                assert len(panel._tabs) == 7, (nav, list(panel._tabs))
+
+                def a_la_vista():
+                    return [t for t, m in panel._tabs.items() if m.winfo_manager()]
+
+                if espera_riel:
+                    # Con barra lateral se ve UNA sola: las otras estan
+                    # construidas pero sin empaquetar. Si se vieran todas
+                    # apiladas, el panel seria una lista de siete pantallas.
+                    assert a_la_vista() == ["General"], a_la_vista()
+                    panel.mostrar_pestana("Voz")
+                    assert a_la_vista() == ["Voz"], a_la_vista()
+                    assert panel._riel.elegido == "Voz", "la barra no siguio al salto"
+
+                    # Las flechas mueven Y muestran: mover la seleccion sin
+                    # cambiar el contenido seria peor que no moverla.
+                    panel._riel._mover(1)
+                    assert a_la_vista() == ["Contactos"], a_la_vista()
+
+                # El salto del buscador, que es el que tiene que andar por los
+                # dos caminos sin saber cual esta puesto.
+                panel.mostrar_pestana("Apariencia")
+                if espera_riel:
+                    assert a_la_vista() == ["Apariencia"]
+                else:
+                    actual = panel._nb.tab(panel._nb.select(), "text").strip()
+                    assert actual == "Apariencia", actual
+
+                # Una pestaña que no existe no rompe nada: el buscador puede
+                # traer una entrada vieja de un indice que ya se rearmo.
+                panel.mostrar_pestana("NoExiste")
+            finally:
+                if panel is not None:
+                    panel.destroy()
+                store.CONFIG_PATH, store.BASE = previos
+                gc.collect()
+
+
 def test_monitores():
     """Enumerar pantallas, que tkinter no sabe hacer en ningun sistema.
 
@@ -6094,8 +6172,10 @@ def test_el_panel_arma_en_ingles():
     try:
         panel = gui.Panel()
         panel.withdraw()
-        pestanas = [panel._nb.tab(i, "text").strip()
-                    for i in range(panel._nb.index("end"))]
+        # Por `rotulos_navegacion` y no leyendo el Notebook: hay dos
+        # navegaciones --barra lateral y pestañas-- y lo que se comprueba aca
+        # es que la interfaz este en ingles, no cual de las dos esta puesta.
+        pestanas = panel.rotulos_navegacion()
         assert "Accounts" in pestanas and "Appearance" in pestanas, pestanas
         titulos = [e[0]["titulo"] for e in panel._secciones]
         assert "Who Eve is" in titulos, titulos[:5]
