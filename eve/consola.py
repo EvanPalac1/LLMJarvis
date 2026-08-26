@@ -746,9 +746,11 @@ class Consola:
             # lo demas: no hay items sueltos que borrar y volver a crear.
             return
         self.lienzo.delete("marca")
+        self.lienzo.delete("rejilla")
         if self.modo.get() != "edit" or self.pintor is None:
             return
         paleta = self.pintor.paleta
+        self._rejilla(paleta)
         if self._cual() == "overlay":
             # Donde termina el cartel. La ventana de actividad es mucho mas
             # grande, asi que sin esto se acomoda a ciegas y todo lo que quede
@@ -808,6 +810,31 @@ class Consola:
             self.lienzo.create_text(
                 x1 + 8, y1 + 8, anchor="nw", text=texto, tags="marca",
                 fill=paleta["acento"], font=(None, 9, "bold"))
+
+    PASO_REJILLA = 32
+
+    def _rejilla(self, paleta) -> None:
+        """Una cuadricula tenue, solo en Edit y solo por debajo de todo.
+
+        Acomodar a ojo sobre un rectangulo liso no tiene contra que medir: la
+        unica referencia son los otros modulos, y con uno solo no hay ninguna.
+        Treinta y dos pixeles es la misma medida que usa la cascada al agregar,
+        asi que lo que se crea cae sobre la cuadricula sin que nadie lo alinee.
+
+        NO es snapping: no atrae ni corrige nada --el plan lo dejo afuera a
+        proposito-- es una referencia para el ojo. Y va con el color del borde,
+        que es el rol de "una linea que solo tiene que verse".
+        """
+        ancho = max(1, self.lienzo.winfo_width())
+        alto = max(1, self.lienzo.winfo_height())
+        for x in range(self.PASO_REJILLA, ancho, self.PASO_REJILLA):
+            self.lienzo.create_line(x, 0, x, alto, fill=paleta["borde"],
+                                    tags="rejilla")
+        for y in range(self.PASO_REJILLA, alto, self.PASO_REJILLA):
+            self.lienzo.create_line(0, y, ancho, y, fill=paleta["borde"],
+                                    tags="rejilla")
+        # Debajo de los modulos: es una referencia, no algo que taparlos.
+        self.lienzo.tag_lower("rejilla")
 
     def _rotacion_actual(self) -> int:
         """La rotacion del primero elegido, para el cartelito del arrastre."""

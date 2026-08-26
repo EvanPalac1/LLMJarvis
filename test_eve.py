@@ -3526,23 +3526,31 @@ def test_titulo_largo_no_se_sale():
         # El hueco real que queda a la derecha del icono.
         hueco = pintor.ancho - (26 + (overlay.ALTO - 24) + 22) - 22
 
-        piso = max(9, int(11 * pintor.esc))
+        # Los dos extremos salen de la escala y no de numeros clavados aca:
+        # asi subir el cuerpo mueve el cartel junto con el resto y este test no
+        # queda anclado a los tamanos de una version.
+        base = int(tema.pt("display") * pintor.esc)
+        piso = max(9, int(tema.pt("subtitulo") * pintor.esc))
         # Lo que vale en cualquier sistema: entra, o toco el piso intentandolo.
         # Cuanto hay que achicar depende de la fuente, y la de macOS es mas
         # angosta que la de Windows: pedir un tamano concreto ata el test a la
         # maquina donde lo escribi.
-        for titulo in ("EVE", "MAYORDOMO DORADO", "SUPERCALIFRAGILISTICO",
-                       "UN NOMBRE ABSURDAMENTE LARGO PARA UN ASISTENTE"):
+        for titulo in ("Eve", "Mayordomo Dorado", "Supercalifragilistico",
+                       "Un nombre absurdamente largo para un asistente"):
             tam = pintor._tam_titulo(titulo, hueco)
+            # Se mide el titulo tal cual, no en mayusculas: el cartel dejo de
+            # ponerlo en versalitas --las HIG piden capitalizacion normal-- y
+            # medir otra cosa de la que se dibuja no prueba nada.
             ancho = tkfont.Font(family=pintor.fuente, size=tam,
-                                weight="bold").measure(titulo.upper())
+                                weight="bold").measure(titulo)
             assert ancho <= hueco or tam == piso, (
                 f"{titulo!r} mide {ancho}px en {hueco}px a {tam}pt"
             )
-        assert pintor._tam_titulo("EVE", hueco) == 19, "uno corto no se achica"
-        # Cuarenta y cinco caracteres no entran a 19pt con ninguna fuente.
+        assert pintor._tam_titulo("Eve", hueco) == base, "uno corto no se achica"
+        # Cuarenta y cinco caracteres no entran al tamano grande con ninguna
+        # fuente.
         assert pintor._tam_titulo(
-            "UN NOMBRE ABSURDAMENTE LARGO PARA UN ASISTENTE", hueco) < 19
+            "Un nombre absurdamente largo para un asistente", hueco) < base
     finally:
         raiz.destroy()
 
@@ -3714,19 +3722,24 @@ def test_colores_del_cartel():
     from eve import tema
 
     # El halo se calcula contra el color del texto, no sale de un rol fijo.
-    assert tema.halo_de("#ffffff") == "#000000", "texto claro -> halo oscuro"
-    assert tema.halo_de("#f0f0f0") == "#000000"
+    assert tema.luminancia(tema.halo_de("#ffffff")) < 0.2, "texto claro -> halo oscuro"
+    assert tema.luminancia(tema.halo_de("#f0f0f0")) < 0.2
     assert tema.luminancia("#000000") == 0
     assert abs(tema.luminancia("#ffffff") - 1) < 1e-9  # los pesos no suman exacto
     assert abs(tema.luminancia("#808080") - 0.5) < 0.03
-    oscuro = tema.halo_de("#101010")
-    assert oscuro != "#000000", "texto oscuro no lleva halo negro encima"
+    # Y al reves: detras de un texto OSCURO el halo va claro. Antes esto
+    # comprobaba solo que no fuera negro puro, que dejaba pasar el #101014 que
+    # tampoco separaba nada.
+    assert tema.luminancia(tema.halo_de("#101010")) > 0.8,         "texto oscuro no lleva halo oscuro encima"
 
-    # `halo_de` devuelve SIEMPRE un color oscuro, y por eso no puede elegir el
-    # color de una etiqueta. Eso es lo que fallaba: se lo usaba para las dos
-    # cosas y la etiqueta del boton principal quedaba oscura sobre un acento
-    # oscuro. Son dos funciones porque son dos preguntas distintas.
-    assert tema.luminancia(tema.halo_de("#101010")) < 0.2, "un halo es oscuro"
+    # El halo tiene que CONTRASTAR con el texto que envuelve, sea cual sea.
+    # Antes devolvia un color oscuro en las dos ramas, y eso alcanzaba mientras
+    # el unico cartel posible era oscuro; con una paleta clara el texto pasa a
+    # ser oscuro y el halo oscuro quedaba detras de un texto de su mismo tono,
+    # ensuciando las letras en vez de separarlas.
+    assert tema.ratio(tema.halo_de("#101010"), "#101010") > 4.5, \
+        "el halo no se distingue del texto que envuelve"
+    assert tema.ratio(tema.halo_de("#f5f5f5"), "#f5f5f5") > 4.5
     assert tema.sobre("#101010") == "#ffffff", "sobre un fondo oscuro va blanco"
     assert tema.sobre("#ffffff") == "#111111"
 
@@ -5812,6 +5825,143 @@ def test_la_barra_lateral_navega_igual_que_las_pestanas():
                     panel.destroy()
                 store.CONFIG_PATH, store.BASE = previos
                 gc.collect()
+
+
+def test_el_cartel_se_lee_sobre_cualquier_escritorio():
+    """Lo que el rediseno del cartel promete, comprobado sobre el dibujo.
+
+    El cartel flota sobre el escritorio, asi que su unico trabajo es leerse
+    encima de cualquier cosa. De ahi las tres decisiones que se comprueban:
+    relleno solido con contorno cerrado, el nombre en capitalizacion normal, y
+    los tamanos salidos de la escala en vez de puestos a mano.
+    """
+    import tkinter as tk
+
+    from eve import overlay, tema
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        print("    (sin pantalla, se saltea)")
+        return
+    try:
+        raiz.withdraw()
+        cfg = dict(store.DEFAULTS)
+        assert cfg["hud_contorno"] == "redondeado", "el contorno de fabrica"
+
+        for nombre in ("oscuro", "claro"):
+            paleta = tema.PALETAS[nombre]
+            c = tk.Canvas(raiz, width=overlay.ANCHO, height=overlay.ALTO)
+            pintor = overlay.Pintor(cfg, paleta)
+            pintor.pintar(c, "escuchando", "Eve", "Escuchando")
+
+            textos = [c.itemcget(i, "text") for i in c.find_all()
+                      if c.type(i) == "text"]
+            # El nombre va como se escribio. En VERSALITAS todas las letras son
+            # cajas del mismo alto y se pierde el perfil que hace que una
+            # palabra se reconozca de un vistazo, que es justo lo que uno hace
+            # con un cartel: mirarlo de reojo.
+            assert "Eve" in textos, textos
+            assert "EVE" not in textos, "el nombre volvio a las versalitas"
+
+            # Relleno solido y contorno cerrado: las cuatro escuadras del HUD
+            # dejaban el borde abierto y el cartel se confundia con el fondo.
+            formas = [c.type(i) for i in c.find_all()]
+            assert formas.count("polygon") >= 2, formas
+
+            c.destroy()
+
+        # Los tamanos salen de la escala. Si alguien sube el cuerpo, el cartel
+        # sube con el resto en vez de quedarse en un numero de otra epoca.
+        pintor = overlay.Pintor(cfg, tema.PALETAS["oscuro"])
+        hueco = pintor.ancho - 200
+        assert pintor._tam_titulo("Eve", hueco) == int(tema.pt("display") * pintor.esc)
+    finally:
+        raiz.destroy()
+
+
+def test_el_halo_separa_el_texto_en_los_dos_temas():
+    """El halo tiene que contrastar con SU texto, sea claro u oscuro.
+
+    Devolvia un color oscuro en las dos ramas, y eso alcanzaba mientras el
+    unico cartel posible era oscuro: detras de texto claro, un halo oscuro no
+    se ve y hace su trabajo. Con una paleta clara el texto pasa a ser oscuro y
+    el halo quedaba detras de un texto de su mismo tono -- no separaba nada y
+    ensuciaba las letras. Se veia en la linea de estado del cartel claro.
+    """
+    from eve import tema
+
+    for nombre, paleta in tema.PALETAS.items():
+        for rol in ("texto", "texto_tenue", "acento"):
+            color = paleta[rol]
+            r = tema.ratio(tema.halo_de(color), color)
+            assert r >= 4.5, f"{nombre}/{rol}: el halo da {r:.2f} contra su texto"
+
+
+def test_la_cuadricula_solo_aparece_en_edit():
+    """Una referencia para acomodar, y solo cuando se esta acomodando.
+
+    Acomodar a ojo sobre un rectangulo liso no tiene contra que medir. Pero la
+    cuadricula es ruido cuando uno solo esta mirando lo que Eve hace, asi que
+    vive en Edit y en ningun otro lado. **No es snapping**: no atrae ni corrige
+    nada, que el plan lo dejo afuera a proposito.
+    """
+    import tkinter as tk
+
+    from eve import consola  # noqa: F401 - se abre con el ayudante de abajo
+    from eve import modulos as mods
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (sin pantalla, se saltea)")
+        return
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previo = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        ventana = None
+        try:
+            cfg = {**store.DEFAULTS, "motor_dibujo": "pillow"}
+            cfg = mods.guardar(cfg, {"id": "a", "tipo": "texto",
+                                     "superficie": "tablero", "x": 60, "y": 60,
+                                     "ancho": 200, "alto": 80,
+                                     "cuando": "siempre"})
+            store.save_config(cfg)
+            ventana = _abrir_consola()
+            ventana.raiz.geometry("640x420")
+            ventana.raiz.update()
+
+            def lineas():
+                return len(ventana.lienzo.find_withtag("rejilla"))
+
+            assert lineas() == 0, "hay cuadricula en Work"
+            ventana.modo.set("edit")
+            ventana._cambio_modo()
+            ventana.raiz.update()
+            assert lineas() > 8, lineas()
+
+            # Y por debajo de los modulos: es una referencia, no algo que los
+            # tape. En un Canvas el orden de la lista ES el orden de dibujo.
+            orden = list(ventana.lienzo.find_all())
+            rejilla = set(ventana.lienzo.find_withtag("rejilla"))
+            otros = [i for i in orden if i not in rejilla]
+            if otros:
+                ultima = max(orden.index(i) for i in rejilla)
+                primera = min(orden.index(i) for i in otros)
+                assert ultima < primera, "la cuadricula tapa los modulos"
+
+            ventana.modo.set("work")
+            ventana._cambio_modo()
+            ventana.raiz.update()
+            assert lineas() == 0, "la cuadricula se quedo en Work"
+        finally:
+            if ventana is not None:
+                try:
+                    ventana.raiz.destroy()
+                except Exception:  # noqa: BLE001
+                    pass
+            store.CONFIG_PATH = previo
 
 
 def test_monitores():

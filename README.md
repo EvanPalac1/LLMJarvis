@@ -1101,6 +1101,31 @@ una pestaña. Un boton de probar lejos de lo que prueba es un boton mas.
 
 ---
 
+## El cartel, redisenado
+
+Esquinas redondeadas y contorno cerrado de fabrica. El cartel flota sobre el
+escritorio, asi que su unico trabajo es leerse encima de CUALQUIER cosa, y para
+eso un relleno solido con un contorno de un pixel funciona mejor que las cuatro
+escuadras del HUD original --que dejaban el borde abierto y lo confundian con lo
+que hubiera detras. Las escuadras siguen disponibles como `esquinas`.
+
+**El nombre va como lo escribiste, no en VERSALITAS.** Estuvo en `.upper()`
+desde el primer dibujo, por la estetica de HUD militar. Las HIG piden
+capitalizacion normal y la razon es legibilidad: en mayusculas todas las letras
+son cajas del mismo alto, se pierde el perfil que hace que una palabra se
+reconozca de un vistazo, y hay que deletrearla. En algo que se mira de reojo
+mientras haces otra cosa, eso es exactamente lo que no se quiere.
+
+Y **el halo dejo de ser siempre oscuro**. El halo va detras del texto para
+despegarlo del escritorio, y tiene que contrastar con SU texto. Devolvia un
+color oscuro en las dos ramas, lo cual alcanzaba mientras el unico cartel
+posible era oscuro: detras de texto claro, un halo oscuro no se ve. Con la
+paleta clara el texto pasa a ser oscuro y el halo quedaba detras de un texto de
+su mismo tono --no separaba nada y ensuciaba las letras. Se veia en la linea de
+estado, y se encontro mirando la captura.
+
+---
+
 ## El tema, y por qué se mide
 
 Ocho roles --`fondo`, `panel`, `texto`, `texto_tenue`, `acento`, `acento2`,
@@ -1815,7 +1840,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 158 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 161 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

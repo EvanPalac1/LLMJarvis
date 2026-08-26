@@ -170,15 +170,22 @@ def sobre(fondo: str) -> str:
 def halo_de(color: str) -> str:
     """El halo que va DETRAS de un texto de ese color, en el cartel.
 
-    Siempre oscuro, y a proposito: el halo existe para despegar el texto del
-    escritorio, que puede ser cualquier cosa. Si alguien deja el rol `fondo` en
-    el default oscuro y pinta el panel de violeta, un halo tomado de `fondo`
-    dibuja manchas negras alrededor de cada letra; lo que tiene que contrastar
-    es con el texto, no con la paleta.
+    Lo que tiene que hacer es CONTRASTAR CON EL TEXTO, y no salir de un rol: si
+    alguien deja `fondo` en el default oscuro y pinta el panel de violeta, un
+    halo tomado de `fondo` dibuja manchas negras alrededor de cada letra.
 
-    NO sirve para elegir el color de una etiqueta: para eso esta `sobre`.
+    Durante mucho tiempo esto devolvia un color oscuro en las dos ramas
+    --`#000000` o `#101014`-- y eso alcanzaba mientras el unico cartel posible
+    era oscuro: detras de texto claro, un halo oscuro no se ve. Con una paleta
+    clara el texto pasa a ser oscuro y el halo oscuro queda DETRAS de un texto
+    de su mismo tono: no separa nada y ensucia las letras, que es como se veia
+    la linea de estado del cartel claro.
+
+    Asi que es exactamente la misma pregunta que responde `sobre`: que color
+    se distingue de este. Se deja el nombre porque en el cartel se lee mejor
+    "el halo de este texto" que "lo que va sobre este texto".
     """
-    return "#000000" if luminancia(color) > 0.5 else "#101014"
+    return sobre(color)
 
 
 # Que par de roles tiene que contrastar con cual, y cuanto. Es la unica lista

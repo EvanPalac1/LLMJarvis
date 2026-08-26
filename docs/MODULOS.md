@@ -314,6 +314,29 @@ escritorio, donde una tarjeta clara compite con todo lo que tenga detrás.
 | `tactico`, `ambar`, `fosforo`, `magenta` | Con color. Son personalidad, y viajan en los perfiles que exportás |
 | `personalizado` | Las ocho claves, tuyas |
 
+### El cartel
+
+De fábrica lleva **esquinas redondeadas y contorno cerrado** (`hud_contorno =
+redondeado`). Las cuatro escuadras del HUD original siguen disponibles como
+`esquinas`, junto con las otras cinco formas.
+
+El nombre va **como lo escribiste**, no en VERSALITAS. No es gusto: en
+mayúsculas todas las letras son cajas del mismo alto y se pierde el perfil que
+hace que una palabra se reconozca de un vistazo — justo lo que uno hace con un
+cartel, mirarlo de reojo.
+
+Los tamaños salen de la escala tipográfica, así que subir el cuerpo mueve el
+cartel junto con el resto.
+
+### La cuadrícula
+
+En **Edit** el lienzo muestra una cuadrícula de 32 px, el mismo paso con que
+cae en cascada un módulo nuevo. Acomodar a ojo sobre un rectángulo liso no tiene
+contra qué medir.
+
+> **No es snapping.** No atrae ni corrige nada: es una referencia para el ojo.
+> Para el ajuste al píxel están las flechas.
+
 ### La navegación
 
 **Apariencia → Tema → Navegación**: `lateral` (de fábrica) pone una barra a la

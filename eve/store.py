@@ -369,7 +369,7 @@ DEFAULTS = {
     "hud_titulo": "",       # vacio = el nombre de la IA
     "hud_subtitulo": "Canal de Seguridad 7",
     "hud_icono": "hexagono",   # hexagono | circulo | cuadrado | ninguno | ruta .png
-    "hud_contorno": "esquinas",  # ninguno|linea|esquinas|doble|hexagonal|biselado
+    "hud_contorno": "redondeado",  # ninguno|linea|esquinas|doble|hexagonal|biselado
     "hud_onda": "barras",        # barras|espejo|linea|puntos|ninguna
     # Imagen de fondo del cartel: PNG o GIF (se anima solo). Vacio = color liso.
     "hud_fondo": "",

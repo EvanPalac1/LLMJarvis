@@ -245,12 +245,20 @@ class Pintor:
             cx, cy = 26 * e + alto_icono / 2, self.alto / 2
             self._icono(c, cx, cy, alto_icono / 2, activo=estado != "reposo")
             x = 26 * e + alto_icono + 22 * e
-        _texto(c, x, self.alto * 0.30, titulo.upper(), p["acento"],
+        # El nombre va como lo escribiste, NO en VERSALITAS.
+        #
+        # Estaba en `.upper()` desde el primer dibujo, por la estetica de HUD
+        # militar. Las HIG piden capitalizacion normal, y la razon es
+        # legibilidad y no gusto: en mayusculas todas las letras son cajas del
+        # mismo alto, se pierde el perfil que hace que una palabra se reconozca
+        # de un vistazo, y hay que deletrearla. En un cartel que se mira de
+        # reojo mientras haces otra cosa, eso es justo lo que no se quiere.
+        _texto(c, x, self.alto * 0.30, titulo, p["texto"],
                (self.fuente, self._tam_titulo(titulo, self.ancho - x - 22 * e), "bold"),
-               tema.halo_de(p["acento"]), anchor="w")
+               tema.halo_de(p["texto"]), anchor="w")
         _texto(c, x, self.alto * 0.50, linea2, p["texto_tenue"],
-               (self.fuente, int(10 * e)), tema.halo_de(p["texto_tenue"]),
-               anchor="w")
+               (self.fuente, max(8, int(tema.pt("ayuda") * e))),
+               tema.halo_de(p["texto_tenue"]), anchor="w")
         self._onda(c, x, self.alto * 0.74, self.ancho - x - 22 * e, 30 * e)
 
     def _tam_titulo(self, titulo: str, ancho: float) -> int:
@@ -264,9 +272,15 @@ class Pintor:
         """
         from tkinter import font as tkfont
 
-        base = int(19 * self.esc)
-        piso = max(9, int(11 * self.esc))
-        texto = titulo.upper()
+        # Los dos extremos salen de la escala tipografica y no de numeros
+        # puestos aca: `display` es el paso mas grande y `subtitulo` el mas
+        # chico con el que un nombre todavia se lee de reojo.
+        base = int(tema.pt("display") * self.esc)
+        piso = max(9, int(tema.pt("subtitulo") * self.esc))
+        # Se mide el titulo TAL CUAL se dibuja. Cuando el cartel lo ponia en
+        # versalitas esto media la version en mayusculas, que es mas ancha:
+        # ahora seria medir una cosa y dibujar otra, y achicaria de mas.
+        texto = titulo
         for tam in range(base, piso - 1, -1):
             try:
                 medida = tkfont.Font(family=self.fuente, size=tam, weight="bold")
@@ -288,9 +302,15 @@ class Pintor:
         m = 3 * e
 
         # El relleno: la imagen si hay, el color del panel si no.
+        radio = 14 * e
         cuadro = self.fondo.actual(self.animar)
         if cuadro is not None:
             c.create_image(0, 0, image=cuadro, anchor="nw")
+        elif tipo == "redondeado":
+            from . import chrome
+
+            chrome.rect_redondeado(c, m, m, w - m, h - m, radio=radio,
+                                   fill=p["panel"], outline="")
         else:
             c.create_rectangle(m, m, w - m, h - m, fill=p["panel"], outline="")
 
@@ -312,7 +332,17 @@ class Pintor:
 
         if tipo == "ninguno":
             return
-        if tipo == "linea":
+        if tipo == "redondeado":
+            # El de fabrica desde la 1.16. El cartel flota sobre el escritorio,
+            # asi que lo que tiene que hacer es leerse encima de CUALQUIER
+            # fondo: un relleno solido y un contorno de un pixel hacen eso
+            # mejor que las cuatro escuadras del HUD, que dejaban el borde
+            # abierto y confundian el cartel con lo que hubiera detras.
+            from . import chrome
+
+            chrome.rect_redondeado(c, m, m, w - m, h - m, radio=radio,
+                                   fill="", outline=color, width=grosor)
+        elif tipo == "linea":
             c.create_rectangle(m, m, w - m, h - m, outline=color, width=grosor)
         elif tipo == "doble":
             c.create_rectangle(m, m, w - m, h - m, outline=color, width=grosor)
