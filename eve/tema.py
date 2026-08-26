@@ -19,24 +19,24 @@ ROLES = (
 PALETAS = {
     # El de la referencia: cian sobre negro azulado, tipo HUD militar.
     "tactico": {
-        "fondo": "#04101a", "panel": "#0a2130", "texto": "#dbeef7",
+        "fondo": "#04101a", "panel": "#162c3a", "texto": "#dbeef7",
         "texto_tenue": "#7d9aa8", "acento": "#4fc3f7", "acento2": "#1b6d8a",
         "borde": "#1f5f78", "alerta": "#ff6b5a",
     },
     "ambar": {
-        "fondo": "#140d02", "panel": "#2a1c06", "texto": "#f6e6c8",
-        "texto_tenue": "#a68b5e", "acento": "#ffb300", "acento2": "#8a5f00",
+        "fondo": "#140d02", "panel": "#352712", "texto": "#f6e6c8",
+        "texto_tenue": "#a78c60", "acento": "#ffb300", "acento2": "#8a5f00",
         "borde": "#77571a", "alerta": "#ff5252",
     },
     "fosforo": {
-        "fondo": "#03120a", "panel": "#082718", "texto": "#d6f5e3",
+        "fondo": "#03120a", "panel": "#123021", "texto": "#d6f5e3",
         "texto_tenue": "#6f9c83", "acento": "#3ddc84", "acento2": "#1a7a4a",
         "borde": "#1f6b45", "alerta": "#ff7043",
     },
     "magenta": {
-        "fondo": "#12040f", "panel": "#2a0a24", "texto": "#f7dff2",
-        "texto_tenue": "#a97ba0", "acento": "#ff4fd8", "acento2": "#8a1b74",
-        "borde": "#6f1f60", "alerta": "#ffca28",
+        "fondo": "#12040f", "panel": "#3b1e36", "texto": "#f7dff2",
+        "texto_tenue": "#ad82a5", "acento": "#ff4fd8", "acento2": "#8a1b74",
+        "borde": "#752866", "alerta": "#ffca28",
     },
     # Las dos neutras son las de fabrica --clara en el panel, oscura en el
     # cartel-- y por eso son las unicas que se disenaron contra `PISOS` en vez
@@ -44,16 +44,17 @@ PALETAS = {
     # viajan en los perfiles exportados; estas dos son el default, que es otra
     # responsabilidad.
     "oscuro": {
-        "fondo": "#16181d", "panel": "#1e2127", "texto": "#e7e9ee",
+        "fondo": "#16181d", "panel": "#2e3136", "texto": "#e7e9ee",
         "texto_tenue": "#a2a9b4", "acento": "#7aa2f7", "acento2": "#41598a",
-        "borde": "#2e333d", "alerta": "#f7768e",
+        "borde": "#494e56", "alerta": "#f7768e",
     },
     "claro": {
-        "fondo": "#f6f7f9", "panel": "#ffffff", "texto": "#1a1d23",
+        "fondo": "#dddee0", "panel": "#ffffff", "texto": "#1a1d23",
         "texto_tenue": "#59616c", "acento": "#2563eb", "acento2": "#9dbaf7",
-        # El borde se oscurecio de #dde1e6 a este: aquel daba 1.23 contra el
-        # fondo y no se veia. Un borde invisible no es un borde sutil.
-        "borde": "#c9d0d9", "alerta": "#c0342f",
+        # El borde se oscurecio dos veces: de #dde1e6 a #c9d0d9 porque aquel
+        # daba 1.23 contra el fondo, y de ahi a este porque la pagina bajo a
+        # #dddee0 y volvio a perderse. Un borde invisible no es un borde sutil.
+        "borde": "#b7bdc5", "alerta": "#b6312d",
     },
 }
 
@@ -205,7 +206,23 @@ PISOS = (
     ("alerta", "fondo", 4.5, "un error se tiene que poder LEER"),
     ("alerta", "panel", 4.5, "un error sobre una tarjeta"),
     ("borde", "fondo", 1.4, "el contorno solo tiene que verse"),
-    ("borde", "panel", 1.2, "un separador dentro de una tarjeta"),
+)
+
+# Lo de arriba mide TEXTO sobre un fondo. Esto mide una superficie contra otra,
+# que es otra pregunta y la que decide si una tarjeta se ve como tarjeta.
+#
+# Hace falta porque no medirla costo el rediseno entero: `PISOS` pasaba entero
+# en las seis paletas mientras la tarjeta era invisible en las seis --de 1.07 a
+# 1.20 contra el fondo, donde 1.00 son colores identicos--. El chequeo estaba y
+# no fallaba porque medía lo que no estaba roto.
+#
+# 1.3 es lo mas bajo donde una superficie todavia se lee como una superficie y
+# no como una linea; el borde pide mas porque es una linea de un pixel y no un
+# area. El par borde/panel vivia arriba con piso 1.2, tan bajo que el 1.27 de
+# `oscuro` pasaba: por eso se muda aca en vez de quedarse con dos reglas.
+SUPERFICIES = (
+    ("panel", "fondo", 1.3, "la tarjeta, contra la pagina"),
+    ("borde", "panel", 1.5, "el contorno de la tarjeta"),
 )
 
 
@@ -216,7 +233,7 @@ def revisar(paleta: dict) -> list:
     pueda decir cual falla y por cuanto, en vez de "hay un problema de color".
     """
     malos = []
-    for frente, fondo, piso, para in PISOS:
+    for frente, fondo, piso, para in PISOS + SUPERFICIES:
         if frente not in paleta or fondo not in paleta:
             continue
         r = ratio(paleta[frente], paleta[fondo])

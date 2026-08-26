@@ -5534,6 +5534,45 @@ def test_el_panel_abre_el_grabador_sin_romperse():
             store.CONFIG_PATH, store.BASE = previos
 
 
+def test_hay_un_perfil_para_cada_paleta_neutra():
+    """`Claro` y `Oscuro` de fabrica, y apuntando a la paleta DE VERDAD.
+
+    Viajaban ocho perfiles y **los ocho** usaban `ui_tema: "personalizado"`,
+    que arranca de `tactico` y le pega encima los colores guardados. O sea que
+    las dos paletas neutras --las unicas disenadas contra el piso de
+    contraste-- no se podian elegir desde ningun lado: habia que saber que
+    existian y armarlas a mano en Apariencia.
+
+    Es la mitad de por que el redisenio "no se veia": el usuario estaba en
+    `personalizado`, o sea en un hibrido de tactico con dos colores encima.
+
+    Lo que este test fija es el DETALLE que los hace utiles: que no guarden
+    `ui_color_*`. Un perfil con los ocho hexadecimales adentro congela la
+    paleta del dia que se exporto y deja de seguir los arreglos que ella
+    reciba --que es justo lo que acaba de pasar con las superficies.
+    """
+    from eve import store, tema
+
+    ejemplos = store.perfiles_de_ejemplo()
+    for nombre, esperado in (("Claro", "claro"), ("Oscuro", "oscuro")):
+        assert nombre in ejemplos, f"falta el perfil {nombre}: {sorted(ejemplos)}"
+        cfg = ejemplos[nombre]
+        assert cfg.get("ui_tema") == esperado, cfg.get("ui_tema")
+
+        # Ni un color propio: asi sigue a la paleta en vez de fotografiarla.
+        sueltos = [k for k in cfg if k.startswith(("ui_color_", "hud_color_"))]
+        assert not sueltos, f"{nombre} congela colores: {sueltos}"
+
+        # Y lo que se ve al aplicarlo es la paleta del catalogo, no un hibrido.
+        entera = dict(store.DEFAULTS)
+        entera.update(cfg)
+        assert tema.resolver(entera, "ui") == tema.PALETAS[esperado]
+        assert tema.revisar(tema.resolver(entera, "ui")) == []
+
+    # Y no pisan a los de homenaje: son diez, no dos.
+    assert len(ejemplos) >= 10, sorted(ejemplos)
+
+
 def test_ninguna_paleta_baja_del_piso_de_contraste():
     """Todas las paletas, todos los pares, contra el minimo de WCAG AA.
 
@@ -5569,6 +5608,31 @@ def test_ninguna_paleta_baja_del_piso_de_contraste():
         et = tema.sobre(paleta["acento"])
         r = tema.ratio(et, paleta["acento"])
         assert r >= 4.5, f"{nombre}: etiqueta {et} sobre {paleta['acento']} = {r:.2f}"
+
+    # --- Y las SUPERFICIES, que son la otra pregunta ---------------------
+    #
+    # Esto se agrego despues de que el usuario dijera que no veia el rediseno.
+    # No era una impresion: la tarjeta estaba a 1.07-1.20 del fondo en las SEIS
+    # paletas --1.00 son colores identicos-- asi que `chrome.Tarjeta` dibujaba
+    # un hilo. Y el chequeo de arriba pasaba entero, porque mide TEXTO sobre un
+    # fondo y lo que estaba roto era una superficie contra otra.
+    #
+    # Es el mismo modo de falla que este repo ya encontro tres veces: un test
+    # que pasa porque mide lo que no esta roto.
+    ANTES = {"tactico": 1.16, "ambar": 1.16, "fosforo": 1.20,
+             "magenta": 1.11, "oscuro": 1.10, "claro": 1.07}
+    for nombre, paleta in tema.PALETAS.items():
+        sup = tema.ratio(paleta["panel"], paleta["fondo"])
+        assert sup >= 1.3, (
+            f"{nombre}: la tarjeta esta a {sup:.2f} del fondo y no se ve "
+            f"(antes del arreglo daba {ANTES.get(nombre)})")
+        bor = tema.ratio(paleta["borde"], paleta["panel"])
+        assert bor >= 1.5, f"{nombre}: el contorno de la tarjeta da {bor:.2f}"
+
+    # Y que el piso este DECLARADO y no solo comprobado aca: si alguien agrega
+    # una paleta, tiene que fallar sola sin que nadie se acuerde de este test.
+    pares = {(f, d) for f, d, _p, _t in tema.SUPERFICIES}
+    assert ("panel", "fondo") in pares and ("borde", "panel") in pares
 
     # Con la paleta a medio definir tampoco se rompe: `revisar` mira lo que
     # hay. Una paleta personalizada incompleta no puede tumbar el panel.
@@ -5980,10 +6044,16 @@ def test_los_perfiles_que_vienen_se_ven_antes_de_aplicarlos():
 
     from eve import gui
 
-    # 1. Los ocho se leen, y filtrados por `perfilable`: un `.eveperfil`
+    # 1. Los diez se leen, y filtrados por `perfilable`: un `.eveperfil`
     #    editado a mano no puede colar el motor ni los permisos.
+    #
+    #    Eran ocho, todos de homenaje y todos en `ui_tema: personalizado`.
+    #    `Claro` y `Oscuro` se sumaron despues, y son de otra clase: no son una
+    #    personalidad, son las dos paletas neutras --las unicas disenadas
+    #    contra el piso de contraste-- que hasta entonces no se podian elegir
+    #    desde ningun lado.
     ejemplos = store.perfiles_de_ejemplo()
-    assert len(ejemplos) == 8, sorted(ejemplos)
+    assert len(ejemplos) == 10, sorted(ejemplos)
     for nombre, cfg in ejemplos.items():
         colados = [k for k in cfg if not store.perfilable(k)]
         assert not colados, f"{nombre} trae {colados}"
@@ -6017,7 +6087,7 @@ def test_los_perfiles_que_vienen_se_ven_antes_de_aplicarlos():
             panel.update_idletasks()
 
             # 3. Los ocho llegaron al panel, cada uno con su lienzo dibujado.
-            assert len(panel._muestras) == 8, sorted(panel._muestras)
+            assert len(panel._muestras) == 10, sorted(panel._muestras)
             for nombre, (lienzo, _cfg) in panel._muestras.items():
                 assert lienzo.find_all(), f"la muestra de {nombre} salio vacia"
                 # Y con SU color, no con el del panel: `_eve_color_propio` es

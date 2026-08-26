@@ -1,0 +1,30 @@
+{
+ "formato": "eveperfil",
+ "version": 1,
+ "nombre": "Claro",
+ "config": {
+  "ui_tema": "claro",
+  "hud_tema": "oscuro",
+  "ui_pintar_panel": true,
+  "ui_cromo": "tarjeta",
+  "ui_nav": "lateral",
+  "ui_fuente": "Segoe UI",
+  "hud_fuente": "Segoe UI",
+  "sub_fuente": "Segoe UI",
+  "hud_marco_lados": 0,
+  "hud_marco_rot": 0,
+  "hud_marco_redondeo": 10,
+  "hud_marco_grosor": 2,
+  "hud_icono": "circulo",
+  "hud_contorno": "redondeado",
+  "hud_onda": "suave",
+  "hud_forma": "caja",
+  "hud_grad": "ninguno",
+  "hud_grad_a": "",
+  "hud_grad_b": "",
+  "hud_opacidad": 92,
+  "sub_opacidad": 92,
+  "overlay_modo": "auto",
+  "sub_muestra": "ambos"
+ }
+}
