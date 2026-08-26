@@ -58,6 +58,18 @@ if WINDOWS:
     ]
 else:
     OCULTOS += ["pynput"]
+if not MACOS:
+    # El motor de dibujo por GPU. Nada lo importa a nivel de modulo --`gpu.py`
+    # lo hace adentro de una funcion y envuelto, para que su ausencia no pueda
+    # impedir que Eve arranque-- asi que PyInstaller NO los ve solo. Sin esto,
+    # descomentarlos en requirements.txt daria justo la peor falla posible: el
+    # motor andando en desarrollo y ausente en la version instalada, sin que
+    # nada lo diga, que es el mismo modo de falla que documenta `imagenes.py`.
+    #
+    # En macOS no van: ahi el contexto de OpenGL no se puede crear, asi que
+    # tampoco se instala la dependencia.
+    OCULTOS += ["skia", "OpenGL", "OpenGL.GL",
+                "eve.lienzo_skia", "eve.marco_gl"]
 
 # Paquetes que cargan archivos de datos en runtime. PyInstaller NO los copia si
 # no se le pide, y el fallo no aparece hasta que alguien usa la funcion: la v1.0.0

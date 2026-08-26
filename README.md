@@ -581,6 +581,23 @@ cambian nada.
 **Las grabaciones no viajan en el repo.** Son la voz de una persona, asi que viven en la
 carpeta de datos junto a los contactos y los perfiles, en `banco_voz/`.
 
+**Y hay un grabador guiado para hacer uno nuevo**: **Voz > Grabar el banco de voz**.
+Existe por un problema concreto y medido: el banco actual se corto por silencio --umbral
+relativo al pico de cada archivo-- y eso elimino justo los silencios, que es donde vive el
+ruido de fondo. Mediana de **90 ms** antes de la primera palabra, y **uno solo de 24**
+llega a los 300 ms que necesita una estimacion de ruido que no sea ruido ella misma. Sin
+eso, el modo de sensibilidad `auto` no se puede validar.
+
+El grabador abre el microfono **antes** de la cuenta atras --si lo abriera al decir HABLA
+no habria silencio que grabar-- y **rechaza la toma donde te adelantaste**, que es lo que
+un grabador que solo graba dejaria pasar: adelantarse es lo normal cuando uno esta leyendo
+una frase de la pantalla. Guarda sin recortar nada, en `banco_voz_crudo/`.
+
+Las frases salen del `transcripciones.json` del banco viejo, a proposito: grabar las
+MISMAS frases deja el banco nuevo comparable contra los numeros de abajo en vez de empezar
+una serie que no se puede contrastar con nada. **El banco viejo no se toca**: es la linea
+base de todo lo publicado.
+
 Con las 24 referencias escritas, la linea base quedo asi --y de paso decide que modelo
 conviene, que hasta ahora era una corazonada:
 
@@ -1752,7 +1769,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 149 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 153 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

@@ -299,7 +299,13 @@ VOZ = (
                   "microfono de verdad y transcribe con el modelo que tengas elegido.\n"
                   "\nSensibilidad: 'normal' para un cuarto tranquilo, 'ruido' si hay\n"
                   "musica o un juego atras, 'bajo' de madrugada. 'auto' la elige por\n"
-                  "hora; las reglas y los numeros medidos estan en el ajuste fino."),
+                  "hora; las reglas y los numeros medidos estan en el ajuste fino.\n"
+                  "\n'auto' NO se envia todavia, y por eso: el modo correcto mira el\n"
+                  "ruido del ambiente y elige solo, pero el banco con el que se mide\n"
+                  "todo esto se corto por silencio y quedo sin silencios: mediana de\n"
+                  "90 ms antes de la primera palabra, y uno solo de 24 llega a los\n"
+                  "300 que hacen falta. 'Grabar el banco de voz' arregla eso: guia\n"
+                  "la grabacion y no acepta una toma donde te adelantaste."),
         ),
     ),
     Seccion(

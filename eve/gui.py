@@ -2204,6 +2204,147 @@ class Panel(tk.Tk):
         self._mods_refrescar()
         self.estado.config(text=tr("tablero armado: abre la ventana de actividad"))
 
+    def _grabar_banco(self) -> None:
+        """La ventana que guia la grabacion del banco de voz.
+
+        El banco viejo se corto por silencio, y eso elimino justo los silencios
+        --donde vive el ruido de fondo-- asi que el modo de sensibilidad `auto`
+        no se puede validar con el. Medido sobre los 24 clips: mediana de 90 ms
+        antes de la primera palabra y uno solo llega a 300.
+
+        Lo que esta ventana hace, y es todo lo que hace falta, es imponer el
+        silencio y COMPROBARLO antes de aceptar la toma. Un grabador que no lo
+        comprueba deja pasar el mismo problema, porque adelantarse a hablar es
+        lo normal cuando uno esta leyendo una frase de la pantalla.
+        """
+        from . import banco, voice
+
+        frases = banco.frases()
+        if not frases:
+            self.estado.config(
+                text=tr("falta el banco viejo: de ahi salen las frases"),
+                style="Error.TLabel")
+            return
+
+        v = tk.Toplevel(self)
+        v.title(tr("Grabar el banco de voz"))
+        v.geometry("620x340")
+        v.transient(self)
+
+        pendientes = [n for n in sorted(frases) if n not in banco.hechas()]
+        estado = {"grabador": None, "audio": None, "tarea": None}
+
+        cabecera = ttk.Label(v, text="", style="Ayuda.TLabel")
+        cabecera.pack(anchor="w", padx=16, pady=(14, 2))
+        frase = ttk.Label(v, text="", font=(None, 15), wraplength=580,
+                          justify="left")
+        frase.pack(anchor="w", padx=16, pady=(4, 10))
+        aviso = ttk.Label(v, text="", font=(None, 20, "bold"))
+        aviso.pack(anchor="w", padx=16)
+        barra = ttk.Progressbar(v, maximum=1.0, length=580)
+        barra.pack(padx=16, pady=8)
+        detalle = ttk.Label(v, text="", style="Ayuda.TLabel", wraplength=580,
+                            justify="left")
+        detalle.pack(anchor="w", padx=16)
+
+        fila = ttk.Frame(v)
+        fila.pack(side="bottom", fill="x", padx=16, pady=12)
+        b_grabar = ttk.Button(fila, text=tr("Grabar"),
+                              style="Principal.TButton")
+        b_grabar.pack(side="left")
+        b_saltar = ttk.Button(fila, text=tr("Saltar esta"))
+        b_saltar.pack(side="left", padx=6)
+        ttk.Button(fila, text=tr("Cerrar"),
+                   command=v.destroy).pack(side="right")
+
+        def mostrar():
+            if not pendientes:
+                cabecera.config(text=tr("Listo"))
+                frase.config(text=tr("Ya estan las 24. Corre banco_voz.py para medir."))
+                aviso.config(text="")
+                detalle.config(text=banco.escribir_transcripciones())
+                b_grabar.config(state="disabled")
+                b_saltar.config(state="disabled")
+                return
+            nombre = pendientes[0]
+            cabecera.config(text=f"{len(banco.hechas())} / {len(frases)}  ·  {nombre}")
+            frase.config(text=frases[nombre])
+            aviso.config(text="")
+
+        def nivel():
+            g = estado["grabador"]
+            if g is None:
+                return
+            barra["value"] = g.nivel
+            estado["tarea"] = v.after(50, nivel)
+
+        def parar_tareas():
+            if estado["tarea"] is not None:
+                try:
+                    v.after_cancel(estado["tarea"])
+                except tk.TclError:
+                    pass
+                estado["tarea"] = None
+
+        def arrancar():
+            """Graba YA y recien despues avisa: el silencio tiene que quedar
+            adentro del archivo, asi que la cuenta atras va con el microfono
+            abierto. Empezar a grabar cuando aparece HABLA es exactamente lo
+            que dejo al banco viejo sin silencio."""
+            g = voice.Recorder()
+            try:
+                g.start()
+            except Exception as exc:  # noqa: BLE001
+                detalle.config(text=f"{tr('no pude abrir el microfono')}: {exc}")
+                return
+            estado["grabador"] = g
+            b_grabar.config(state="disabled")
+            b_saltar.config(state="disabled")
+            detalle.config(text="")
+            nivel()
+            cuenta(banco.SILENCIO_PEDIDO_MS)
+
+        def cuenta(restan):
+            if restan > 0:
+                aviso.config(text=tr("callate...") + f"  {restan // 100 / 10:.1f}")
+                v.after(100, lambda: cuenta(restan - 100))
+                return
+            aviso.config(text=tr("HABLA"))
+            b_grabar.config(text=tr("Listo"), state="normal",
+                            command=terminar)
+
+        def terminar():
+            parar_tareas()
+            g = estado["grabador"]
+            estado["grabador"] = None
+            barra["value"] = 0
+            b_grabar.config(text=tr("Grabar"), command=arrancar)
+            b_saltar.config(state="normal")
+            aviso.config(text="")
+            audio = g.stop() if g is not None else None
+            if audio is None or not len(audio):
+                detalle.config(text=tr("no entro audio"))
+                return
+            sirve, motivo = banco.revisar(audio)
+            detalle.config(text=motivo)
+            if not sirve:
+                return   # se repite: no se guarda una toma que no sirve
+            banco.guardar(pendientes[0], audio)
+            banco.escribir_transcripciones()
+            pendientes.pop(0)
+            mostrar()
+
+        def saltar():
+            if pendientes:
+                pendientes.pop(0)
+            mostrar()
+
+        b_grabar.config(command=arrancar)
+        b_saltar.config(command=saltar)
+        v.protocol("WM_DELETE_WINDOW",
+                   lambda: (parar_tareas(), v.destroy()))
+        mostrar()
+
     def _revisar_listener(self) -> None:
         """Abre el asistente si no esta, y si esta lo dice sin abrir otro.
 

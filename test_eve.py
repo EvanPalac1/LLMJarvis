@@ -5269,6 +5269,223 @@ def test_los_modulos_que_se_pisan_se_dejan_ver():
         raiz.destroy()
 
 
+def test_lo_que_se_instala_tambien_viaja_en_el_binario():
+    """Una dependencia declarada que PyInstaller no ve es peor que no tenerla.
+
+    El modo de falla es el que este proyecto ya documento en `imagenes.py`:
+    anda en desarrollo y no en la version instalada, sin que nada lo diga. Pasa
+    con toda libreria que solo se importe adentro de una funcion, que es
+    justamente lo que se hace con las opcionales para que su ausencia no pueda
+    impedir que Eve arranque.
+
+    `skia-python` y `PyOpenGL` son el caso exacto: `gpu.py` las importa adentro
+    de `_probar()` y envueltas en try. Estuvieron comentadas en
+    `requirements.txt` hasta v1.15.0, y descomentarlas sin tocar `OCULTOS`
+    habria dejado el motor por GPU andando aca y ausente en los instaladores.
+
+    Se comprueba la regla y no el caso: si manana entra otra opcional que se
+    importe diferida, esto la pide sin que nadie se acuerde.
+    """
+    import build
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(raiz, "requirements.txt"), encoding="utf-8") as f:
+        crudo = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+
+    # Los que se importan diferidos, con el modulo que hay que declarar. La
+    # izquierda es como se llama en requirements y la derecha lo que importa
+    # el codigo, que no siempre coinciden --`skia-python` importa `skia`.
+    DIFERIDAS = {
+        "skia-python": ("skia", "eve.lienzo_skia"),
+        "PyOpenGL": ("OpenGL", "eve.marco_gl"),
+        "rlottie-python": ("rlottie_python",),
+    }
+    for linea in crudo:
+        nombre = re.split(r"[<>=;\s]", linea, 1)[0]
+        if nombre not in DIFERIDAS:
+            continue
+        # Si el marcador excluye a esta plataforma, tampoco tiene que viajar:
+        # en macOS no se instala skia porque ahi no hay contexto de OpenGL.
+        if "sys_platform" in linea:
+            marcador = linea.split(";", 1)[1]
+            if 'sys_platform != "darwin"' in marcador and build.MACOS:
+                continue
+        for modulo in DIFERIDAS[nombre]:
+            assert modulo in build.OCULTOS, (
+                f"{nombre} esta en requirements.txt pero {modulo!r} no esta en "
+                "OCULTOS: PyInstaller no lo va a ver y el binario va a salir sin "
+                "el, andando en desarrollo y roto instalado")
+
+    # Y al reves: declarar en OCULTOS algo que no se instala hace que el build
+    # falle con un import que no existe.
+    paquetes = {re.split(r"[<>=;\s]", l, 1)[0] for l in crudo}
+    for req, modulos_ in DIFERIDAS.items():
+        if req in paquetes:
+            continue
+        colados = [m for m in modulos_ if m in build.OCULTOS and "." not in m
+                   and not m.startswith("eve.")]
+        assert not colados, f"{colados} en OCULTOS sin {req} en requirements"
+
+
+def test_el_motor_por_gpu_ya_no_esta_comentado():
+    """El criterio que el plan puso para descomentarlas, comprobado.
+
+    Decia, textual: "se descomentan cuando el port este hecho, no cuando la
+    puerta pase". La puerta --que las ruedas existan para los cinco objetivos--
+    habia pasado hacia rato; el port no. Pagar 16 MB en cinco instaladores para
+    dibujar UN tipo de modulo era pagar por adelantado.
+
+    Este test es lo que evita que ese criterio se pierda: si alguien vuelve a
+    comentarlas teniendo el port hecho, o las descomenta ANTES de tenerlo, lo
+    dice. Lo que se mira es que los trece tipos esten portados, que es la
+    condicion entera.
+    """
+    from eve import lienzo_skia, modulos as mods
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(raiz, "requirements.txt"), encoding="utf-8") as f:
+        texto = f.read()
+
+    faltan = sorted(set(mods.TIPOS) - set(lienzo_skia.PORTADOS))
+    activa = any(l.strip().startswith("skia-python")
+                 for l in texto.splitlines())
+    if faltan:
+        assert not activa, (
+            f"skia-python esta activa y faltan tipos por portar: {faltan}. "
+            "El criterio es al reves: primero el port, despues el peso")
+        return
+    assert activa, ("los trece tipos estan portados; skia-python tendria que "
+                    "estar activa en requirements.txt")
+    # Y sin viajar a macOS, donde el contexto no se puede crear.
+    for linea in texto.splitlines():
+        if linea.strip().startswith(("skia-python", "PyOpenGL")):
+            assert 'sys_platform != "darwin"' in linea, (
+                f"{linea.strip()!r} viaja a macOS, donde Apple dio de baja "
+                "OpenGL: son 16 MB por una capacidad que no se puede encender")
+
+
+def test_el_grabador_no_acepta_una_toma_sin_silencio():
+    """El grabador guiado del banco, que es lo unico que destraba el modo `auto`.
+
+    El banco viejo se corto por silencio --umbral relativo al pico de cada
+    archivo-- y eso elimino justo los silencios, que es donde vive el ruido de
+    fondo. Medido sobre los 24 clips: mediana de 90 ms antes de la primera
+    palabra y UNO llega a los 300 que hacen falta. Sin eso no se puede estimar
+    la relacion senal-ruido de cada clip, y sin eso `auto` no se puede validar.
+
+    Lo que se comprueba aca es lo unico que de verdad importa del grabador: que
+    RECHACE la toma donde el usuario se adelanto. Un grabador que graba y
+    guarda deja pasar el mismo problema que vino a resolver, porque adelantarse
+    es lo normal cuando uno esta leyendo una frase de la pantalla.
+    """
+    import numpy as np
+
+    from eve import banco, voice
+
+    sr = voice.SAMPLE_RATE
+    rng = np.random.default_rng(11)
+    ruido = lambda n, s: rng.normal(0, s, int(n)).astype("float32")  # noqa: E731
+
+    # Una toma buena: un segundo de sala callada y despues voz.
+    buena = np.concatenate([ruido(sr, 0.002), ruido(sr, 0.25)])
+    sirve, motivo = banco.revisar(buena)
+    assert sirve, motivo
+    assert "1000 ms" in motivo, motivo
+
+    # Adelantandose: 50 ms de silencio. Es el caso del banco viejo.
+    corta = np.concatenate([ruido(sr * 0.05, 0.002), ruido(sr, 0.25)])
+    sirve, motivo = banco.revisar(corta)
+    assert not sirve and "adelantaste" in motivo, motivo
+
+    # Y el umbral se respeta justo por debajo y justo por encima, que es donde
+    # un `>=` mal puesto no se nota.
+    for ms, espera in ((banco.SILENCIO_MINIMO_MS - 40, False),
+                       (banco.SILENCIO_MINIMO_MS + 40, True)):
+        clip = np.concatenate([ruido(sr * ms / 1000, 0.002), ruido(sr, 0.25)])
+        assert banco.revisar(clip)[0] is espera, ms
+
+    # Muy bajo: no sirve aunque el silencio este bien. Un clip inaudible no se
+    # descarta solo despues; se descarta ahora, que es cuando se puede repetir.
+    bajo = np.concatenate([ruido(sr, 0.0005), ruido(sr, 0.004)])
+    assert not banco.revisar(bajo)[0]
+
+    # Muy corto tampoco.
+    assert not banco.revisar(ruido(sr * 0.2, 0.2))[0]
+
+    # El ruido de fondo SE PUEDE medir con silencio y no sin el. Es el dato que
+    # el banco viejo no puede dar, o sea la razon entera de este modulo.
+    assert -80 < banco.ruido_de_fondo_db(buena) < -30, banco.ruido_de_fondo_db(buena)
+    assert banco.ruido_de_fondo_db(corta) == -120.0
+
+    # Y dos salas distintas dan numeros distintos: si diera lo mismo, no
+    # serviria para elegir la sensibilidad, que es para lo que se graba.
+    callada = np.concatenate([ruido(sr, 0.001), ruido(sr, 0.25)])
+    ruidosa = np.concatenate([ruido(sr, 0.02), ruido(sr, 0.25)])
+    assert banco.ruido_de_fondo_db(ruidosa) - banco.ruido_de_fondo_db(callada) > 15
+
+    # Guardar NO recorta: es la otra mitad. Que el archivo salga con los mismos
+    # cuadros que entraron es lo que separa este banco del viejo.
+    with tempfile.TemporaryDirectory() as raiz:
+        previo = store.BASE
+        store.BASE = raiz
+        try:
+            ruta = banco.guardar("limpio_01.wav", buena)
+            import wave
+
+            with wave.open(ruta) as f:
+                assert f.getnframes() == len(buena), (f.getnframes(), len(buena))
+                assert f.getframerate() == sr
+            leido = banco.silencio_inicial_ms(
+                np.frombuffer(open(ruta, "rb").read()[44:],
+                              dtype="<i2").astype("float32") / 32767)
+            assert leido > banco.SILENCIO_MINIMO_MS, leido
+
+            # Las frases salen del banco viejo para que los dos se puedan
+            # comparar; inventarlas aca haria que los numeros no se contrasten
+            # con nada.
+            assert banco.hechas() == {"limpio_01.wav"}
+        finally:
+            store.BASE = previo
+
+
+def test_el_panel_abre_el_grabador_sin_romperse():
+    """La ventana se arma y camina, sin tocar el microfono de verdad."""
+    import tkinter as tk
+
+    from eve import gui
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (sin pantalla, se saltea)")
+        return
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previos = (store.CONFIG_PATH, store.BASE)
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        panel = None
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            panel = gui.Panel()
+            panel.withdraw()
+            # Con el metodo enganchado al boton del registro: si se renombra,
+            # el panel se arma con un boton que no hace nada y nadie se entera.
+            assert hasattr(panel, "_grabar_banco"), \
+                "el boton del registro apunta a un metodo que no existe"
+            panel._grabar_banco()
+            hijas = [w for w in panel.winfo_children()
+                     if isinstance(w, tk.Toplevel)]
+            assert hijas, "no abrio la ventana"
+            hijas[0].destroy()
+        finally:
+            if panel is not None:
+                try:
+                    panel.destroy()
+                except Exception:  # noqa: BLE001
+                    pass
+            store.CONFIG_PATH, store.BASE = previos
+
+
 def test_monitores():
     """Enumerar pantallas, que tkinter no sabe hacer en ningun sistema.
 

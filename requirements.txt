@@ -49,8 +49,21 @@ rlottie-python>=1.3.8
 # regla dice que una DEPENDENCIA no entra si no publica para los cinco, y estas
 # dos publican y se instalan bien en macOS. Lo que no anda es la CAPACIDAD, que
 # es el patron que el proyecto ya usa con `modo_transparencia()`.
-# skia-python>=87.0
-# PyOpenGL>=3.1.7
+#
+# ENTRARON EN v1.15.0. Estuvieron comentadas hasta aca a proposito, con un
+# criterio escrito: "se descomentan cuando el port este hecho, no cuando la
+# puerta pase". La puerta habia pasado hace rato; el port no. Ahora si: los
+# TRECE tipos dibujan por Skia, el modo Edit corre entero encima --contorno,
+# guia del cartel y los tiradores-- y el grafo da numeros identicos por los dos
+# caminos. Antes de esto se habrian pagado 16 MB en cinco instaladores para
+# dibujar un solo tipo de modulo.
+#
+# Y NO viajan a macOS, que es lo que hace que el precio valga: ahi el contexto
+# de OpenGL no se puede crear --Apple lo dio de baja en 10.14-- asi que serian
+# 16 MB para una capacidad que no se puede encender. El marcador es el mismo
+# recurso que ya usan `keyboard` y `onnxruntime` un poco mas abajo.
+skia-python>=87.0; sys_platform != "darwin"
+PyOpenGL>=3.1.7; sys_platform != "darwin"
 
 # Voces de la comunidad (Piper). Wheels para Windows, macOS Intel/ARM y Linux x64/ARM.
 # Es el unico TTS que funciona igual en los tres: SAPI solo existe en Windows.

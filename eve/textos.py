@@ -162,6 +162,54 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Cerrar":
+        "Close",
+    "Grabar":
+        "Record",
+    "Grabar el banco de voz":
+        "Record the voice bank",
+    "HABLA":
+        "SPEAK",
+    "Listo":
+        "Done",
+    "Saltar esta":
+        "Skip this one",
+    "callate...":
+        "stay quiet...",
+    "no entro audio":
+        "no audio came in",
+    "no pude abrir el microfono":
+        "could not open the microphone",
+    "falta el banco viejo: de ahi salen las frases":
+        "the old bank is missing: that is where the phrases come from",
+    "Ya estan las 24. Corre banco_voz.py para medir.":
+        "All 24 are in. Run banco_voz.py to measure.",
+    "Probar recorre el camino entero y no una pieza suelta: graba de tu\n"
+    "microfono de verdad y transcribe con el modelo que tengas elegido.\n"
+    "\n"
+    "Sensibilidad: 'normal' para un cuarto tranquilo, 'ruido' si hay\n"
+    "musica o un juego atras, 'bajo' de madrugada. 'auto' la elige por\n"
+    "hora; las reglas y los numeros medidos estan en el ajuste fino.\n"
+    "\n"
+    "'auto' NO se envia todavia, y por eso: el modo correcto mira el\n"
+    "ruido del ambiente y elige solo, pero el banco con el que se mide\n"
+    "todo esto se corto por silencio y quedo sin silencios: mediana de\n"
+    "90 ms antes de la primera palabra, y uno solo de 24 llega a los\n"
+    "300 que hacen falta. 'Grabar el banco de voz' arregla eso: guia\n"
+    "la grabacion y no acepta una toma donde te adelantaste.":
+        "Testing walks the whole path and not one piece of it: it records from\n"
+        "your real microphone and transcribes with the model you picked.\n"
+        "\n"
+        "Sensitivity: 'normal' for a quiet room, 'ruido' if there is music or a\n"
+        "game behind, 'bajo' late at night. 'auto' picks by the clock; the rules\n"
+        "and the measured numbers are under fine tuning.\n"
+        "\n"
+        "'auto' does NOT ship yet, and here is why: the right mode looks at the\n"
+        "room noise and picks on its own, but the bank everything is measured\n"
+        "against was cut by silence and ended up with no silences: a median of\n"
+        "90 ms before the first word, and only one clip out of 24 reaches the\n"
+        "300 that are needed. 'Record the voice bank' fixes that: it guides the\n"
+        "recording and refuses a take where you spoke too early.",
     "Revisar listener":
         "Check listener",
     "abriendo el listener...":
@@ -1162,18 +1210,6 @@ EN = {
         "Test that it hears you",
     "Probar que te habla":
         "Test that it speaks",
-    "Probar recorre el camino entero y no una pieza suelta: graba de tu\n"
-    "microfono de verdad y transcribe con el modelo que tengas elegido.\n"
-    "\n"
-    "Sensibilidad: 'normal' para un cuarto tranquilo, 'ruido' si hay\n"
-    "musica o un juego atras, 'bajo' de madrugada. 'auto' la elige por\n"
-    "hora; las reglas y los numeros medidos estan en el ajuste fino.":
-        "Testing walks the whole path and not one loose piece: it records from\n"
-        "your real microphone and transcribes with the model you picked.\n"
-        "\n"
-        "Sensitivity: 'normal' for a quiet room, 'ruido' if there is music or a\n"
-        "game behind, 'bajo' late at night. 'auto' picks by the clock; the rules\n"
-        "and the measured numbers live under fine tuning.",
     "Programas":
         "Programs",
     "Programas que Eve conoce":

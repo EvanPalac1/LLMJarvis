@@ -299,6 +299,26 @@ bajarla atenúa el fondo pero el texto sigue entero.
 
 ---
 
+## Cómo se dibuja: Pillow o la GPU
+
+**Apariencia → Tema → Fluidez → Motor de dibujo**, con tres valores:
+
+| | |
+|---|---|
+| `auto` | usa la GPU si la máquina puede, y si no cae a Pillow **diciendo por qué** (por defecto) |
+| `skia` | pedirlo a mano. Si no se puede, cae igual: un ajuste que no hace lo que dice y no lo avisa es peor que no tenerlo |
+| `pillow` | por CPU siempre |
+
+Los trece tipos dibujan por los dos caminos y el modo Edit funciona entero
+encima del de GPU —contorno, guía del cartel y los puntos de agarre—.
+
+**En macOS siempre es Pillow**, y no es algo que falte terminar: Apple dio de
+baja OpenGL en 10.14, así que ahí el contexto no se puede crear. Por eso las
+librerías del motor por GPU **ni siquiera se instalan en macOS**: serían 17 MB
+por una capacidad que no se puede encender.
+
+---
+
 ## Dónde vive todo
 
 ```
@@ -344,7 +364,7 @@ que te pasan no puede cambiarte cómo trabaja el asistente ni llevarse tus clave
 | El cartel no aparece | **Apariencia → Cartel → Mostrar el cartel**. Si aparece, el problema es `Cuando se ve` |
 | Un módulo no se ve | `opacidad` (se multiplica con la de la ventana), `cuando`, y `pantalla` si tenés dos monitores |
 | Un botón no responde | Tiene que estar en modo **Work**. En Edit el clic elige, no acciona |
-| Va a tirones | **Apariencia → Tema → Fluidez**: bajá `ui_fps` antes que apagar módulos |
+| Va a tirones | **Apariencia → Tema → Fluidez**: bajá `ui_fps`, o poné `Motor de dibujo` en `skia` |
 | Puse uno en el cartel y no lo encuentro | En la ventana de actividad, modo Edit, poné **Editando: cartel** |
 | Un módulo del cartel se ve cortado | Está pasado del recuadro punteado: el cartel mide 460×128 por su escala |
 | Uno encima tapa al de abajo | No debería: fijate `opacidad` y el fondo del módulo de arriba, que puede ser opaco a propósito |

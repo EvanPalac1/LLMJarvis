@@ -74,6 +74,13 @@ PROPIOS_DIFERIDOS = [
     # NINGUNA de las tres ventanas, y ese es exactamente el tipo de cosa que se
     # da por sentada hasta que un dia no viaja.
     "eve.textos",
+    # El motor por GPU. Los dos importan SIN `skia` ni `PyOpenGL` --las traen
+    # adentro de funciones, para que su ausencia no impida arrancar-- asi que
+    # comprobarlos aca vale en los cinco objetivos, incluido macOS, donde las
+    # librerias no se instalan. Lo que se comprueba es que los MODULOS viajen;
+    # que la capacidad sirva lo dice `--probar-gpu`, que abre un contexto de
+    # verdad y cuenta pixeles.
+    "eve.lienzo_skia", "eve.marco_gl",
 ]
 if sys.platform == "win32":
     # Lo usa `plataforma.archivo_de_fuente` para traducir "Constantia" a
