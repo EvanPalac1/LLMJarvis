@@ -5452,7 +5452,9 @@ def test_el_panel_abre_el_grabador_sin_romperse():
     """La ventana se arma y camina, sin tocar el microfono de verdad."""
     import tkinter as tk
 
-    from eve import gui
+    import json
+
+    from eve import banco, gui
 
     try:
         tk.Tk().destroy()
@@ -5463,6 +5465,14 @@ def test_el_panel_abre_el_grabador_sin_romperse():
     with tempfile.TemporaryDirectory() as raiz:
         previos = (store.CONFIG_PATH, store.BASE)
         store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        # `store.BASE` TAMBIEN, y esto es lo que la primera version se
+        # olvido: sin pisarlo, `banco.frases()` leia el banco de voz de la
+        # maquina que corre el test. Aca existe y en CI no --son
+        # grabaciones de una persona y no viajan al repo-- asi que pasaba
+        # en verde en desarrollo y se caia en los tres runners con
+        # pantalla. Un test que depende de los datos de quien lo corre no
+        # prueba nada.
+        store.BASE = raiz
         panel = None
         try:
             store.save_config(dict(store.DEFAULTS))
@@ -5472,6 +5482,23 @@ def test_el_panel_abre_el_grabador_sin_romperse():
             # el panel se arma con un boton que no hace nada y nadie se entera.
             assert hasattr(panel, "_grabar_banco"), \
                 "el boton del registro apunta a un metodo que no existe"
+
+            # Sin banco viejo NO abre la ventana: lo dice y se queda. Las
+            # frases salen de ahi, asi que una ventana vacia seria peor
+            # que el mensaje.
+            panel._grabar_banco()
+            assert not [w for w in panel.winfo_children()
+                        if isinstance(w, tk.Toplevel)], \
+                "abrio la ventana sin frases que grabar"
+
+            # Con banco viejo si.
+            viejo = os.path.join(raiz, banco.CARPETA_VIEJA)
+            os.makedirs(viejo, exist_ok=True)
+            with open(os.path.join(viejo, banco.TRANSCRIPCIONES), "w",
+                      encoding="utf-8") as f:
+                json.dump({"limpio_01.wav": "hola que tal",
+                           "ruido_01.wav": "poneme musica"}, f)
+            assert len(banco.frases()) == 2
             panel._grabar_banco()
             hijas = [w for w in panel.winfo_children()
                      if isinstance(w, tk.Toplevel)]
