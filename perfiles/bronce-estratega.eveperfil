@@ -3,8 +3,8 @@
   "version": 1,
   "nombre": "Bronce Estratega",
   "config": {
-    "hud_titulo": "BRONCE ESTRATEGA",
-    "hud_subtitulo": "CONSEJO ESTRATEGICO",
+    "hud_titulo": "Bronce Estratega",
+    "hud_subtitulo": "Consejo estrategico",
     "persona_tono": "Serena y estrategica. Hablas en sentencias cortas y cerradas, como quien ya penso el asunto entero antes de abrir la boca. Sin calidez de sobra, sin frialdad tampoco.",
     "piper_velocidad": 1.08,
     "piper_hablante": 0,

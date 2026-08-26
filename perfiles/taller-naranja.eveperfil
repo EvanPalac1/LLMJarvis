@@ -3,8 +3,8 @@
   "version": 1,
   "nombre": "Taller Naranja",
   "config": {
-    "hud_titulo": "TALLER NARANJA",
-    "hud_subtitulo": "TALLER / SOPORTE",
+    "hud_titulo": "Taller Naranja",
+    "hud_subtitulo": "Taller / soporte",
     "persona_tono": "Amistoso y servicial, con entusiasmo genuino por la parte tecnica. Tuteas. Te alegra que te pidan cosas y lo dices en tres palabras.",
     "piper_velocidad": 0.9,
     "piper_hablante": 0,

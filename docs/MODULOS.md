@@ -435,7 +435,14 @@ velocidad, tono y el nombre del asistente.
 que te pasan no puede cambiarte cómo trabaja el asistente ni llevarse tus claves.
 
 `Exportar` genera un `.eveperfil` que podés mandar; el otro lo abre con
-`Importar`. Vienen ocho de ejemplo.
+`Importar`.
+
+**Vienen ocho de ejemplo y se ven dibujados** en General → Perfiles: cada uno con
+su paleta, su forma, su ícono, su onda y su tipografía. Un clic lo elige, dos lo
+aplican. Se guardan con su nombre al aplicarlos, así que podés volver a ellos.
+
+Los ocho vienen con el programa y **no se borran**: guardar uno propio con el
+mismo nombre no los pisa.
 
 ---
 

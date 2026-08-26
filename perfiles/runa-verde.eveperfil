@@ -3,8 +3,8 @@
   "version": 1,
   "nombre": "Runa Verde",
   "config": {
-    "hud_titulo": "RUNA VERDE",
-    "hud_subtitulo": "ARCHIVO ANTIGUO",
+    "hud_titulo": "Runa Verde",
+    "hud_subtitulo": "Archivo antiguo",
     "persona_tono": "Narrador sabio y calido, de los que saben mucho y lo sueltan corto. Tuteas con confianza y llamas al usuario por su nombre. Nada de discursos: una linea que suene a que hay diez detras.",
     "piper_velocidad": 1.12,
     "piper_hablante": 0,

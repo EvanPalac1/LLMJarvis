@@ -1444,6 +1444,7 @@ class Panel(tk.Tk):
     def _bloque_perfiles(self, nb):
         t = ttk.Frame(nb)
         caja = self._seccion(t, tr("Perfiles"))
+        self._galeria_perfiles(caja)
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=(8, 4))
         ttk.Label(fila, text=tr("Perfil activo"), width=24).pack(side="left")
@@ -1471,6 +1472,104 @@ class Panel(tk.Tk):
             "perfil que te pasan no puede cambiarte como trabaja el asistente."),
         )
         return t
+
+    ESCALA_MUESTRA = 46      # % del tamaño real del cartel
+
+    def _galeria_perfiles(self, padre) -> None:
+        """Los ocho perfiles que vienen, dibujados como se van a ver.
+
+        Hasta ahora se llegaba a ellos por Importar y un dialogo de archivos:
+        habia que saber que existian, donde estaban, y abrirlos de a uno para
+        ver cual era cual. Un tema que no se puede ver antes de aplicarlo no se
+        elige, se sortea.
+
+        Cada muestra la dibuja **el mismo `overlay.Pintor` que el cartel de
+        verdad**, con la escala bajada. No es una imagen de promocion que
+        alguien tiene que acordarse de regenerar: si el dibujo del cartel
+        cambia, las muestras cambian con el. Es lo mismo que ya hace la vista
+        previa de Apariencia.
+        """
+        from . import overlay as ov
+        from . import tema as tema_mod
+
+        ejemplos = store.perfiles_de_ejemplo()
+        if not ejemplos:
+            return
+        self._muestras: dict = {}
+        rejilla = ttk.Frame(padre)
+        rejilla.pack(fill="x", padx=12, pady=(8, 2))
+        # Tres y no cuatro: la barra lateral se lleva 178 px del ancho, y con
+        # cuatro la ultima columna quedaba cortada por el borde de la tarjeta.
+        # Se conto sobre la captura, no a ojo.
+        por_fila = 3
+        ancho = int(ov.ANCHO * self.ESCALA_MUESTRA / 100)
+        alto = int(ov.ALTO * self.ESCALA_MUESTRA / 100)
+
+        for i, (nombre, propio) in enumerate(sorted(ejemplos.items())):
+            fila, col = divmod(i, por_fila)
+            celda = ttk.Frame(rejilla)
+            celda.grid(row=fila, column=col, padx=(0, 10), pady=(0, 10), sticky="w")
+
+            cfg = {**store.DEFAULTS, **propio}
+            cfg["hud_escala"] = self.ESCALA_MUESTRA
+            lienzo = tk.Canvas(celda, width=ancho, height=alto,
+                               highlightthickness=0, borderwidth=0)
+            # `_eve_color_propio`: la muestra ES el color del perfil, y el
+            # repintado del tema la dejaria del color del panel, o sea todas
+            # iguales -- que es lo contrario de para lo que esta.
+            lienzo._eve_color_propio = True
+            lienzo.pack()
+            try:
+                paleta = tema_mod.resolver(cfg, "hud")
+                lienzo.configure(background=paleta["fondo"])
+                pintor = ov.Pintor(cfg, paleta)
+                pintor.pintar(lienzo, "escuchando",
+                              cfg.get("hud_titulo") or nombre,
+                              cfg.get("hud_subtitulo") or "")
+            except Exception as exc:  # noqa: BLE001 - un perfil roto no tumba el panel
+                lienzo.create_text(ancho / 2, alto / 2, text=str(exc)[:40],
+                                   fill=tema_mod.PALETAS["oscuro"]["alerta"])
+
+            rotulo = ttk.Label(celda, text=nombre, style="Ayuda.TLabel")
+            rotulo.pack(anchor="w", pady=(3, 0))
+            self._muestras[nombre] = (lienzo, propio)
+            for w in (lienzo, rotulo):
+                w.bind("<Button-1>",
+                       lambda _e, n=nombre: self._elegir_muestra(n))
+                w.bind("<Double-Button-1>",
+                       lambda _e, n=nombre: self._aplicar_muestra(n))
+
+        self._ayuda(padre, tr(
+            "Un clic para elegirlo, dos para aplicarlo. Vienen con el programa y no\n"
+            "se borran: guardar uno propio con el mismo nombre no los pisa."))
+
+    def _elegir_muestra(self, nombre: str) -> None:
+        """Deja el nombre puesto en el combo, sin aplicar nada todavia."""
+        if hasattr(self, "perfil_var"):
+            self.perfil_var.set(nombre)
+        self.estado.config(text=f"{tr('elegido')}: {nombre}", style="Ayuda.TLabel")
+
+    def _aplicar_muestra(self, nombre: str) -> None:
+        """Aplica un perfil de ejemplo sin tener que importarlo primero.
+
+        Se guarda con su nombre antes de aplicarlo: asi queda en la lista de
+        los tuyos y se puede volver a el, en vez de ser algo que se aplico una
+        vez y no se sabe como recuperar.
+        """
+        propio = dict(self._muestras.get(nombre, (None, {}))[1])
+        if not propio:
+            return
+        # Primero se guarda como uno tuyo y despues se delega en `_perfil_cargar`,
+        # que es el camino que ya existe: pide confirmacion, aplica y cierra el
+        # panel para que vuelva a armarse con el tema nuevo. Escribir aca un
+        # segundo camino que aplique distinto es como se terminan teniendo dos
+        # comportamientos para lo mismo.
+        store.guardar_perfil(nombre, {**store.load_config(), **propio})
+        if hasattr(self, "perfil_combo"):
+            self.perfil_combo.config(values=sorted(store.listar_perfiles()))
+        if hasattr(self, "perfil_var"):
+            self.perfil_var.set(nombre)
+        self._perfil_cargar()
 
     def _perfil_cargar(self):
         nombre = self.perfil_var.get()

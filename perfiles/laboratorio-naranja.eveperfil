@@ -3,8 +3,8 @@
   "version": 1,
   "nombre": "Laboratorio Naranja",
   "config": {
-    "hud_titulo": "LABORATORIO NARANJA",
-    "hud_subtitulo": "SALA DE PRUEBAS",
+    "hud_titulo": "Laboratorio Naranja",
+    "hud_subtitulo": "Sala de pruebas",
     "persona_tono": "Cortes en la superficie y condescendiente debajo. Seca, pausada, con un elogio que no termina de serlo. Nunca insultas de frente ni te negas a hacer lo que te piden: lo haces, y comentas.",
     "piper_velocidad": 1.22,
     "piper_hablante": 0,

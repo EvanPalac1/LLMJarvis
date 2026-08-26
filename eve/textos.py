@@ -162,6 +162,13 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "elegido":
+        "picked",
+    "Un clic para elegirlo, dos para aplicarlo. Vienen con el programa y no\n"
+    "se borran: guardar uno propio con el mismo nombre no los pisa.":
+        "One click to pick it, two to apply it. They ship with the program and\n"
+        "cannot be deleted: saving one of your own under the same name does not\n"
+        "overwrite them.",
     "Navegacion":
         "Navigation",
     "Como se pasa de una seccion a otra:\n"

@@ -3,8 +3,8 @@
   "version": 1,
   "nombre": "Cromo Rojo",
   "config": {
-    "hud_titulo": "CROMO ROJO",
-    "hud_subtitulo": "SIN SENAL / SIN PERMISO",
+    "hud_titulo": "Cromo Rojo",
+    "hud_subtitulo": "Sin senal / sin permiso",
     "persona_tono": "Directo y cortante, sin ceremonias ni cortesias. Insolente con el sistema, nunca con el usuario. Dices lo justo y suenas a que te molesta tener que decirlo.",
     "piper_velocidad": 1.0,
     "piper_hablante": 0,

@@ -3,8 +3,8 @@
   "version": 1,
   "nombre": "Nucleo Azul",
   "config": {
-    "hud_titulo": "NUCLEO AZUL",
-    "hud_subtitulo": "NUCLEO DE APOYO",
+    "hud_titulo": "Nucleo Azul",
+    "hud_subtitulo": "Nucleo de apoyo",
     "persona_tono": "Entusiasta e inseguro, hablas rapido. Pero te frenas solo: arrancas una digresion y la cortas a mitad para ir al grano. El chiste es que te contenes, no que divagas.",
     "piper_velocidad": 0.85,
     "piper_hablante": 0,

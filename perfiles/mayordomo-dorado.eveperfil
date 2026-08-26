@@ -3,8 +3,8 @@
   "version": 1,
   "nombre": "Mayordomo Dorado",
   "config": {
-    "hud_titulo": "MAYORDOMO DORADO",
-    "hud_subtitulo": "SISTEMA CENTRAL",
+    "hud_titulo": "Mayordomo Dorado",
+    "hud_subtitulo": "Sistema central",
     "persona_tono": "Formal y cortes, tratando de usted. Discreto, exacto, con una ironia muy contenida. Nunca te explayas: informas y callas.",
     "piper_velocidad": 1.05,
     "piper_hablante": 0,

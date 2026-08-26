@@ -752,6 +752,39 @@ def listar_perfiles() -> dict:
     return datos if isinstance(datos, dict) else {}
 
 
+def perfiles_de_ejemplo() -> dict:
+    """{nombre: config} de los `.eveperfil` que viajan con el programa.
+
+    Son ocho y hasta ahora solo se llegaba a ellos por Importar y un dialogo de
+    archivos: habia que saber que existian, saber donde estaban, y abrirlos de
+    a uno para ver cual era cual. Un tema que no se puede ver antes de
+    aplicarlo no se elige, se sortea.
+
+    No se mezclan con `listar_perfiles`, que son los TUYOS: estos no se pueden
+    borrar ni pisar, y que se distingan es lo que evita que guardar uno propio
+    con el mismo nombre haga desaparecer al de fabrica.
+    """
+    import glob
+
+    from . import plataforma
+
+    carpeta = os.path.join(plataforma.recursos(), "perfiles")
+    salida = {}
+    for ruta in sorted(glob.glob(os.path.join(carpeta, "*.eveperfil"))):
+        try:
+            with open(ruta, encoding="utf-8") as f:
+                datos = json.load(f)
+        except (OSError, ValueError):
+            continue   # un archivo roto no puede tumbar el panel
+        cfg = datos.get("config")
+        nombre = str(datos.get("nombre") or "").strip()
+        if isinstance(cfg, dict) and nombre:
+            # Se filtra por `perfilable` igual que al guardar: un archivo
+            # editado a mano no puede colar el motor ni los permisos.
+            salida[nombre] = {k: v for k, v in cfg.items() if perfilable(k)}
+    return salida
+
+
 def guardar_perfil(nombre: str, cfg: dict) -> None:
     nombre = nombre.strip()
     if not nombre:

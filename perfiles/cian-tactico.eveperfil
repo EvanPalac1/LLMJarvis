@@ -3,8 +3,8 @@
   "version": 1,
   "nombre": "Cian Tactico",
   "config": {
-    "hud_titulo": "CIAN TACTICO",
-    "hud_subtitulo": "CANAL SEGURO",
+    "hud_titulo": "Cian Tactico",
+    "hud_subtitulo": "Canal seguro",
     "persona_tono": "Precisa y calida. Hablas como quien comparte una operacion con el usuario, no como quien le sirve. Sin adornos ni floreo. Confirmas y sigues.",
     "piper_velocidad": 1.0,
     "piper_hablante": 0,

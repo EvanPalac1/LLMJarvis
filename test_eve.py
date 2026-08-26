@@ -5964,6 +5964,86 @@ def test_la_cuadricula_solo_aparece_en_edit():
             store.CONFIG_PATH = previo
 
 
+def test_los_perfiles_que_vienen_se_ven_antes_de_aplicarlos():
+    """Los ocho de fabrica, dibujados en el panel en vez de escondidos.
+
+    Hasta ahora se llegaba a ellos por Importar y un dialogo de archivos: habia
+    que saber que existian, saber donde estaban, y abrirlos de a uno para ver
+    cual era cual. Un tema que no se puede ver antes de aplicarlo no se elige,
+    se sortea.
+
+    Cada muestra la dibuja **el mismo `overlay.Pintor` que el cartel de
+    verdad**, con la escala bajada -- no es una imagen de promocion que alguien
+    tiene que acordarse de regenerar cuando cambie el dibujo.
+    """
+    import tkinter as tk
+
+    from eve import gui
+
+    # 1. Los ocho se leen, y filtrados por `perfilable`: un `.eveperfil`
+    #    editado a mano no puede colar el motor ni los permisos.
+    ejemplos = store.perfiles_de_ejemplo()
+    assert len(ejemplos) == 8, sorted(ejemplos)
+    for nombre, cfg in ejemplos.items():
+        colados = [k for k in cfg if not store.perfilable(k)]
+        assert not colados, f"{nombre} trae {colados}"
+        # Y traen lo que hace que se vean distintos entre si.
+        assert any(k.startswith("ui_color_") or k.startswith("hud_") for k in cfg), nombre
+
+    # 2. Ninguno grita. Es la misma regla que el cartel aplica al dibujar, y
+    #    estos la tenian horneada en el archivo desde antes de que existiera.
+    for nombre, cfg in ejemplos.items():
+        for clave in ("hud_titulo", "hud_subtitulo"):
+            texto = str(cfg.get(clave, ""))
+            letras = [c for c in texto if c.isalpha()]
+            assert not (letras and all(c.isupper() for c in letras)), \
+                f"{nombre}.{clave} = {texto!r} esta todo en mayusculas"
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (sin pantalla, el resto se saltea)")
+        return
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previos = (store.CONFIG_PATH, store.PERFILES_PATH)
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+        panel = None
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            panel = gui.Panel()
+            panel.withdraw()
+            panel.update_idletasks()
+
+            # 3. Los ocho llegaron al panel, cada uno con su lienzo dibujado.
+            assert len(panel._muestras) == 8, sorted(panel._muestras)
+            for nombre, (lienzo, _cfg) in panel._muestras.items():
+                assert lienzo.find_all(), f"la muestra de {nombre} salio vacia"
+                # Y con SU color, no con el del panel: `_eve_color_propio` es
+                # lo que le dice al repintado del tema que no la toque. Sin
+                # eso las ocho quedarian iguales, que es lo contrario de para
+                # lo que estan.
+                assert getattr(lienzo, "_eve_color_propio", False), nombre
+
+            # 4. Elegir uno lo deja puesto sin aplicar nada todavia.
+            panel._elegir_muestra("Cian Tactico")
+            assert panel.perfil_var.get() == "Cian Tactico"
+            assert "Cian Tactico" not in store.listar_perfiles(), \
+                "elegir no tendria que guardar"
+
+            # 5. Y no se pisan entre si: dos perfiles distintos dibujan
+            #    distinto. Si esto fallara, la galeria seria ocho copias.
+            uno = panel._muestras["Cian Tactico"][1]
+            otro = panel._muestras["Cromo Rojo"][1]
+            assert uno.get("ui_color_acento") != otro.get("ui_color_acento"), \
+                "dos perfiles con el mismo acento"
+        finally:
+            if panel is not None:
+                panel.destroy()
+            store.CONFIG_PATH, store.PERFILES_PATH = previos
+
+
 def test_monitores():
     """Enumerar pantallas, que tkinter no sabe hacer en ningun sistema.
 

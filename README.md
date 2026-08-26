@@ -222,9 +222,20 @@ del sistema y nunca estuvieron en la config, y el mail, el SteamID y tus carpeta
 permitidas se sacan al exportar. Al importar, las claves que este programa no conoce se
 descartan en vez de entrar.
 
-Vienen **ocho perfiles de ejemplo** en la carpeta `perfiles/` (y con el programa
-instalado, en `perfiles` al lado del ejecutable). El boton **Importar** los abre ahi
-directamente.
+Vienen **ocho perfiles de ejemplo**, y desde la 1.16 se VEN: General > Perfiles los
+muestra dibujados, cada uno con su paleta, su forma, su icono, su onda y su
+tipografia. Un clic los elige, dos los aplican.
+
+Antes solo se llegaba a ellos por **Importar** y un dialogo de archivos: habia que
+saber que existian, saber donde estaban, y abrirlos de a uno para ver cual era cual.
+Un tema que no se puede ver antes de aplicarlo no se elige, se sortea.
+
+Cada muestra la dibuja **el mismo `overlay.Pintor` que el cartel de verdad**, con la
+escala bajada. No es una imagen de promocion que alguien tiene que acordarse de
+regenerar: si cambia el dibujo del cartel, las muestras cambian con el.
+
+Los archivos siguen en `perfiles/` (y en `perfiles` al lado del ejecutable con el
+programa instalado), y **Importar** sigue abriendo ahi para los que te pasen.
 
 ---
 
@@ -1840,7 +1851,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 161 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 162 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```
