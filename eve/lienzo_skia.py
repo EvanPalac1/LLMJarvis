@@ -429,6 +429,29 @@ class LienzoSkia:
         pincel.setPathEffect(self.sup.skia.DashPathEffect.Make([2.0, 4.0], 0.0))
         lienzo.drawRect(self.sup.skia.Rect(0, 0, ancho, alto), pincel)
 
+    def _tiradores(self, puntos, lado: float = 4.0) -> None:
+        """Los puntos de agarre, iguales a los del otro camino.
+
+        Que se vean IGUAL en los dos motores no es cosmetica: si el punto se
+        dibuja en otro lado del que atiende el clic, el usuario aprende a
+        errarle. Por eso las posiciones llegan calculadas y aca solo se pintan.
+        """
+        lienzo = self.sup.lienzo
+        borde = self.sup.pincel(self._rol("acento"))
+        borde.setStyle(self.sup.skia.Paint.kStroke_Style)
+        borde.setStrokeWidth(2.0)
+        relleno = self.sup.pincel(self._rol("fondo"))
+        for nombre, cx, cy in puntos:
+            cx, cy = float(cx), float(cy)
+            if nombre == "rotar":
+                r = lado + 1
+                lienzo.drawCircle(cx, cy, r, relleno)
+                lienzo.drawCircle(cx, cy, r, borde)
+                continue
+            caja = self.sup.skia.Rect(cx - lado, cy - lado, cx + lado, cy + lado)
+            lienzo.drawRect(caja, relleno)
+            lienzo.drawRect(caja, borde)
+
     def vacio(self, texto: str, sub: str, ancho, alto) -> None:
         """El cartel de "no hay modulos", centrado.
 
@@ -639,8 +662,16 @@ class LienzoSkia:
         # error de programacion y no del usuario.
         return None
 
-    def dibujar(self, lista, estado, ahora=None, seleccion=(), guia=None):
+    def dibujar(self, lista, estado, ahora=None, seleccion=(), guia=None,
+                tiradores=()):
         """Un cuadro entero. Devuelve cuantos modulos dibujo de verdad.
+
+        `tiradores` son los puntos de agarre de PowerPoint --ocho para
+        redimensionar y uno para rotar-- ya calculados por quien maneja el
+        raton. Vienen de afuera y no se calculan aca a proposito: el que
+        decide donde estan es el que despues tiene que acertarles con el
+        clic, y tener dos cuentas distintas de la misma posicion garantiza
+        que un dia dejen de coincidir.
 
         `guia` es un (ancho, alto) opcional: el borde de OTRA superficie
         dibujado encima de esta. Sirve para acomodar los modulos del cartel
@@ -691,6 +722,8 @@ class LienzoSkia:
             self._guia(guia)
         if seleccion:
             self._marcar(lista, seleccion)
+        if tiradores:
+            self._tiradores(tiradores)
         self.sup.presentar()
         return hechos
 

@@ -162,6 +162,18 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Revisar listener":
+        "Check listener",
+    "abriendo el listener...":
+        "opening the listener...",
+    "el listener no llego a dar señales; fijate en Acciones":
+        "the listener never reported in; check the Actions tab",
+    "el listener ya esta abierto":
+        "the listener is already open",
+    "listener abierto":
+        "listener open",
+    "no pude abrir el listener":
+        "could not open the listener",
     "Agregalos con el boton de aca al lado. Sin ninguno, el\n"
     "cartel dibuja el diseno de siempre y no cambia nada.":
         "Add them with the button next to this one. With none, the\n"

@@ -3272,17 +3272,32 @@ def test_lienzo_repinta_solo_lo_que_cambia():
         for ident, m in modulos.por_defecto().items():
             cfg = modulos.guardar(cfg, dict(m, id=ident))
         # Un modulo que se ve siempre y no se mueve, y otro que anima.
+        # Con posicion EXPLICITA y lejos de los demas. Sin `x`/`y` cae en
+        # (0,0) con el tamaño de fabrica y se pisa con todo el cartel, y
+        # entonces este test dejaba de medir lo que dice: los que se pisan
+        # comparten una imagen --es lo que les permite dejarse ver-- asi que
+        # si uno anima se repinta el grupo entero, y "solo lo que cambia"
+        # pasaba a ser trivialmente falso.
         cfg = modulos.guardar(cfg, {"id": "quieto", "tipo": "texto",
                                     "superficie": "overlay", "cuando": "siempre",
+                                    "x": 4, "y": 118, "ancho": 100, "alto": 18,
                                     "contenido": "fijo"})
         canvas = tk.Canvas(raiz, width=460, height=140)
         lz = lienzo.Lienzo(canvas, cfg, "hud")
         lista = modulos.listar(cfg, "overlay")
 
-        # Primer cuadro: hay que dibujar todo lo visible.
+        # Primer cuadro: hay que dibujar todo lo visible. La cuenta es de
+        # GRUPOS y no de modulos --los que se pisan comparten una imagen, que
+        # es lo que les permite dejarse ver-- asi que se compara contra los
+        # racimos. En este caso hay un modulo puesto en (0,0) sin tamaño, que
+        # cae encima de todos los demas y los junta a todos en uno.
         trabajando = {"estado": "pensando", "nivel": 0.4}
         primeros = lz.dibujar(lista, trabajando)
-        assert primeros == len(lista), (primeros, len(lista))
+        racimos = len(lz._racimos([m for m in lista if modulos.visible(
+            m, "pensando", False)]))
+        assert primeros == racimos, (primeros, racimos)
+        assert all(lz.dibujado(m["id"]) for m in lista
+                   if modulos.visible(m, "pensando", False)),             "un modulo visible no quedo dibujado"
 
         # Segundo cuadro con el MISMO estado y sin avanzar el nivel: lo unico
         # que puede cambiar es la onda, que anima con el reloj.
@@ -3293,8 +3308,28 @@ def test_lienzo_repinta_solo_lo_que_cambia():
         en_reposo = lz.dibujar(lista, {"estado": "reposo", "nivel": 0.0})
         quietos = [m for m in lista if m["cuando"] == "siempre"]
         assert en_reposo <= len(quietos), (en_reposo, len(quietos))
-        assert "quieto" in lz._items, "el modulo de siempre se escondio"
-        assert "ondaeve" not in lz._items, "la onda tenia que irse en reposo"
+        assert lz.dibujado("quieto"), "el modulo de siempre se escondio"
+        assert not lz.dibujado("ondaeve"), "la onda tenia que irse en reposo"
+
+        # Y lo de arriba vale porque NINGUNO se pisa: cada uno tiene su item.
+        assert all(not c.startswith("racimo:") for c in lz._items), lz._items
+
+        # Ahora al reves: dos que SI se pisan comparten una imagen, que es lo
+        # que permite que el de arriba deje ver al de abajo. Componer cada uno
+        # contra el fondo del canvas --que es lo que cuesta 44 veces menos-- lo
+        # tapaba con el color de fondo.
+        cfg2 = modulos.guardar(dict(cfg), {"id": "encimado", "tipo": "reloj",
+                                           "superficie": "overlay",
+                                           "cuando": "siempre",
+                                           "x": 140, "y": 26, "ancho": 90,
+                                           "alto": 24})
+        lz2 = lienzo.Lienzo(tk.Canvas(raiz, width=460, height=140), cfg2, "hud")
+        lista2 = modulos.listar(cfg2, "overlay")
+        lz2.dibujar(lista2, trabajando)
+        juntos = [c for c in lz2._items if c.startswith("racimo:")]
+        assert juntos, f"no agrupo a los que se pisan: {list(lz2._items)}"
+        assert "encimado" in juntos[0] and "titulo" in juntos[0], juntos
+        assert lz2.dibujado("encimado") and lz2.dibujado("titulo")
 
         # Y la PhotoImage se reusa en vez de crearse otra: crear una nueva por
         # cuadro costo el doble en el bench.
@@ -5011,6 +5046,227 @@ def test_ollama_no_exige_un_modelo_en_particular():
         assert not ok and "ningun modelo" in dicho, dicho
     finally:
         ollama_engine.requests.get = real
+
+
+def test_los_tiradores_redimensionan_rotan_y_no_dejan_desaparecer():
+    """Los puntos de agarre de PowerPoint, sobre el modo Edit.
+
+    Hasta ahora acomodar un modulo era arrastrarlo y escribir `ancho` y `alto`
+    a mano en el formulario. Los ocho puntos y el de rotar son lo que hace que
+    se pueda dar forma mirando, que es como se usa cualquier editor.
+
+    Se comprueba la aritmetica y no el dibujo, porque es la aritmetica la que
+    puede estar mal de una forma que no se ve hasta que uno arrastra: que el
+    tirador gane sobre el modulo que tiene debajo, que la esquina contraria
+    quede anclada, que Shift mantenga la proporcion, y que no se pueda encoger
+    hasta perder el modulo.
+    """
+    import tkinter as tk
+
+    from eve import consola
+    from eve import modulos as mods
+
+    class Ev:
+        def __init__(self, x, y, state=0):
+            self.x, self.y, self.state = x, y, state
+
+    try:
+        tk.Tk().destroy()
+    except tk.TclError:
+        print("    (sin pantalla, se saltea)")
+        return
+
+    with tempfile.TemporaryDirectory() as raiz:
+        real = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        ventana = None
+        try:
+            cfg = {**store.DEFAULTS, "motor_dibujo": "pillow"}
+            cfg = mods.guardar(cfg, {"id": "a", "tipo": "texto",
+                                     "superficie": "tablero", "x": 100, "y": 100,
+                                     "ancho": 200, "alto": 100, "cuando": "siempre"})
+            store.save_config(cfg)
+            ventana = _abrir_consola()
+            ventana.raiz.withdraw()
+            ventana.modo.set("edit")
+            ventana._cambio_modo()
+            ventana._clic(Ev(150, 150))
+            assert ventana.seleccion == ["a"]
+            assert ventana._caja_seleccion() == (100, 100, 300, 200)
+
+            puntos = dict((n, (x, y)) for n, x, y in
+                          ventana._puntos_tiradores(ventana._caja_seleccion()))
+            assert len(puntos) == 9, puntos           # ocho mas el de rotar
+            assert puntos["se"] == (300, 200), puntos
+            assert puntos["rotar"][1] < 100, "el de rotar va ARRIBA de la caja"
+
+            # El tirador gana sobre el modulo que tiene debajo. Si perdiera,
+            # el punto de la esquina --que cae ENCIMA del modulo-- no se
+            # podria agarrar nunca y los ocho serian decorativos.
+            assert ventana._tirador_en(300, 200) == "se"
+            ventana._clic(Ev(300, 200))
+            assert ventana._transformando, "el clic en la esquina no agarro nada"
+            assert ventana._arrastre is None, "ademas empezo a arrastrar"
+
+            # Estirar la esquina de abajo a la derecha deja la de arriba a la
+            # izquierda donde estaba.
+            ventana._mover(Ev(350, 230))
+            m = next(m for m in ventana._modulos() if m["id"] == "a")
+            assert (m["x"], m["y"]) == (100, 100), ("se movio el ancla", m)
+            assert (m["ancho"], m["alto"]) == (250, 130), m
+            ventana._soltar(Ev(350, 230))
+            g = mods.leer(store.load_config(), "a")
+            assert (g["ancho"], g["alto"]) == (250, 130), g
+
+            # Y al reves: agarrando la esquina de ARRIBA se ancla la de abajo.
+            ventana._clic(Ev(100, 100))
+            assert ventana._transformando["tirador"] == "nw"
+            ventana._mover(Ev(120, 130))
+            m = next(m for m in ventana._modulos() if m["id"] == "a")
+            assert m["x"] + m["ancho"] == 350 and m["y"] + m["alto"] == 230, m
+            ventana._soltar()
+
+            # Shift mantiene la proporcion, como en PowerPoint y en Canva.
+            g = mods.leer(store.load_config(), "a")
+            prop = g["alto"] / g["ancho"]
+            ventana._clic(Ev(g["x"] + g["ancho"], g["y"] + g["alto"]))
+            ventana._mover(Ev(g["x"] + g["ancho"] + 100, g["y"] + g["alto"] + 3,
+                              state=0x0001))
+            m = next(m for m in ventana._modulos() if m["id"] == "a")
+            assert abs(m["alto"] / m["ancho"] - prop) < 0.02, (prop, m)
+            ventana._soltar()
+
+            # Rotar: el tirador de arriba, llevado a la derecha del centro, son
+            # 90 grados. Escribe `rotacion`, que ya era una prop del modulo.
+            caja = ventana._caja_seleccion()
+            rx, ry = dict((n, (x, y)) for n, x, y in
+                          ventana._puntos_tiradores(caja))["rotar"]
+            ventana._clic(Ev(int(rx), int(ry)))
+            assert ventana._transformando["tirador"] == "rotar"
+            cx, cy = (caja[0] + caja[2]) / 2, (caja[1] + caja[3]) / 2
+            ventana._mover(Ev(int(cx + 80), int(cy)))
+            m = next(m for m in ventana._modulos() if m["id"] == "a")
+            assert m["rotacion"] == 90, m["rotacion"]
+            ventana._soltar()
+            assert mods.leer(store.load_config(), "a")["rotacion"] == 90
+
+            # No se puede encoger hasta que desaparezca. Un modulo de 0x0 queda
+            # elegido y sin superficie para volver a agarrarlo: solo se
+            # recuperaria desde el panel, y el usuario no tiene por que saber
+            # que ahi sigue estando.
+            g = mods.leer(store.load_config(), "a")
+            ventana._clic(Ev(g["x"] + g["ancho"], g["y"] + g["alto"]))
+            ventana._mover(Ev(g["x"] - 500, g["y"] - 500))
+            m = next(m for m in ventana._modulos() if m["id"] == "a")
+            assert m["ancho"] >= ventana.MINIMO and m["alto"] >= ventana.MINIMO, m
+            ventana._soltar()
+
+            # Las flechas empujan de a uno y con Shift de a diez: acomodar el
+            # ultimo pixel con el raton no se puede, el propio clic desplaza.
+            antes = mods.leer(store.load_config(), "a")
+            ventana._empujar(1, 0)
+            assert mods.leer(store.load_config(), "a")["x"] == antes["x"] + 1
+            ventana._empujar(-10, 0)
+            assert mods.leer(store.load_config(), "a")["x"] == antes["x"] - 9
+            # Y entran al mismo deshacer que todo lo demas.
+            ventana._deshacer()
+            assert mods.leer(store.load_config(), "a")["x"] == antes["x"] + 1
+
+            # Con NADA elegido no hay caja ni tiradores, y el clic no agarra.
+            ventana.seleccion = []
+            assert ventana._caja_seleccion() is None
+            assert ventana._tirador_en(300, 200) == ""
+        finally:
+            if ventana is not None:
+                try:
+                    ventana.raiz.destroy()
+                except Exception:  # noqa: BLE001
+                    pass
+            store.CONFIG_PATH = real
+
+
+def test_los_modulos_que_se_pisan_se_dejan_ver():
+    """Un modulo transparente encima de otro tiene que dejar ver al de abajo.
+
+    No pasaba, y por una razon que valia la pena entender antes de tocar nada:
+    `_opaco` compone cada modulo contra el color del canvas antes de mandarlo a
+    Tk, porque pasarle transparencia cuesta 44 veces mas --medido-- y sin eso
+    seis modulos animando daban 505 ms por cuadro. El efecto lateral es que el
+    de arriba tapaba al de abajo con el fondo.
+
+    La salida no es dejar de componer sino componer contra lo que de verdad hay
+    debajo: los que se pisan se dibujan JUNTOS en una imagen, que sale opaca
+    igual. El que no se pisa con nadie sigue por el camino rapido.
+    """
+    import tkinter as tk
+
+    from PIL import Image  # noqa: F401 - se usa via lienzo
+    from eve import lienzo, modulos as mods
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        print("    (sin pantalla, se saltea)")
+        return
+    try:
+        raiz.withdraw()
+        cfg = dict(store.DEFAULTS)
+        cfg = mods.guardar(cfg, {"id": "abajo", "tipo": "onda",
+                                 "superficie": "tablero", "x": 20, "y": 20,
+                                 "ancho": 300, "alto": 150, "cuando": "siempre",
+                                 "z": 0})
+        # Sale por el borde derecho del de abajo A PROPOSITO: asi la caja del
+        # racimo (350 de ancho) no coincide con la de ninguno de los dos, y el
+        # tamaño de la imagen que termina en el canvas alcanza para distinguir
+        # si se dibujaron juntos o cada uno por su lado.
+        cfg = mods.guardar(cfg, {"id": "arriba", "tipo": "reloj",
+                                 "superficie": "tablero", "x": 250, "y": 50,
+                                 "ancho": 120, "alto": 40, "cuando": "siempre",
+                                 "z": 5})
+        cfg = mods.guardar(cfg, {"id": "lejos", "tipo": "reloj",
+                                 "superficie": "tablero", "x": 600, "y": 300,
+                                 "ancho": 90, "alto": 30, "cuando": "siempre"})
+        lista = mods.listar(cfg, "tablero")
+        canvas = tk.Canvas(raiz, width=800, height=400, bg="#101010")
+        lz = lienzo.Lienzo(canvas, cfg, "ui")
+        lz.aplicar(cfg)
+
+        racimos = lz._racimos(lista)
+        assert len(racimos) == 2, [[m["id"] for m, _c in r] for r in racimos]
+        juntos = next(r for r in racimos if len(r) == 2)
+        assert {m["id"] for m, _c in juntos} == {"abajo", "arriba"}
+
+        vista = {"estado": "reposo", "nivel": 0.6, "onda": [0.8] * 48,
+                 "titulo": "Eve", "detalle": "", "usuario": "", "eve": "",
+                 "partes": {}, "pagina": "", "documento": {}, "historial": [],
+                 "acciones": []}
+        lz.dibujar(lista, vista)
+        assert lz.dibujado("abajo") and lz.dibujado("arriba") and lz.dibujado("lejos")
+        # El que esta solo NO paga el agrupado: sigue con su propio item.
+        assert "lejos" in lz._items, list(lz._items)
+
+        # Y lo que de verdad importa: que `dibujar` haya USADO el camino del
+        # racimo. Sin esto el test pasaba igual con el agrupado desactivado
+        # --la clave se calculaba lo mismo y solo cambiaba la imagen-- que es
+        # exactamente la clase de verde que no significa nada. La imagen del
+        # racimo mide lo que la caja de los dos, 350x150, y no lo que mide
+        # ninguno de ellos por separado.
+        clave = next(c for c in lz._items if c.startswith("racimo:"))
+        _item, _foto, _firma, ancho, alto = lz._items[clave]
+        assert (ancho, alto) == (350, 150), (ancho, alto)
+
+        # Y la prueba de fondo, contando pixeles: adentro del rectangulo del
+        # reloj tiene que haber colores de la onda. Si la tapara con el fondo,
+        # ahi habria dos colores --fondo y texto-- y nada mas.
+        img, x0, y0 = lz._racimo_pintado(
+            [(m, (m["x"], m["y"], m["x"] + m["ancho"], m["y"] + m["alto"]))
+             for m, _c in juntos], vista, 0.0)
+        region = img.convert("RGB").crop((250 - x0, 50 - y0, 320 - x0,
+                                          50 - y0 + 40))
+        colores = set(region.getdata())
+        assert len(colores) > 20, f"el de arriba tapo al de abajo: {len(colores)}"
+    finally:
+        raiz.destroy()
 
 
 def test_monitores():

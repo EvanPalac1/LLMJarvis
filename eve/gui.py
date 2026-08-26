@@ -136,6 +136,13 @@ class Panel(tk.Tk):
         # siete pestañas y desde el primer segundo.
         ttk.Button(fila, text=tr("Ventana de actividad"),
                    command=self._abrir_consola).pack(side="left", padx=(16, 0))
+        # Al lado, porque son las dos cosas que uno quiere ABRIR desde aca. La
+        # linea de estado de arriba ya decia si el asistente corre, pero decirlo
+        # y no poder hacer nada al respecto es la mitad inutil: si estaba
+        # detenido habia que ir a buscar el acceso directo.
+        self.boton_listener = ttk.Button(
+            fila, text=tr("Revisar listener"), command=self._revisar_listener)
+        self.boton_listener.pack(side="left", padx=(6, 0))
         # Al lado del boton de actualizar, que es donde uno se pregunta "cual
         # tengo?". Sin esto habia que abrir una terminal y correr --version.
         from eve import __version__
@@ -2196,6 +2203,63 @@ class Panel(tk.Tk):
         store.save_config(cfg)
         self._mods_refrescar()
         self.estado.config(text=tr("tablero armado: abre la ventana de actividad"))
+
+    def _revisar_listener(self) -> None:
+        """Abre el asistente si no esta, y si esta lo dice sin abrir otro.
+
+        Es un solo boton y no un par prender/apagar a proposito: lo que el
+        usuario quiere saber es "¿esta andando?" y lo que quiere que pase es
+        "que ande". Dos botones obligan a saber la respuesta antes de apretar,
+        que es justo lo que uno viene a averiguar.
+
+        Y no abre uno segundo NUNCA. Dos listeners son dos hooks globales sobre
+        la misma tecla: apretas una vez, se graban dos, se mandan dos pedidos y
+        contestan dos voces encima. A simple vista hay un solo icono en la
+        bandeja, asi que el sintoma parece de cualquier otra cosa. El arranque
+        ya se defiende de eso con `otro_asistente`; esto lo comprueba ANTES de
+        lanzar para poder decirlo, en vez de lanzar un proceso que se muere solo
+        y dejar al usuario mirando un boton que no hizo nada visible.
+        """
+        pid = store.asistente_corriendo()
+        if pid:
+            self.estado.config(
+                text=f"[on] {tr('el listener ya esta abierto')} (pid {pid})",
+                style="Ok.TLabel")
+            return
+        try:
+            plataforma.lanzar(plataforma.comando_asistente())
+        except OSError as exc:
+            self.estado.config(text=f"{tr('no pude abrir el listener')}: {exc}",
+                               style="Error.TLabel")
+            return
+        self.estado.config(text=tr("abriendo el listener..."), style="Ayuda.TLabel")
+        # El latido tarda en aparecer --arranca el modelo de voz-- asi que se
+        # mira varias veces en vez de una. Sin esto el boton parece no haber
+        # hecho nada y el usuario lo aprieta de nuevo, que es exactamente como
+        # se termina con dos.
+        self.boton_listener.config(state="disabled")
+        self._esperar_listener(0)
+
+    def _esperar_listener(self, intento: int) -> None:
+        """Mira si ya latio. Hasta 20 segundos, y despues lo dice."""
+        pid = store.asistente_corriendo()
+        if pid:
+            self.estado.config(text=f"[on] {tr('listener abierto')} (pid {pid})",
+                               style="Ok.TLabel")
+        elif intento >= 40:
+            self.estado.config(
+                text=tr("el listener no llego a dar señales; fijate en Acciones"),
+                style="Ayuda.TLabel")
+        else:
+            try:
+                self.after(500, lambda: self._esperar_listener(intento + 1))
+            except tk.TclError:
+                pass
+            return
+        try:
+            self.boton_listener.config(state="normal")
+        except tk.TclError:
+            pass
 
     def _abrir_consola(self) -> None:
         from . import consola

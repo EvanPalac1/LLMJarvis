@@ -1091,6 +1091,24 @@ las siete pestañas-- o el item de la bandeja. Tres puertas y no una: la de la b
 depende del menu contextual de Windows 11, y cuando eso falla el usuario se queda sin
 ninguna forma de abrirla.
 
+**Revisar listener**, al lado. Dice si el asistente esta corriendo y lo abre si no,
+en un solo boton: lo que uno quiere saber es "¿esta andando?" y lo que quiere que pase
+es "que ande", y un par prender/apagar obliga a saber la respuesta antes de apretar. **No
+abre nunca un segundo**: dos listeners son dos hooks globales sobre la misma tecla, asi
+que apretas una vez, se graban dos, se mandan dos pedidos y contestan dos voces encima --y
+como a simple vista hay un solo icono en la bandeja, el sintoma parece de cualquier otra
+cosa. La linea de estado de arriba ya decia si corria; decirlo sin poder hacer nada al
+respecto era la mitad inutil.
+
+**Revisar listener**, al lado. Dice si el asistente esta corriendo y lo abre si no,
+en un solo boton: lo que uno quiere saber es "¿esta andando?" y lo que quiere que pase
+es "que ande", y un par prender/apagar obliga a saber la respuesta antes de apretar. **No
+abre nunca un segundo**: dos listeners son dos hooks globales sobre la misma tecla, asi
+que apretas una vez, se graban dos, se mandan dos pedidos y contestan dos voces encima --y
+como a simple vista hay un solo icono en la bandeja, el sintoma parece de cualquier otra
+cosa. La linea de estado de arriba ya decia si corria; decirlo sin poder hacer nada al
+respecto era la mitad inutil.
+
 **Si el tablero esta vacio, la ventana lo dice.** Antes abria un rectangulo negro, que es
 indistinguible de un programa que no arranco --y fue textualmente el reporte: no saber si
 la ventana existia. Ahora escribe por que esta vacia y trae el boton que lo arregla al
@@ -1123,8 +1141,22 @@ no ofrece `estilo`, que es solo de la onda. Ofrecer todo pisaria props que el ot
 tiene; no ofrecer nada volveria inutil agrupar. Si el valor difiere entre los elegidos, el
 campo arranca vacio, asi que aplicar no los iguala sin querer.
 
+**Lo elegido tiene los puntos de agarre de PowerPoint**: ocho para redimensionar --las
+esquinas mueven dos bordes, los lados uno-- y un circulo arriba para rotar, que escribe
+`rotacion`, una prop que los modulos ya tenian. Shift mantiene la proporcion en las
+esquinas y redondea la rotacion de a 15 grados. El puntero cambia al pasar por encima,
+que es como se descubre que el punto hace algo sin tener que probarlo, y mientras
+arrastras aparece el tamaño en numeros. Las flechas empujan de a un pixel y con Shift de a
+diez: acomodar el ultimo pixel con el raton no se puede, porque el propio clic desplaza.
+
+Con varios elegidos hay UNA caja y no ocho puntos por modulo --con cinco elegidos serian
+cuarenta puntos encimados donde no se agarra ninguno-- y estirarla los estira a todos
+manteniendo sus posiciones relativas, igual que agrupar en PowerPoint o en Canva.
+
 Queda afuera a proposito: guias de alineacion, z-order anidado, copiar estilo y snapping.
-Aceptar uno solo de esos es empezar a mantener un editor de diseño.
+Aceptar uno solo de esos es empezar a mantener un editor de diseño completo, y esto es la
+ventana de actividad de un asistente de voz. Para el ajuste fino estan las flechas y los
+campos `x`/`y`.
 
 **El grafo** sale del log de auditoria que ya se escribia. Los nodos redondos son las
 herramientas que se ejecutaron y los cuadrados los proyectos donde se ejecutaron; las
@@ -1720,7 +1752,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 147 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 149 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

@@ -1451,6 +1451,18 @@ def otro_asistente(max_edad: float = 20.0) -> int:
     return int(vivo["pid"]) if _proceso_vivo(int(vivo["pid"])) else 0
 
 
+def asistente_corriendo() -> int:
+    """El PID del asistente si esta vivo, 0 si no.
+
+    Es `otro_asistente` con otro nombre y otra intencion, y por eso existe
+    aparte: aquella la usa el arranque para NO abrir un segundo asistente --de
+    ahi que excluya el propio proceso-- y esta la usa el panel para saber si
+    hace falta abrir uno. Preguntar lo mismo con el nombre de lo que uno quiere
+    saber es la diferencia entre leer el codigo y descifrarlo.
+    """
+    return otro_asistente()
+
+
 def _proceso_vivo(pid: int) -> bool:
     """Si ese PID sigue existiendo.
 

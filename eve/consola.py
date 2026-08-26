@@ -54,6 +54,14 @@ class Consola:
         self.cuadro = 0
         self.mtime = self._mtime()
         self._arrastre = None
+        # Redimensionar o rotar en curso. Estado aparte del arrastre porque
+        # son cosas distintas: arrastrar mueve, esto cambia la forma, y
+        # mezclarlos en una bandera obliga a preguntar cual era en cada rama.
+        self._transformando = None
+        # Lo mas chico a lo que se puede encoger un modulo. Menos que esto y
+        # deja de tener superficie para volver a agarrarlo: quedaria elegido
+        # y sin forma de recuperarlo salvo desde el panel.
+        self.MINIMO = 12
         self._partes = None
         self._lista = None
         self._pagina_cache = None
@@ -179,8 +187,22 @@ class Consola:
         self.lienzo.bind("<Button-1>", self._clic)
         self.lienzo.bind("<B1-Motion>", self._mover)
         self.lienzo.bind("<ButtonRelease-1>", self._soltar)
+        # Sin boton apretado: es lo que cambia el puntero al pasar por
+        # encima de un tirador, que es como se descubre que hace algo.
+        self.lienzo.bind("<Motion>", self._cursor)
         self.raiz.bind("<Control-z>", lambda _e: self._deshacer())
         self.raiz.bind("<Delete>", lambda _e: self._borrar())
+        # Las flechas mueven de a un pixel y con Shift de a diez, que es lo que
+        # hacen PowerPoint, Canva y Figma. No es un adorno: acomodar el ultimo
+        # pixel con el raton es imposible --el propio clic desplaza-- asi que
+        # sin esto el ajuste fino solo se podia hacer escribiendo `x` e `y` en
+        # el formulario, o sea saliendo del lienzo.
+        for tecla, dx, dy in (("Left", -1, 0), ("Right", 1, 0),
+                              ("Up", 0, -1), ("Down", 0, 1)):
+            self.raiz.bind(f"<{tecla}>",
+                           lambda _e, a=dx, b=dy: self._empujar(a, b))
+            self.raiz.bind(f"<Shift-{tecla}>",
+                           lambda _e, a=dx, b=dy: self._empujar(a * 10, b * 10))
         self._cambio_modo()
 
     def _armar_tablero(self) -> None:
@@ -231,11 +253,13 @@ class Consola:
         lista, vista = getattr(self, "_por_dibujar", ([], {}))
         if lista:
             editando = self.modo.get() == "edit"
+            caja = self._caja_seleccion() if editando else None
             self.pintor.dibujar(
                 lista, vista,
                 seleccion=self.seleccion if editando else (),
                 guia=(self._medida_del_cartel()
-                      if editando and self._cual() == "overlay" else None))
+                      if editando and self._cual() == "overlay" else None),
+                tiradores=self._puntos_tiradores(caja) if caja else ())
         else:
             paleta = tema.resolver(self.cfg, "ui")
             crudo = (paleta["fondo"] or "#101010").lstrip("#")
@@ -448,12 +472,105 @@ class Consola:
             return f"{tr('te escuche')}: {dicho!r}"
         return tr("accion desconocida") + f": {accion}"
 
+    # Los ocho tiradores, en (fx, fy) sobre la caja: 0 izquierda/arriba,
+    # 0.5 medio, 1 derecha/abajo. El orden es el de PowerPoint, empezando
+    # arriba a la izquierda y girando en sentido horario.
+    TIRADORES = (("nw", 0.0, 0.0), ("n", 0.5, 0.0), ("ne", 1.0, 0.0),
+                 ("e", 1.0, 0.5), ("se", 1.0, 1.0), ("s", 0.5, 1.0),
+                 ("sw", 0.0, 1.0), ("w", 0.0, 0.5))
+    LADO_TIRADOR = 4      # medio lado, en pixeles: el punto se dibuja de 8x8
+    AGARRE = 7            # cuanto se puede errar el clic y agarrarlo igual
+    ALTO_ROTAR = 26       # a que distancia del borde de arriba va el de rotar
+
+    # Que puntero mostrar sobre cada uno. Que el cursor cambie ANTES de
+    # apretar es la mitad de lo que hace que se sienta comodo: es como se
+    # descubre que el punto hace algo, sin tener que probarlo.
+    CURSORES = {"nw": "size_nw_se", "se": "size_nw_se",
+                "ne": "size_ne_sw", "sw": "size_ne_sw",
+                "n": "sb_v_double_arrow", "s": "sb_v_double_arrow",
+                "e": "sb_h_double_arrow", "w": "sb_h_double_arrow",
+                "rotar": "exchange", "mover": "fleur"}
+
+    def _caja_seleccion(self):
+        """El rectangulo que envuelve a TODO lo elegido, o None.
+
+        Uno solo o varios da lo mismo: en PowerPoint y en Canva, elegir tres
+        cosas te da una caja con sus tiradores y redimensionar mueve a las
+        tres. Tener tiradores solo con uno elegido seria una regla mas para
+        aprender sin nada a cambio.
+        """
+        elegidos = [m for m in self._modulos() if m["id"] in self.seleccion]
+        if not elegidos:
+            return None
+        x0 = min(int(m["x"]) for m in elegidos)
+        y0 = min(int(m["y"]) for m in elegidos)
+        x1 = max(int(m["x"]) + int(m["ancho"]) for m in elegidos)
+        y1 = max(int(m["y"]) + int(m["alto"]) for m in elegidos)
+        return x0, y0, x1, y1
+
+    def _puntos_tiradores(self, caja):
+        """[(nombre, cx, cy)] de los ocho, mas el de rotar."""
+        x0, y0, x1, y1 = caja
+        puntos = [(n, x0 + (x1 - x0) * fx, y0 + (y1 - y0) * fy)
+                  for n, fx, fy in self.TIRADORES]
+        puntos.append(("rotar", (x0 + x1) / 2, y0 - self.ALTO_ROTAR))
+        return puntos
+
+    def _tirador_en(self, x, y):
+        """El nombre del tirador bajo el punto, o "" si no hay ninguno."""
+        caja = self._caja_seleccion()
+        if caja is None or self.modo.get() != "edit":
+            return ""
+        for nombre, cx, cy in self._puntos_tiradores(caja):
+            if abs(x - cx) <= self.AGARRE and abs(y - cy) <= self.AGARRE:
+                return nombre
+        return ""
+
+    def _cursor(self, evento) -> None:
+        """El puntero que corresponda a lo que hay debajo.
+
+        Se hace en cada `<Motion>` y es barato: es aritmetica sobre nueve
+        puntos. Sin esto los tiradores son invisibles hasta que uno acierta.
+        """
+        if self.modo.get() != "edit":
+            self.lienzo.config(cursor="")
+            return
+        nombre = self._tirador_en(evento.x, evento.y)
+        if not nombre and self._en(evento.x, evento.y):
+            nombre = "mover"
+        try:
+            self.lienzo.config(cursor=self.CURSORES.get(nombre, ""))
+        except tk.TclError:
+            pass   # un cursor que este sistema no tenga no puede tumbar nada
+
     def _clic(self, evento) -> None:
         if self.modo.get() != "edit":
             # En Work el clic no elige nada, pero SI acciona los botones: un
             # modulo `boton` que solo se pudiera tocar en modo edicion no seria
             # un boton, seria un dibujo de un boton.
             self._tocar_boton(self._en(evento.x, evento.y, solo_interactivos=True))
+            return
+        # Un tirador gana sobre todo lo demas, incluso sobre el modulo que
+        # tiene debajo: el punto de la esquina cae ENCIMA del modulo, asi que
+        # si el modulo ganara no se podria agarrar nunca.
+        agarrado = self._tirador_en(evento.x, evento.y)
+        if agarrado:
+            caja = self._caja_seleccion()
+            self._transformando = {
+                "tirador": agarrado, "caja": caja, "desde": (evento.x, evento.y),
+                # La foto de como estaban ANTES: cada paso del arrastre se
+                # calcula contra esto y no contra el paso anterior, o los
+                # redondeos se acumulan y el modulo se va encogiendo solo.
+                "antes": {m["id"]: dict(m) for m in self._modulos()
+                          if m["id"] in self.seleccion},
+            }
+            # Y se corta el arrastre: si quedaba uno del clic anterior, este
+            # gesto seria las dos cosas a la vez segun que rama mire primero.
+            # Hoy no se nota porque `_mover` y `_soltar` preguntan por la
+            # transformacion antes, pero eso es que el orden lo tapa, no que
+            # el estado este bien.
+            self._arrastre = None
+            self._anotar()
             return
         ident = self._en(evento.x, evento.y)
         ctrl = bool(evento.state & 0x0004)
@@ -486,7 +603,12 @@ class Consola:
         self._refrescar_props()
 
     def _mover(self, evento) -> None:
-        if self.modo.get() != "edit" or not self._arrastre or not self.seleccion:
+        if self.modo.get() != "edit":
+            return
+        if self._transformando:
+            self._transformar(evento)
+            return
+        if not self._arrastre or not self.seleccion:
             return
         dx, dy = evento.x - self._arrastre[0], evento.y - self._arrastre[1]
         if not dx and not dy:
@@ -498,9 +620,116 @@ class Consola:
                 m["y"] = max(0, m["y"] + dy)
         self._dibujar_seleccion()
 
+    def _empujar(self, dx: int, dy: int) -> None:
+        """Mueve lo elegido de a un pixel con las flechas.
+
+        Guarda en cada empujon y no al soltar como el arrastre: aca no hay
+        "soltar", y una flecha por vez son unidades de escrituras, no treinta
+        por segundo. El paso queda en el mismo deshacer que todo lo demas.
+        """
+        if self.modo.get() != "edit" or not self.seleccion:
+            return
+        self._anotar()
+        cfg = store.load_config()
+        for m in self._modulos():
+            if m["id"] in self.seleccion:
+                m["x"] = max(0, int(m["x"]) + dx)
+                m["y"] = max(0, int(m["y"]) + dy)
+                cfg = modulos.guardar(cfg, m)
+        self._guardar(cfg)
+        self._refrescar_props(tocar_lista=False)
+
+    def _transformar(self, evento) -> None:
+        """Redimensionar o rotar, segun que tirador se agarro.
+
+        Todo se calcula contra la foto de `antes`, nunca contra el cuadro
+        anterior: acumular deltas por cuadro hace que el modulo se encoja solo
+        al mover el mouse en circulos, porque cada paso redondea a entero.
+        """
+        t = self._transformando
+        x0, y0, x1, y1 = t["caja"]
+        shift = bool(evento.state & 0x0001)
+
+        if t["tirador"] == "rotar":
+            import math
+
+            cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+            # 0 grados = el tirador arriba, que es de donde se agarro.
+            ang = math.degrees(math.atan2(evento.y - cy, evento.x - cx)) + 90
+            if shift:
+                ang = round(ang / 15) * 15   # de a 15, como PowerPoint
+            for ident, previo in t["antes"].items():
+                for m in self._modulos():
+                    if m["id"] == ident:
+                        m["rotacion"] = int(round(ang)) % 360
+            self._dibujar_seleccion()
+            return
+
+        # Redimensionar. El tirador dice que bordes se mueven; los otros
+        # quedan anclados, que es lo que hace que agarrar una esquina no
+        # desplace la contraria.
+        nombre = t["tirador"]
+        dx = evento.x - t["desde"][0]
+        dy = evento.y - t["desde"][1]
+        izq = "w" in nombre
+        arr = nombre.startswith("n")
+        mueve_x = "e" in nombre or "w" in nombre
+        mueve_y = nombre.startswith("n") or nombre.startswith("s")
+
+        nx0, ny0, nx1, ny1 = x0, y0, x1, y1
+        if mueve_x:
+            if izq:
+                nx0 = min(x0 + dx, x1 - self.MINIMO)
+            else:
+                nx1 = max(x1 + dx, x0 + self.MINIMO)
+        if mueve_y:
+            if arr:
+                ny0 = min(y0 + dy, y1 - self.MINIMO)
+            else:
+                ny1 = max(y1 + dy, y0 + self.MINIMO)
+
+        # Shift mantiene la proporcion, igual que en PowerPoint y en Canva.
+        # Solo tiene sentido en las esquinas: en un lado no hay proporcion que
+        # mantener, hay un solo eje.
+        if shift and mueve_x and mueve_y and (x1 - x0) and (y1 - y0):
+            prop = (y1 - y0) / (x1 - x0)
+            ancho_n = max(self.MINIMO, nx1 - nx0)
+            alto_n = max(self.MINIMO, int(round(ancho_n * prop)))
+            if arr:
+                ny0 = ny1 - alto_n
+            else:
+                ny1 = ny0 + alto_n
+
+        nx0, ny0 = max(0, int(nx0)), max(0, int(ny0))
+        fx = (nx1 - nx0) / (x1 - x0) if (x1 - x0) else 1.0
+        fy = (ny1 - ny0) / (y1 - y0) if (y1 - y0) else 1.0
+        for m in self._modulos():
+            previo = t["antes"].get(m["id"])
+            if previo is None:
+                continue
+            # Proporcional dentro de la caja: con varios elegidos, estirar la
+            # caja estira a todos manteniendo sus posiciones relativas, que es
+            # lo que hacen PowerPoint y Canva al agrupar.
+            m["x"] = int(round(nx0 + (int(previo["x"]) - x0) * fx))
+            m["y"] = int(round(ny0 + (int(previo["y"]) - y0) * fy))
+            m["ancho"] = max(self.MINIMO, int(round(int(previo["ancho"]) * fx)))
+            m["alto"] = max(self.MINIMO, int(round(int(previo["alto"]) * fy)))
+        self._dibujar_seleccion()
+
     def _soltar(self, _evento=None) -> None:
         """Al soltar se guarda, no en cada pixel: serian 30 escrituras por segundo."""
-        if self.modo.get() != "edit" or not self._arrastre:
+        if self.modo.get() != "edit":
+            return
+        if self._transformando:
+            self._transformando = None
+            cfg = store.load_config()
+            for m in self._modulos():
+                if m["id"] in self.seleccion:
+                    cfg = modulos.guardar(cfg, m)
+            self._guardar(cfg)
+            self._refrescar_props()
+            return
+        if not self._arrastre:
             return
         self._arrastre = None
         if self.seleccion:
@@ -537,6 +766,55 @@ class Consola:
                 self.lienzo.create_rectangle(
                     m["x"] - 1, m["y"] - 1, m["x"] + m["ancho"], m["y"] + m["alto"],
                     outline=paleta["acento"], width=2, dash=(4, 3), tags="marca")
+
+        # Y los tiradores, sobre la caja de TODO lo elegido. Con varios, una
+        # sola caja y no ocho puntos por modulo: PowerPoint y Canva hacen eso
+        # mismo, y ademas ocho por modulo con cinco elegidos son cuarenta
+        # puntos encimados donde no se puede agarrar ninguno.
+        caja = self._caja_seleccion()
+        if caja is None:
+            return
+        x0, y0, x1, y1 = caja
+        if len(self.seleccion) > 1:
+            # La caja del grupo, mas tenue que el contorno de cada uno para que
+            # se lea cual es cual.
+            self.lienzo.create_rectangle(x0 - 1, y0 - 1, x1, y1, tags="marca",
+                                         outline=paleta["texto_tenue"], dash=(1, 3))
+        for nombre, cx, cy in self._puntos_tiradores(caja):
+            if nombre == "rotar":
+                # Redondo y con su cablecito, como en PowerPoint: que se vea
+                # distinto de los ocho es lo que evita agarrarlo sin querer.
+                self.lienzo.create_line(cx, y0, cx, cy + self.LADO_TIRADOR,
+                                        fill=paleta["texto_tenue"], tags="marca")
+                self.lienzo.create_oval(
+                    cx - self.LADO_TIRADOR - 1, cy - self.LADO_TIRADOR - 1,
+                    cx + self.LADO_TIRADOR + 1, cy + self.LADO_TIRADOR + 1,
+                    fill=paleta["fondo"], outline=paleta["acento"], width=2,
+                    tags="marca")
+                continue
+            self.lienzo.create_rectangle(
+                cx - self.LADO_TIRADOR, cy - self.LADO_TIRADOR,
+                cx + self.LADO_TIRADOR, cy + self.LADO_TIRADOR,
+                fill=paleta["fondo"], outline=paleta["acento"], width=2,
+                tags="marca")
+
+        # El tamaño, mientras se estira. Es la diferencia entre estirar a ojo y
+        # poder dejarlo en un numero: en Canva y en PowerPoint el numero
+        # aparece justo mientras arrastras y desaparece al soltar.
+        if self._transformando:
+            texto = (f'{x1 - x0} x {y1 - y0}'
+                     if self._transformando["tirador"] != "rotar"
+                     else f'{self._rotacion_actual()}°')
+            self.lienzo.create_text(
+                x1 + 8, y1 + 8, anchor="nw", text=texto, tags="marca",
+                fill=paleta["acento"], font=(None, 9, "bold"))
+
+    def _rotacion_actual(self) -> int:
+        """La rotacion del primero elegido, para el cartelito del arrastre."""
+        for m in self._modulos():
+            if m["id"] in self.seleccion:
+                return int(m.get("rotacion", 0) or 0)
+        return 0
 
     # --- ajustes de lo elegido --------------------------------------------
 

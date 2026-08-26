@@ -117,6 +117,32 @@ def comando_propio(flag: str) -> list[str]:
     return [exe, "-m", modulo]
 
 
+def comando_asistente() -> list:
+    """argv para arrancar el asistente --el listener-- desde otro proceso.
+
+    No sirve `comando_propio`: ese despacha sub-herramientas por flag, y el
+    asistente es justamente el que NO lleva flag. Y tampoco sirve `sys.executable`
+    a secas, que es la trampa: los tres binarios salen del mismo archivo y se
+    distinguen por su NOMBRE --`main._flag_por_nombre`-- asi que relanzar
+    `sys.executable` desde el panel, que corre como `Eve-config.exe`, abre otro
+    panel. Hay que buscar al hermano.
+    """
+    if not congelado():
+        exe = sys.executable.replace("pythonw.exe", "python.exe")
+        return [exe, os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "main.py")]
+    carpeta = os.path.dirname(sys.executable)
+    if MACOS:
+        candidatos = [os.path.join(carpeta, "Eve")]
+    else:
+        sufijo = ".exe" if WINDOWS else ""
+        candidatos = [os.path.join(carpeta, "Eve" + sufijo)]
+    hermano = next((c for c in candidatos if os.path.exists(c)), "")
+    # Sin hermano se usa el propio: en una instalacion rara es mejor intentarlo
+    # que negarse, y si abre otro panel el usuario lo ve y lo cierra.
+    return [hermano or sys.executable]
+
+
 def solo_windows(func):
     """Devuelve un mensaje util en vez de fallar en macOS o Linux."""
     import functools

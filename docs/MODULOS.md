@@ -86,8 +86,38 @@ Para acomodarlos con el mouse: **ventana de actividad → Edit**.
 | Ctrl + clic | Sumar a la selección |
 | Shift + clic | Agregar un rango |
 | Arrastrar | Mover |
+| **Arrastrar un punto** | Cambiar el tamaño |
+| **Shift + arrastrar una esquina** | Mantener la proporción |
+| **Arrastrar el círculo de arriba** | Rotar |
+| **Shift mientras rotás** | De a 15° |
+| **Flechas** | Mover de a 1 píxel |
+| **Shift + flechas** | Mover de a 10 |
 | `Ctrl+Z` | Deshacer (20 pasos) |
 | `Supr` | Borrar |
+
+### Los puntos de agarre
+
+Lo que elegís queda con **ocho puntos** —cuatro esquinas y cuatro lados— y un
+**círculo arriba** para rotar, igual que en PowerPoint. El puntero cambia antes
+de apretar, así que se ve cuál hace qué sin tener que probarlo, y mientras
+arrastrás aparece el tamaño en números al lado.
+
+Las esquinas mueven dos bordes; los lados, uno solo. El borde de enfrente queda
+**anclado**: si agarrás la esquina de abajo a la derecha, la de arriba a la
+izquierda no se mueve.
+
+Con **varios elegidos hay una sola caja**, no ocho puntos por módulo. Estirarla
+los estira a todos manteniendo sus posiciones relativas. Ocho puntos por módulo
+con cinco elegidos son cuarenta puntos encimados donde no se puede agarrar
+ninguno.
+
+No se puede encoger un módulo hasta hacerlo desaparecer: el mínimo es 12 px.
+Uno de 0×0 queda elegido y sin superficie para volver a agarrarlo.
+
+> **Lo que no hay, y es a propósito:** guías de alineación, snapping y z-order
+> anidado. Aceptar una sola es empezar a mantener un editor de diseño completo,
+> y esto es la ventana de actividad de un asistente de voz. Para alinear al
+> píxel están las flechas y los campos `x`/`y` del panel de la derecha.
 
 Con varios elegidos se editan **las propiedades que tienen en común**. Agrupar
 una onda con unas partículas te deja cambiar la opacidad de las dos —lo único
@@ -178,6 +208,11 @@ se mezcla) · `color` (qué rol de la paleta usa: `texto`, `acento`, `alerta`…
 
 > Las opacidades **se multiplican**: 20% de ventana por 20% de módulo da 4% de
 > verdad.
+
+**Un módulo transparente deja ver al que tiene debajo.** Podés apilar: un fondo
+grande, unas partículas encima y un texto arriba de todo, y los tres se ven. El
+orden lo decide `z` —más alto va encima— y con la misma `z` gana el que se creó
+después.
 
 ### Cómo se anima
 
@@ -312,3 +347,5 @@ que te pasan no puede cambiarte cómo trabaja el asistente ni llevarse tus clave
 | Va a tirones | **Apariencia → Tema → Fluidez**: bajá `ui_fps` antes que apagar módulos |
 | Puse uno en el cartel y no lo encuentro | En la ventana de actividad, modo Edit, poné **Editando: cartel** |
 | Un módulo del cartel se ve cortado | Está pasado del recuadro punteado: el cartel mide 460×128 por su escala |
+| Uno encima tapa al de abajo | No debería: fijate `opacidad` y el fondo del módulo de arriba, que puede ser opaco a propósito |
+| No encuentro los puntos para estirar | Tenés que estar en **Edit** y con algo elegido |

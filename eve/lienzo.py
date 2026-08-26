@@ -281,39 +281,156 @@ class Lienzo:
             self._fondos_opacos[tam] = base
         return Image.alpha_composite(base, img)
 
+    def dibujado(self, ident: str) -> bool:
+        """Si ese modulo esta dibujado ahora mismo.
+
+        Existe porque `_items` dejo de estar siempre indexado por id: los
+        modulos que se pisan comparten UN item, con una clave que los nombra a
+        todos. Preguntar `ident in lienzo._items` daba False para un modulo que
+        se estaba viendo perfectamente, que es la clase de respuesta que hace
+        perder una tarde.
+        """
+        if ident in self._items:
+            return True
+        return any(clave.startswith("racimo:")
+                   and ident in clave[len("racimo:"):].split(",")
+                   for clave in self._items)
+
+    def _racimos(self, visibles):
+        """Los modulos agrupados por si se pisan entre si.
+
+        Es lo que permite que un modulo transparente deje ver al de abajo SIN
+        perder la optimizacion de `_opaco`, que es la mas grande del archivo.
+
+        El problema: `_opaco` compone cada modulo contra el color del canvas,
+        asi que un modulo encima de otro tapaba al de abajo con el fondo. Y no
+        se puede simplemente dejar de hacerlo --pasarle transparencia a Tk
+        cuesta 44 veces mas, medido-- porque eso devuelve los 505 ms por cuadro.
+
+        La salida es que la mezcla la siga haciendo Pillow, pero contra lo que
+        de verdad hay debajo en vez de contra el fondo pelado. Para eso hay que
+        dibujar juntos a los que se pisan, y solo a esos: el que no se pisa con
+        nadie sigue por el camino rapido de siempre, que es el caso normal.
+
+        Se agrupa por transitividad --si A pisa a B y B pisa a C, los tres van
+        juntos aunque A y C no se toquen-- porque componer A sobre B y B sobre C
+        por separado volveria a tapar.
+        """
+        cajas = []
+        for m in visibles:
+            x, y = int(m.get("x", 0) or 0), int(m.get("y", 0) or 0)
+            cajas.append((x, y, x + int(m.get("ancho", 0) or 0),
+                          y + int(m.get("alto", 0) or 0)))
+
+        # Union-find chico y a mano: son decenas de modulos, no miles.
+        padre = list(range(len(visibles)))
+
+        def raiz(i):
+            while padre[i] != i:
+                padre[i] = padre[padre[i]]
+                i = padre[i]
+            return i
+
+        for i in range(len(visibles)):
+            for j in range(i + 1, len(visibles)):
+                a, b = cajas[i], cajas[j]
+                if a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]:
+                    ri, rj = raiz(i), raiz(j)
+                    if ri != rj:
+                        padre[ri] = rj
+
+        racimos: dict = {}
+        for i, m in enumerate(visibles):
+            racimos.setdefault(raiz(i), []).append((m, cajas[i]))
+        # En el orden en que venian, que es el orden de dibujo por `z`.
+        return list(racimos.values())
+
+    def _racimo_pintado(self, miembros, estado, ahora):
+        """Un grupo que se pisa, compuesto en UNA imagen opaca. (img, x, y).
+
+        El fondo va primero y los modulos encima en orden de dibujo, asi que
+        cada uno se mezcla contra lo que de verdad tiene abajo. El resultado
+        sale opaco, que es lo que Tk quiere.
+        """
+        x0 = min(c[0] for _m, c in miembros)
+        y0 = min(c[1] for _m, c in miembros)
+        x1 = max(c[2] for _m, c in miembros)
+        y1 = max(c[3] for _m, c in miembros)
+        base = Image.new("RGBA", (max(1, x1 - x0), max(1, y1 - y0)),
+                         self._color_de_fondo() + (255,))
+        for modulo, caja in miembros:
+            img = self.pintar(modulo, estado, ahora)
+            if img.mode != "RGBA":
+                img = img.convert("RGBA")
+            # `alpha_composite` sobre una region y no `paste`: `paste` con
+            # mascara pisa el alpha del destino en vez de mezclarlo, y con tres
+            # modulos encimados eso se nota en los bordes suavizados.
+            trozo = base.crop((caja[0] - x0, caja[1] - y0,
+                               caja[0] - x0 + img.width, caja[1] - y0 + img.height))
+            base.paste(Image.alpha_composite(trozo, img),
+                       (caja[0] - x0, caja[1] - y0))
+        return base, x0, y0
+
     def dibujar(self, lista, estado):
-        """Pinta los modulos visibles. Devuelve cuantos hubo que repintar."""
+        """Pinta los modulos visibles. Devuelve cuantos hubo que repintar.
+
+        Dos caminos, y cual toca lo decide si el modulo se pisa con otro. El
+        que esta solo se compone contra el fondo y se manda a Tk opaco, que es
+        44 veces mas barato. Los que se pisan van juntos en una sola imagen,
+        compuestos entre si: es la unica forma de que el de arriba deje ver al
+        de abajo sin volver a pagar la transparencia en el puente a Tcl.
+        """
         from PIL import ImageTk
 
         ahora = time.monotonic() - self._t0
         vivos = set()
         repintados = 0
-        for modulo in lista:
-            ident = modulo["id"]
-            if not modulos.visible(modulo, estado.get("estado", ""),
-                                   estado.get("hover") == ident):
-                self.olvidar(ident)
-                continue
-            vivos.add(ident)
-            firma = self._firma(modulo, estado, ahora)
-            datos = self._items.get(ident)
+        visibles = [m for m in lista
+                    if modulos.visible(m, estado.get("estado", ""),
+                                       estado.get("hover") == m["id"])]
+        for m in lista:
+            if m not in visibles:
+                self.olvidar(m["id"])
+
+        for miembros in self._racimos(visibles):
+            if len(miembros) == 1:
+                modulo = miembros[0][0]
+                clave = modulo["id"]
+                firma = self._firma(modulo, estado, ahora)
+            else:
+                # La clave lleva los ids: si el racimo cambia --alguien arrastro
+                # un modulo adentro o afuera-- es otro item, y el viejo se borra
+                # solo por la limpieza de abajo.
+                # El `:` no puede aparecer en un id --se arman como
+                # `f"{tipo}{n}"`, alfanumericos-- asi que un racimo no puede
+                # colisionar con la clave de un modulo suelto.
+                clave = "racimo:" + ",".join(m["id"] for m, _c in miembros)
+                firma = tuple(self._firma(m, estado, ahora) for m, _c in miembros)
+            vivos.add(clave)
+            datos = self._items.get(clave)
             if datos is not None and datos[2] == firma:
                 continue   # no cambio nada: no se toca
 
-            img = self._opaco(self.pintar(modulo, estado, ahora))
+            if len(miembros) == 1:
+                modulo = miembros[0][0]
+                img = self._opaco(self.pintar(modulo, estado, ahora))
+                px, py = modulo["x"], modulo["y"]
+            else:
+                img, px, py = self._racimo_pintado(miembros, estado, ahora)
+                img = img.convert("RGB")   # ya es opaca; sin alpha para Tk
+
             if datos is None or [datos[3], datos[4]] != [img.width, img.height]:
                 if datos is not None:
                     self.canvas.delete(datos[0])
                 foto = ImageTk.PhotoImage(img)
-                item = self.canvas.create_image(modulo["x"], modulo["y"],
-                                                anchor="nw", image=foto)
-                self._items[ident] = [item, foto, firma, img.width, img.height]
+                item = self.canvas.create_image(px, py, anchor="nw", image=foto)
+                self._items[clave] = [item, foto, firma, img.width, img.height]
             else:
                 # La PhotoImage se reusa: crear una nueva por cuadro cuesta el
                 # doble, medido.
                 datos[1].paste(img)
                 datos[2] = firma
-                self.canvas.coords(datos[0], modulo["x"], modulo["y"])
+                self.canvas.coords(datos[0], px, py)
             repintados += 1
 
         for ident in [i for i in self._items if i not in vivos]:
