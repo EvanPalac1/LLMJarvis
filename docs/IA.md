@@ -32,7 +32,24 @@ El motor `compat` trae presets para no ir a buscar la URL:
 | `openrouter` | `deepseek/deepseek-chat-v3.1:free` |
 | `xai` | `grok-4-fast` |
 | `lmstudio` | local, sin clave |
+| `omniroute` | local, **con** clave: es una pasarela |
 | `propio` | la URL que le pongas |
+
+**El botón `Buscar modelos`** se los pregunta al servicio en vez de que tengas
+que saber el identificador exacto. `GET /v1/models` es parte del protocolo, así
+que lo contestan los tres tipos: la nube, el local y el propio.
+
+**Quién pide clave lo dice el proveedor, no el host.** La regla era "si escucha
+en localhost no pide clave", y valía mientras los únicos locales eran LM Studio
+y Ollama, que efectivamente no piden. **OmniRoute la rompe**: corre en tu
+máquina y sí pide una, emitida por su propio panel —es una pasarela, y por
+detrás habla con decenas de proveedores con tus claves de ellos—. Con la regla
+vieja pasaba la comprobación y fallaba con un 401 a mitad de la primera
+respuesta, que es justo lo que esa comprobación existe para evitar.
+
+`propio` conserva la excusa del localhost: ahí la URL la ponés vos y puede
+apuntar a cualquier cosa —un `llama.cpp` suelto no pide nada—, así que exigirle
+una clave sería inventarle un requisito.
 
 **Cambiar de motor no pierde la conversación.** El historial se guarda en un
 formato neutro —`ts`, `role`, `text`, `engine`— y los cuatro motores lo leen.

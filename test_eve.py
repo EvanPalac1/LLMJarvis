@@ -6087,6 +6087,43 @@ def test_openrouter_y_lmstudio_estan_y_se_configuran_solos():
     # Y NO se mandan a los demas: son de OpenRouter, no del protocolo.
     assert "X-Title" not in local._cabeceras()
 
+    # OmniRoute es la excepcion que rompio la regla vieja: corre en TU maquina
+    # --localhost:20128-- y SI pide clave, una que emite su propio panel. Con
+    # la regla anterior ("si es localhost no pide clave") pasaba la
+    # comprobacion y fallaba con un 401 a mitad de la primera respuesta, que es
+    # justo lo que `comprobar` existe para evitar.
+    url, clave, modelo = ce.PROVEEDORES["omniroute"]
+    assert url.startswith("http://localhost"), url
+    assert clave, "OmniRoute emite su propia clave"
+    assert not modelo, "enruta a cientos: elegir uno por el usuario seria adivinar"
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previo = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        try:
+            omni = motor(compat_proveedor="omniroute", compat_modelo="algun/modelo")
+            omni.clave = ""
+            ok, dicho = omni.comprobar()
+            assert not ok and "clave" in dicho.lower(), dicho
+
+            # Y los que de verdad no piden siguen sin pedir: la regla ahora la
+            # decide el PROVEEDOR y no el host.
+            lms = motor(compat_proveedor="lmstudio")
+            assert lms.comprobar()[0]
+
+            # `propio` conserva la excusa del localhost: ahi la URL la pone el
+            # usuario y puede apuntar a un llama.cpp suelto, que no pide nada.
+            suelto = motor(compat_proveedor="propio",
+                           compat_url="http://localhost:8080/v1",
+                           compat_modelo="x")
+            assert suelto.comprobar()[0]
+            afuera = motor(compat_proveedor="propio",
+                           compat_url="https://api.ejemplo.com/v1",
+                           compat_modelo="x")
+            assert not afuera.comprobar()[0]
+        finally:
+            store.CONFIG_PATH = previo
+
     # Un servicio de la nube sin clave se frena ANTES de hablarle, con el
     # motivo, en vez de fallar con un 401 a mitad de una respuesta.
     with tempfile.TemporaryDirectory() as raiz:

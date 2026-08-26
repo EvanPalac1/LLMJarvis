@@ -1738,6 +1738,7 @@ class Panel(tk.Tk):
             ("openrouter", "OpenRouter API key (tiene modelos :free)"),
             ("deepseek", "DeepSeek API key"),
             ("xai", "xAI API key"),
+            ("omniroute", "OmniRoute: la clave que emite su propio panel"),
         ]:
             self._campo_clave(t, provider, label)
 

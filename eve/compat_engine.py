@@ -38,6 +38,12 @@ PROVEEDORES = {
     "xai": ("https://api.x.ai/v1", "xai", "grok-4-fast"),
     # Servidor local: no necesita clave y no sale nada de la maquina.
     "lmstudio": ("http://localhost:1234/v1", "", "local"),
+    # OmniRoute es una pasarela: corre en TU maquina y por detras habla con
+    # decenas de proveedores. Por eso es el unico local que SI pide clave --una
+    # que emite su propio panel, no la de un servicio de la nube-- y por eso el
+    # modelo viene vacio: enruta a cientos y elegir uno por vos seria adivinar.
+    # El boton de buscar modelos se los pregunta.
+    "omniroute": ("http://localhost:20128/v1", "omniroute", ""),
     # "propio" usa lo que el usuario haya escrito en compat_url / compat_modelo.
     "propio": ("", "compat", ""),
 }
@@ -151,8 +157,24 @@ class CompatEve(OllamaEve):
                            "proveedor conocido en vez de 'propio'.")
         if not self.modelo:
             return False, "Falta el nombre del modelo. Panel > Cuentas."
-        # Los servicios locales no piden clave; los de la nube si.
-        if not self.clave and not self.host.startswith("http://localhost"):
+        # Quien pide clave lo dice el PROVEEDOR, no el host.
+        #
+        # La regla era "si escucha en localhost no pide clave", y valia mientras
+        # los unicos locales eran LM Studio y Ollama, que efectivamente no
+        # piden. OmniRoute la rompe: corre en tu maquina y SI pide una, emitida
+        # por su propio panel. Con la regla vieja pasaba la comprobacion y
+        # fallaba con un 401 a mitad de la primera respuesta, que es justo lo
+        # que `comprobar` existe para evitar.
+        #
+        # `propio` se queda con la excusa del localhost: ahi la URL la pone el
+        # usuario y puede apuntar a cualquier cosa --un llama.cpp suelto no
+        # pide nada-- asi que exigirle una clave seria inventarle un requisito.
+        _url, nombre_clave, _modelo = PROVEEDORES.get(self.proveedor,
+                                                      PROVEEDORES["propio"])
+        exime = (not nombre_clave
+                 or (self.proveedor == "propio"
+                     and self.host.startswith("http://localhost")))
+        if not self.clave and not exime:
             return False, (f"Falta la clave de {self.proveedor}. Cargala en "
                            f"Panel > Cuentas.")
         return True, "ok"
