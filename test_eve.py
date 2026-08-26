@@ -5534,6 +5534,82 @@ def test_el_panel_abre_el_grabador_sin_romperse():
             store.CONFIG_PATH, store.BASE = previos
 
 
+def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
+    """Apretar una tecla la deja puesta, y con el nombre que el listener usa.
+
+    Lo que hacia falta no era el boton sino el NOMBRE: para poner la tecla
+    habia que escribir `f13` a mano, y como se llama cada tecla no esta a la
+    vista en ningun lado.
+
+    El detalle que hace que esto sirva --y lo unico que este test fija de
+    verdad-- es DE DONDE sale ese nombre. `Listener._on_event` compara
+    `nombre != cfg["hotkey"]` contra lo que le llega de
+    `plataforma.hook_teclado`. Si la captura usara el `<Key>` de tkinter, como
+    hace el boton de probar que esta al lado, guardaria `F13` donde el listener
+    espera `f13` y quedaria una tecla configurada que no responde nunca.
+    Tomandola del mismo hook, lo guardado es reconocible por construccion.
+    """
+    import tkinter as tk
+
+    from eve import gui, plataforma, store
+
+    try:
+        tk.Tk().destroy()
+    except Exception:  # noqa: BLE001 - sin pantalla no hay nada que probar
+        print("    (sin pantalla, se saltea)")
+        return
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previo = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        enganchado, desenganchado = [], []
+        vh, vu = plataforma.hook_teclado, plataforma.unhook_teclado
+        panel = None
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            # El hook de verdad es GLOBAL: dejarlo correr en la suite pondria
+            # un gancho de teclado sobre la maquina que corre los tests.
+            plataforma.hook_teclado = lambda cb: (enganchado.append(cb),
+                                                  ("falso", cb))[1]
+            plataforma.unhook_teclado = desenganchado.append
+
+            panel = gui.Panel()
+            panel.withdraw()
+            panel.update_idletasks()
+
+            panel.hotkey_capturar()
+            assert len(enganchado) == 1, "no engancho"
+            # Y no engancha dos veces si le das dos clics.
+            panel.hotkey_capturar()
+            assert len(enganchado) == 1, "engancho de nuevo"
+
+            llego = enganchado[0]
+
+            # Soltar una tecla no cuenta: si contara, la tecla con la que
+            # llegaste al boton se capturaria sola al levantar el dedo.
+            llego("f9", "up")
+            panel.update()
+            assert panel.vars["hotkey"].get() != "f9", "conto un 'up'"
+
+            llego("f9", "down")
+            panel.update()
+            assert panel.vars["hotkey"].get() == "f9", panel.vars["hotkey"].get()
+            assert desenganchado, "capturo y dejo el hook puesto"
+
+            # Escape cancela y NO pisa lo que ya estaba.
+            desenganchado.clear()
+            panel.hotkey_capturar()
+            enganchado[-1]("esc", "down")
+            panel.update()
+            assert panel.vars["hotkey"].get() == "f9", "escape piso la tecla"
+            assert desenganchado, "cancelo y dejo el hook puesto"
+        finally:
+            plataforma.hook_teclado, plataforma.unhook_teclado = vh, vu
+            if panel is not None:
+                panel.destroy()
+            store.CONFIG_PATH = previo
+
+
 def test_hay_un_perfil_para_cada_paleta_neutra():
     """`Claro` y `Oscuro` de fabrica, y apuntando a la paleta DE VERDAD.
 

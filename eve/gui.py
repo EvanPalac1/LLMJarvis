@@ -3318,6 +3318,68 @@ class Panel(tk.Tk):
             text=tr("Cartel mostrado unos segundos. Si no aparecio, revisa 'Cuando se ve' "
                  "y 'Pantalla' mas abajo."))
 
+    def hotkey_capturar(self) -> None:
+        """Toma la proxima tecla que aprietes y la deja puesta.
+
+        Escribir `f13` a mano exige saber COMO se llama la tecla, y el nombre no
+        esta en ningun lado: el que vale no es el que dice el teclado ni el que
+        usa tkinter, es el que reporta el hook global.
+
+        Por eso la captura pasa por `plataforma.hook_teclado`, que es **el mismo
+        backend con el que el listener registra**. `Listener._on_event` compara
+        `nombre != cfg["hotkey"]` contra el nombre que le llega de ese hook, asi
+        que capturar por ahi hace que lo guardado sea reconocible por
+        construccion. Con el `<Key>` de tkinter --que es lo que usa el boton de
+        al lado-- saldria `F13` donde el listener espera `f13`, y quedaria una
+        tecla configurada que no responde nunca.
+
+        Y por eso NO se aceptan combinaciones aunque el hook las podria armar:
+        el listener compara UN nombre, asi que guardar `ctrl+k` seria dejar
+        puesta una tecla que no puede coincidir con nada. Una perilla que miente
+        es peor que una que falta.
+        """
+        if getattr(self, "_capturando", None):
+            return
+
+        from . import plataforma
+
+        self._capturando = True
+        self.tecla_label.config(text=tr("apreta la tecla que quieras...")
+                                + "  " + tr("(Escape cancela)"))
+
+        def soltar():
+            """Desengancha una sola vez, venga de donde venga."""
+            handle, self._capturando = self._capturando, None
+            if handle is not True:
+                plataforma.unhook_teclado(handle)
+
+        def aplicar(nombre):
+            if not self._capturando:
+                return          # ya se resolvio por otro lado
+            soltar()
+            if nombre in ("esc", "escape"):
+                self.tecla_label.config(text=tr("cancelado"))
+                return
+            self.vars["hotkey"].set(nombre)
+            self.tecla_label.config(
+                text=f"{tr('tecla')}: {nombre}. {tr('Acordate de Guardar.')}")
+
+        def llego(nombre, tipo):
+            # Del hilo del hook, que no es el de tkinter.
+            if tipo == "down":
+                self._ui(lambda: aplicar(nombre))
+
+        self._capturando = plataforma.hook_teclado(llego)
+
+        def rendirse():
+            if self._capturando:
+                soltar()
+                self.tecla_label.config(text=tr("no llego ninguna tecla"))
+
+        # Con tope: un panel esperando para siempre una tecla que nadie va a
+        # apretar es peor que escribirla a mano.
+        self.after(15000, rendirse)
+
     def probar_tecla(self) -> None:
         """Espera a que aprietes una tecla y dice cual llego.
 

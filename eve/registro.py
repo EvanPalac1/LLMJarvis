@@ -598,6 +598,7 @@ GENERAL = (
             Campo("language", "Idioma en que te habla"),
             Campo("hotkey", "Tecla del keypad"),
             Fila((
+                Boton("Asignar tecla", "hotkey_capturar"),
                 Boton("Probar la tecla", "probar_tecla"),
                 Salida("tecla_label"),
             )),

@@ -162,6 +162,18 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    "Asignar tecla":
+        "Assign a key",
+    "apreta la tecla que quieras...":
+        "press whichever key you want...",
+    "(Escape cancela)":
+        "(Escape cancels)",
+    "cancelado":
+        "cancelled",
+    "Acordate de Guardar.":
+        "Remember to hit Save.",
+    "no llego ninguna tecla":
+        "no key came through",
     "Importar voz...":
         "Import a voice...",
     "Elegi el .onnx de la voz":
