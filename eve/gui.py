@@ -112,7 +112,9 @@ class Panel(tk.Tk):
         # 900 y no 800: arriba del notebook ahora hay una barra con el modo, el
         # buscador y el idioma, y con 800 el ultimo boton del pie --el de la
         # ventana de actividad-- salia cortado como "Ventana de acti".
-        self.geometry("900x820")
+        # 980 y no 900: el pie gano el boton de revisar el listener y a 900 el
+        # ultimo quedaba cortado. Se conto sobre una captura del binario.
+        self.geometry("980x820")
         self.minsize(760, 460)
 
         # El pie va PRIMERO y anclado abajo: pack reparte en orden de empaquetado,
@@ -1473,7 +1475,12 @@ class Panel(tk.Tk):
         )
         return t
 
-    ESCALA_MUESTRA = 46      # % del tamaño real del cartel
+    # % del tamaño real del cartel. Sale de una cuenta y no de probar: la
+    # ventana abre en 900, la barra lateral se lleva 178, los margenes de la
+    # tarjeta y el scroll ~60, asi que quedan ~660 para tres columnas con 10 de
+    # separacion -> 200 cada una. A 46% el cartel mide 211 y la tercera columna
+    # se cortaba; a 40% mide 184 y entra con aire.
+    ESCALA_MUESTRA = 40
 
     def _galeria_perfiles(self, padre) -> None:
         """Los ocho perfiles que vienen, dibujados como se van a ver.
