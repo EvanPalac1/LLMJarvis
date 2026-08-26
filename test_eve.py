@@ -4666,7 +4666,8 @@ def test_eve_no_puede_soltar_sus_propios_frenos():
                          "claves_del_usuario": "hud_opacidad",
                          "cc_permission_mode": "bypassPermissions",
                          "ayuda_alcance": "codigo",
-                         "archivos_alcance": "escribir"}[clave]
+                         "archivos_alcance": "escribir",
+                         "skills_alcance": "completo"}[clave]
                 salida = integrations.ajustar(clave, nuevo)
                 assert store.load_config().get(clave) == antes, f"{clave} se escribio"
                 assert "frenan" in salida, salida
@@ -5608,6 +5609,107 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
             if panel is not None:
                 panel.destroy()
             store.CONFIG_PATH = previo
+
+
+def test_las_skills_viajan_como_indice_y_no_enteras():
+    """Subir un .md y que Eve lo consulte, sin pagarlo en cada frase.
+
+    Lo que decide el diseno es el COSTO. Medido con cinco skills de una pagina
+    (3 009 caracteres cada una) sobre el mismo prompt:
+
+        nada        10 483
+        consultar   10 888   +405   (+4%)
+        completo    25 698 +15 215 (+145%)
+
+    O sea que `completo` DUPLICA el prompt, y se paga en cada frase que le
+    digas --incluido "que hora es"--. Por eso el default es `consultar`: viaja
+    el indice, y el cuerpo se pide con `E skill ver` cuando de verdad hace
+    falta. Es la misma cuenta que ya se hizo con `ayuda_vocabulario`.
+
+    Y se comprueban LAS DOS MITADES de la compuerta: que con `nada` la seccion
+    no aparezca en el prompt Y que el comando no conteste. Con una sola,
+    `archivos_alcance` casi queda decorativo: el prompt lo nombraba y el
+    comando corria igual.
+    """
+    from eve import integrations, prompt, skills, store
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previo_dir, previo_cfg = skills.SKILLS_DIR, store.CONFIG_PATH
+        skills.SKILLS_DIR = os.path.join(raiz, "skills")
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        try:
+            cuerpo = ("# Informes\n\nComo queres que arme el informe.\n\n"
+                      + "- un renglon de instruccion\n" * 80)
+            os.makedirs(skills.SKILLS_DIR)
+            for n in ("informes", "deploy"):
+                with open(skills.ruta_de(n), "w", encoding="utf-8") as f:
+                    f.write(cuerpo)
+            assert skills.instaladas() == ["deploy", "informes"]
+
+            # 1. El indice es NOMBRE + UN RENGLON, no el cuerpo.
+            ind = dict(skills.resumen())
+            assert ind["informes"] == "Como queres que arme el informe."
+            assert "un renglon de instruccion" not in ind["informes"]
+
+            # 2. El orden de costo, que es la razon de ser del ajuste.
+            costo = {}
+            for v in ("nada", "consultar", "completo"):
+                cfg = dict(store.DEFAULTS)
+                cfg["skills_alcance"] = v
+                costo[v] = sum(prompt.partes(cfg).values())
+            assert costo["nada"] < costo["consultar"] < costo["completo"], costo
+            # Y que la diferencia sea de ORDEN distinto, no de un pelo: el
+            # indice tiene que costar una fraccion de lo que cuestan los
+            # cuerpos, o el ajuste no compra nada.
+            indice = costo["consultar"] - costo["nada"]
+            cuerpos = costo["completo"] - costo["nada"]
+            assert cuerpos > indice * 5, (indice, cuerpos)
+
+            # 3. Con `nada` no queda rastro en el prompt. Nombrar una capacidad
+            #    que no se puede usar le hace gastar una llamada en que le
+            #    digan que no.
+            cfg = dict(store.DEFAULTS)
+            cfg["skills_alcance"] = "nada"
+            assert "## Skills" not in prompt.construir(cfg)
+            cfg["skills_alcance"] = "consultar"
+            texto = prompt.construir(cfg)
+            assert "## Skills" in texto and "informes" in texto
+            assert "un renglon de instruccion" not in texto, "viajo el cuerpo"
+
+            # 4. Y la otra mitad: con `nada` el comando tampoco contesta.
+            store.save_config({**store.DEFAULTS, "skills_alcance": "nada"})
+            assert "No puedo" in integrations.skill_ver("informes")
+            store.save_config({**store.DEFAULTS, "skills_alcance": "consultar"})
+            assert "un renglon de instruccion" in integrations.skill_ver("informes")
+
+            # 5. Pedir una que no existe dice cuales hay, en vez de un rastro.
+            try:
+                skills.leer("fantasma")
+                raise AssertionError("leyo una que no existe")
+            except ValueError as exc:
+                assert "informes" in str(exc), str(exc)
+
+            # 6. Importar valida antes de copiar, y no pisa lo que ya esta.
+            suelto = os.path.join(raiz, "otra.md")
+            with open(suelto, "w", encoding="utf-8") as f:
+                f.write("# Otra\n\nhola\n")
+            assert skills.importar(suelto) == "otra"
+            try:
+                skills.importar(suelto)
+                raise AssertionError("dejo importar dos veces")
+            except ValueError as exc:
+                assert "otra" in str(exc)
+            vacio = os.path.join(raiz, "vacio.md")
+            open(vacio, "w").close()
+            assert not skills.revisar(vacio)[0]
+            assert not skills.revisar(os.path.join(raiz, "no.exe"))[0]
+
+            # 7. Un .md gigante no entra de un saque al contexto.
+            with open(skills.ruta_de("enorme"), "w", encoding="utf-8") as f:
+                f.write("x" * (skills.TOPE_CUERPO + 5000))
+            assert len(skills.leer("enorme")) <= skills.TOPE_CUERPO + 60
+        finally:
+            skills.SKILLS_DIR, store.CONFIG_PATH = previo_dir, previo_cfg
 
 
 def test_hay_un_perfil_para_cada_paleta_neutra():

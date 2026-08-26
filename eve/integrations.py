@@ -118,6 +118,72 @@ _RUIDO = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist",
 _TOPE_LISTA = 60
 
 
+SKILLS_ALCANCE = ("nada", "consultar", "completo")
+
+
+def _alcance_skills(cfg=None) -> str:
+    cfg = cfg if cfg is not None else store.load_config()
+    valor = str(cfg.get("skills_alcance", "consultar"))
+    return valor if valor in SKILLS_ALCANCE else "consultar"
+
+
+def bloque_skills(cfg: dict) -> str:
+    """El indice de tus skills. Con `nada`, cadena vacia.
+
+    Lo que viaja es NOMBRE + UN RENGLON, no el `.md`. La diferencia es la razon
+    de ser de esto: el indice se paga en cada frase que le digas --incluido "que
+    hora es"-- y los cuerpos solo cuando de verdad hacen falta. Ya se midio con
+    `ayuda_vocabulario`: mandar el diccionario de modulos entero costaba 1 352
+    caracteres por llamada.
+
+    `completo` existe para el que tiene una sola skill corta y prefiere que este
+    siempre a mano. No es el default por lo de arriba.
+    """
+    nivel = _alcance_skills(cfg)
+    if nivel == "nada":
+        return ""
+    from eve import skills
+
+    hay = skills.resumen()
+    if not hay:
+        return ""      # anunciar un indice vacio es gastar prompt en nada
+    lineas = ["## Skills", "",
+              "Instrucciones que escribio el usuario. Si una viene al caso, "
+              "leela ANTES de contestar."]
+    if nivel == "completo":
+        for nombre, _renglon in hay:
+            lineas.append("")
+            lineas.append(f"### {nombre}")
+            lineas.append(skills.leer(nombre))
+    else:
+        for nombre, renglon in hay:
+            lineas.append(f"  {nombre}" + (f" - {renglon}" if renglon else ""))
+        lineas.append("`E skill ver NOMBRE` trae el texto entero de una.")
+    return chr(10).join(lineas) + chr(10)
+
+
+def skill_ver(nombre: str) -> str:
+    """El cuerpo de una skill. Existe solo si el ajuste lo permite."""
+    from eve import skills
+
+    nivel = _alcance_skills()
+    if nivel == "nada":
+        return ("No puedo: 'Skills' esta en 'nada'. Se cambia en el panel, en "
+                "General. No insistas con otro comando.")
+    return skills.leer(nombre)
+
+
+def skill_listar() -> str:
+    from eve import skills
+
+    if _alcance_skills() == "nada":
+        return "No puedo: 'Skills' esta en 'nada'."
+    hay = skills.resumen()
+    if not hay:
+        return "No hay ninguna skill cargada."
+    return chr(10).join(f"{n}  {r}" if r else n for n, r in hay)
+
+
 def _alcance_archivos(cfg=None) -> str:
     cfg = cfg if cfg is not None else store.load_config()
     valor = str(cfg.get("archivos_alcance", "exacto"))
@@ -338,7 +404,7 @@ Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
   E exportar-contacto NOMBRE
       deja un archivo .evecontact en el Escritorio para compartir ese contacto.
       Despues adjuntalo con componer si te piden mandarselo a alguien.
-{bloque_archivos(cfg)}  E outlook-leer -n 10
+{bloque_skills(cfg)}{bloque_archivos(cfg)}  E outlook-leer -n 10
   E outlook-contacto NOMBRE              resolve "Juan" -> direccion; si hay varios, pregunta
   E outlook-redactar --to X --asunto "..." --cuerpo "..."
       lo manda. Agrega --borrador solo si el usuario pide revisarlo antes
@@ -1664,6 +1730,10 @@ def main(argv=None) -> int:
     ar.add_argument("--ruta", dest="dentro", default="")
     ar.add_argument("--texto", default="")
 
+    sk = sub.add_parser("skill")
+    sk.add_argument("accion", choices=["listar", "ver"])
+    sk.add_argument("nombre", nargs="?", default="")
+
     ui = sub.add_parser("ui")
     ui.add_argument("accion", choices=["buscar", "ver"])
     ui.add_argument("resto", nargs="+")
@@ -1750,6 +1820,8 @@ def main(argv=None) -> int:
                 print(archivo_buscar(a.ruta, a.dentro))
             else:
                 print(archivo_escribir(a.ruta, a.texto))
+        elif a.cmd == "skill":
+            print(skill_listar() if a.accion == "listar" else skill_ver(a.nombre))
         elif a.cmd == "destrabar":
             print(store.destrabar(a.clave))
         elif a.cmd in ("leer", "buscar"):

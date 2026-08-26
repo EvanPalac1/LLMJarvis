@@ -688,6 +688,24 @@ GENERAL = (
         ),
     ),
     Seccion(
+        "Skills que le pasas",
+        (
+            Propio("_skills_lista", ()),
+            Campo("skills_alcance", "Cuanto de las skills viaja",
+                  ["nada", "consultar", "completo"]),
+            Ayuda("Una skill es un .md tuyo con instrucciones: como queres un\n"
+                  "informe, como se hace un deploy, con que tono le escribis a un\n"
+                  "cliente.\n"
+                  "  nada        no existen para ella\n"
+                  "  consultar   viaja el INDICE --nombre y un renglon-- y el texto\n"
+                  "              entero lo pide con 'E skill ver' cuando hace falta\n"
+                  "  completo    viajan enteras, siempre\n"
+                  "La diferencia se paga en CADA frase que le digas, incluido 'que\n"
+                  "hora es'. Medido con cinco skills de una pagina: 'consultar'\n"
+                  "suma 4% al prompt y 'completo' 145%, o sea que lo duplica."),
+        ),
+    ),
+    Seccion(
         "Quien manda sobre un ajuste",
         (
             Campo("autoridad", "Autoridad", ["usuario", "eve", "preguntar"]),

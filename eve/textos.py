@@ -162,6 +162,20 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    'Skills que le pasas':
+        'Skills you hand her',
+    "Una skill es un .md tuyo con instrucciones: como queres un\ninforme, como se hace un deploy, con que tono le escribis a un\ncliente.\n  nada        no existen para ella\n  consultar   viaja el INDICE --nombre y un renglon-- y el texto\n              entero lo pide con 'E skill ver' cuando hace falta\n  completo    viajan enteras, siempre\nLa diferencia se paga en CADA frase que le digas, incluido 'que\nhora es'. Medido con cinco skills de una pagina: 'consultar'\nsuma 4% al prompt y 'completo' 145%, o sea que lo duplica.":
+        "A skill is a .md of yours with instructions: how you want a\nreport, how a deploy is done, what tone you use with a client.\n  nada        they do not exist for her\n  consultar   the INDEX travels --name and one line-- and the\n              full text is fetched with 'E skill ver' when needed\n  completo    they travel whole, always\nThe difference is paid on EVERY sentence you say, 'what time is\nit' included. Measured with five one-page skills: 'consultar'\nadds 4% to the prompt and 'completo' 145%, i.e. it doubles it.",
+    "Skills":
+        "Skills",
+    "Importar skill...":
+        "Import a skill...",
+    "Elegi el .md de la skill":
+        "Pick the skill's .md",
+    "Cuanto de las skills viaja":
+        "How much of the skills travels",
+    "(ninguna todavia)":
+        "(none yet)",
     "Modelos y claves":
         "Models and keys",
     "Cual piensa, cual te escucha, cual te habla, y la clave de cada uno.":

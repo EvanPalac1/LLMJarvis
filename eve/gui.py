@@ -732,6 +732,70 @@ class Panel(tk.Tk):
             + tr("La clave de cada uno va en la pestaña Cuentas. 'propio' sirve para\n"
                  "cualquier servidor que hable /chat/completions."))
 
+    def _skills_lista(self, padre) -> None:
+        """La lista de skills con Importar y Quitar.
+
+        No es un `Campo` porque no hay una clave que editar: lo que se maneja
+        son archivos en una carpeta. Mismo caso que las voces propias.
+        """
+        from . import skills as mod_skills
+
+        caja = ttk.Frame(padre)
+        caja.pack(fill="x", padx=12, pady=(6, 2))
+        self.skills_lista = tk.Listbox(caja, height=4, exportselection=False)
+        self.skills_lista.pack(side="left", fill="x", expand=True)
+        barra = ttk.Frame(caja)
+        barra.pack(side="left", padx=(8, 0))
+        ttk.Button(barra, text=tr("Importar skill..."),
+                   command=self.skill_importar).pack(fill="x")
+        ttk.Button(barra, text=tr("Quitar"),
+                   command=self.skill_quitar).pack(fill="x", pady=(4, 0))
+
+        def refrescar():
+            self.skills_lista.delete(0, "end")
+            for nombre, renglon in mod_skills.resumen():
+                self.skills_lista.insert(
+                    "end", f"{nombre}   {renglon}" if renglon else nombre)
+            if not mod_skills.instaladas():
+                self.skills_lista.insert("end", tr("(ninguna todavia)"))
+
+        self._skills_refrescar = refrescar
+        refrescar()
+
+    def skill_importar(self) -> None:
+        from tkinter import filedialog
+
+        from . import skills as mod_skills
+
+        ruta = filedialog.askopenfilename(
+            title=tr("Elegi el .md de la skill"), parent=self,
+            filetypes=[(tr("Texto"), "*.md *.markdown *.txt"), (tr("Todos"), "*.*")],
+        )
+        if not ruta:
+            return
+        try:
+            mod_skills.importar(ruta)
+        except ValueError as exc:
+            messagebox.showerror(tr("Skills"), str(exc))
+            return
+        except OSError as exc:
+            messagebox.showerror(tr("Skills"), f"{tr('no pude copiarla')}: {exc}")
+            return
+        self._skills_refrescar()
+
+    def skill_quitar(self) -> None:
+        from . import skills as mod_skills
+
+        sel = self.skills_lista.curselection()
+        instaladas = mod_skills.instaladas()
+        if not sel or sel[0] >= len(instaladas):
+            return
+        nombre = instaladas[sel[0]]
+        if not messagebox.askyesno(tr("Skills"), f"{tr('Borrar')} {nombre}?"):
+            return
+        mod_skills.borrar(nombre)
+        self._skills_refrescar()
+
     def _rutas_permitidas(self, padre) -> None:
         """El cuadro de rutas de trabajo. Excepcion: es un Text de varias lineas.
 

@@ -344,6 +344,7 @@ DEFAULTS = {
     # En los tres, `workdirs` sigue siendo el limite: esto mueve QUE puede
     # hacer adentro de lo permitido, nunca cuanto alcanza.
     "archivos_alcance": "exacto",
+    "skills_alcance": "consultar",
     # Cuando se abre la ventana de actividad.
     #   nunca      solo si la abris a mano desde la bandeja
     #   con_eve    se abre junto con Eve y queda ahi
@@ -1233,6 +1234,12 @@ NUNCA_POR_EVE = (
     # puede hacer, asi que tocarlo no le compra ningun permiso.
     "ayuda_alcance",
     "archivos_alcance",
+    # Y la novena la encontro el mismo test, apenas se agrego. Parece de la
+    # familia de `ayuda_vocabulario` --las dos deciden CUANTO texto viaja-- y
+    # no lo es: pasar de `nada` a `consultar` hace existir `E skill ver`, o
+    # sea que le da acceso a archivos del usuario que antes no podia leer.
+    # Cuanto viaja no compra permisos; que el comando exista, si.
+    "skills_alcance",
 )
 
 
