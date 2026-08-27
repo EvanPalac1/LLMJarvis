@@ -24,3 +24,8 @@ eve.sh
 contactos.json
 MEMORIA.md
 voices/
+
+# Archivos de trabajo del canvas de diseno: no son parte del programa.
+*.dc.html
+canvas.json
+proveedor-y-comandos-por-voz.html

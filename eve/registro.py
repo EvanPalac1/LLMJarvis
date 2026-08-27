@@ -610,11 +610,11 @@ GENERAL = (
     Seccion(
         "Quien piensa por ella",
         (
-            Campo("engine", "Motor", ["api", "claude-code", "ollama", "compat"]),
-            Ayuda("  api = Messages API, necesita tu ANTHROPIC_API_KEY.\n"
-                  "  claude-code = CLI de Claude Code, usa tu suscripcion sin key (mas lento).\n"
-                  "  ollama = modelo local, sin key ni nube. Peor encadenando varias tools.\n"
-                  "  compat = cualquier servidor que hable el protocolo de OpenAI."),
+            # Un control en lugar de dos. `engine` y `compat_proveedor` eran
+            # campos separados y en SECCIONES distintas, asi que elegir quien
+            # piensa eran dos pasos y despues habia que deducir cual de las
+            # nueve claves quedaba viva. Declara las dos porque las escribe.
+            Propio("_selector_proveedor", ("engine", "compat_proveedor")),
             Campo("model", "Modelo (motor api)", "_modelos_api"),
             Campo("cc_model", "Modelo (motor claude-code)", "_modelos_cc"),
             Campo("cc_permission_mode", "Permisos (motor claude-code)", "_permisos_cc"),
@@ -630,7 +630,7 @@ GENERAL = (
     Seccion(
         "Otros motores",
         (
-            Campo("compat_proveedor", "compat: proveedor", "_proveedores_compat"),
+            # `compat_proveedor` se elige arriba, en el selector.
             Campo("compat_modelo", "compat: modelo"),
             Campo("compat_url", "compat: URL propia", None, 40),
             Fila((

@@ -796,6 +796,141 @@ class Panel(tk.Tk):
         mod_skills.borrar(nombre)
         self._skills_refrescar()
 
+    # Los tres motores que no son `compat`. El resto sale de
+    # `compat_engine.PROVEEDORES`, para que agregar uno alla lo muestre aca
+    # sin tocar nada: la lista anterior habria que acordarse de actualizarla.
+    MOTORES_PROPIOS = (
+        ("api", "Anthropic", "api", "anthropic", "la nube - Messages API"),
+        ("claude-code", "Claude Code", "claude-code", "", "tu suscripcion, sin clave"),
+        ("ollama", "Ollama", "ollama", "", "tu maquina - localhost:11434"),
+    )
+
+    # Como se escribe cada uno. La clave del diccionario es un identificador
+    # --`lmstudio`, `xai`-- y mostrarlo crudo al lado de "Claude Code" queda
+    # como si faltara terminarlo. Lo que no este aca sale con su id, que es
+    # mejor que no salir.
+    NOMBRE_PROVEEDOR = {
+        "gemini": "Gemini", "openai": "OpenAI", "groq": "Groq",
+        "deepseek": "DeepSeek", "openrouter": "OpenRouter", "xai": "xAI",
+        "lmstudio": "LM Studio", "omniroute": "OmniRoute",
+        "propio": "Otro servidor",
+    }
+
+    def catalogo_proveedores(self) -> list:
+        """(id, rotulo, engine, clave, donde) de todo lo que puede pensar.
+
+        Publico porque el test lo recorre: lo que importa es que la lista salga
+        de `PROVEEDORES` y no de una copia escrita a mano al lado.
+        """
+        from . import compat_engine as ce
+
+        salida = list(self.MOTORES_PROPIOS)
+        for nombre, (url, clave, _modelo) in ce.PROVEEDORES.items():
+            donde = ("tu maquina" if url.startswith("http://localhost")
+                     else "la nube")
+            if nombre == "propio":
+                # No es un proveedor: es "poneme vos la URL". Se queda, pero
+                # dicho como lo que es.
+                donde = "el servidor que le pongas abajo"
+            salida.append((nombre, self.NOMBRE_PROVEEDOR.get(nombre, nombre),
+                           "compat", clave, donde))
+        return salida
+
+    def _selector_proveedor(self, padre) -> None:
+        """Quien piensa por ella: uno solo, elegido de una lista.
+
+        Antes eran DOS controles --`engine`, y si decias `compat`, tambien
+        `compat_proveedor`-- y estaban en secciones distintas. Peor: el panel
+        mostraba nueve campos de clave uno abajo del otro sin ninguna señal de
+        cual estaba en uso.
+
+        Las claves SIEMPRE fueron mutuamente excluyentes --`brain` lee la de
+        Anthropic y `compat_engine` lee la del proveedor elegido, nunca hay dos
+        en juego-- asi que esto no cambia el comportamiento: hace visible el
+        que ya habia. El listener tampoco cambia; sigue leyendo las mismas dos
+        claves que este control escribe.
+        """
+        engine = tk.StringVar(value=str(self.cfg.get("engine", "api")))
+        prov = tk.StringVar(value=str(self.cfg.get("compat_proveedor", "")))
+        self.vars["engine"] = engine
+        self.vars["compat_proveedor"] = prov
+
+        cat = self.catalogo_proveedores()
+        actual = engine.get()
+        if actual == "compat":
+            elegido = prov.get() or cat[3][0]
+        else:
+            elegido = actual
+        self._prov_var = tk.StringVar(value=elegido)
+
+        for ident, rotulo, _motor, clave, donde in cat:
+            fila = ttk.Frame(padre)
+            fila.pack(fill="x", padx=12, pady=1)
+            ttk.Radiobutton(fila, text=rotulo, value=ident,
+                            variable=self._prov_var,
+                            command=self._selector_aplicar,
+                            width=16).pack(side="left")
+            ttk.Label(fila, text=donde, style="Ayuda.TLabel").pack(side="left")
+            ttk.Label(fila, text=self._estado_clave(clave),
+                      style="Ayuda.TLabel").pack(side="right")
+
+        self.prov_label = ttk.Label(padre, text="", style="Ayuda.TLabel",
+                                    justify="left")
+        self.prov_label.pack(anchor="w", padx=12, pady=(8, 2))
+        self._prov_estado()
+
+    def _selector_aplicar(self) -> None:
+        """Escribe las DOS claves de una. Es el punto del control.
+
+        Metodo y no una funcion adentro de `_selector_proveedor` para que el
+        test pueda elegir un proveedor y comprobar que quedaron escritas las
+        dos: un `command=` que solo existe atado a un widget se prueba
+        haciendo clics, y eso no se puede automatizar.
+        """
+        quien = self._prov_var.get()
+        for ident, _rot, motor, _clave, _donde in self.catalogo_proveedores():
+            if ident != quien:
+                continue
+            self.vars["engine"].set(motor)
+            # Solo tiene sentido con `compat`; con los otros se deja lo que
+            # habia, para no perderle la eleccion si despues vuelve.
+            if motor == "compat":
+                self.vars["compat_proveedor"].set(ident)
+            break
+        self._prov_estado()
+
+    def _estado_clave(self, clave: str) -> str:
+        if not clave:
+            return tr("no necesita clave")
+        try:
+            return tr("clave cargada") if store.get_key(clave) else tr("sin clave")
+        except Exception:  # noqa: BLE001 - keyring puede no estar
+            return ""
+
+    def _prov_estado(self) -> None:
+        """Que quedaria escrito, dicho con las claves de verdad.
+
+        Se muestra el par y no un "listo": lo que el usuario tiene que poder
+        creer es que esto escribe la config, no que alguien adivino por el.
+        """
+        quien = self._prov_var.get()
+        motor = self.vars["engine"].get()
+        par = f"engine={motor}"
+        if motor == "compat":
+            par += f"   compat_proveedor={quien}"
+        faltan = [c for i, _r, _m, c, _d in self.catalogo_proveedores()
+                  if i == quien and c and not self._tiene_clave(c)]
+        aviso = ""
+        if faltan:
+            aviso = "   " + tr("falta la clave, cargala abajo")
+        self.prov_label.config(text=par + aviso)
+
+    def _tiene_clave(self, clave: str) -> bool:
+        try:
+            return bool(store.get_key(clave))
+        except Exception:  # noqa: BLE001 - keyring puede no estar
+            return False
+
     def _rutas_permitidas(self, padre) -> None:
         """El cuadro de rutas de trabajo. Excepcion: es un Text de varias lineas.
 

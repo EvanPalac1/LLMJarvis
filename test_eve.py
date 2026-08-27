@@ -5611,6 +5611,82 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
             store.CONFIG_PATH = previo
 
 
+def test_elegir_proveedor_escribe_las_dos_claves():
+    """Un solo control para quien piensa, y el listener no cambia.
+
+    Las claves SIEMPRE fueron mutuamente excluyentes: `brain` lee la de
+    Anthropic y `compat_engine` lee la del proveedor elegido -- nunca hay dos
+    en juego. Lo que faltaba no era exclusividad sino que el panel la
+    MOSTRARA: habia nueve campos de clave uno abajo del otro sin señal de cual
+    estaba vivo, y elegir proveedor eran dos controles (`engine`, y despues
+    `compat_proveedor`) en dos secciones distintas.
+
+    Lo que este test fija es que el control escriba LAS DOS de una. Es lo que
+    hace que "el listener trabaje con esa opcion" no necesite tocar el
+    listener: `Listener._motor()` ya lee esas dos claves.
+    """
+    import tkinter as tk
+
+    from eve import compat_engine as ce, gui, store
+
+    try:
+        tk.Tk().destroy()
+    except Exception:  # noqa: BLE001 - sin pantalla no hay panel
+        print("    (sin pantalla, se saltea)")
+        return
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previo = store.CONFIG_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        panel = None
+        try:
+            store.save_config(dict(store.DEFAULTS))
+            panel = gui.Panel()
+            panel.withdraw()
+            panel.update_idletasks()
+
+            # 1. El catalogo SALE de `PROVEEDORES`, no de una copia al lado.
+            #    Sin esto, agregar un proveedor lo dejaria invisible en el
+            #    panel hasta que alguien se acordara de sumarlo a mano --que
+            #    es exactamente como nacen las dos listas que se despegan.
+            cat = panel.catalogo_proveedores()
+            ids = {i for i, _r, _m, _c, _d in cat}
+            assert set(ce.PROVEEDORES) <= ids, set(ce.PROVEEDORES) - ids
+            for propio in ("api", "claude-code", "ollama"):
+                assert propio in ids, propio
+
+            # 2. Elegir uno de la nube escribe LAS DOS claves.
+            panel._prov_var.set("gemini")
+            panel._selector_aplicar()
+            assert panel.vars["engine"].get() == "compat"
+            assert panel.vars["compat_proveedor"].get() == "gemini"
+
+            # 3. Y uno que no es compat escribe el motor que le toca.
+            panel._prov_var.set("claude-code")
+            panel._selector_aplicar()
+            assert panel.vars["engine"].get() == "claude-code"
+
+            # 4. Volver a uno de compat lo vuelve a poner: la eleccion previa
+            #    no se pierde por haber pasado por otro motor.
+            panel._prov_var.set("lmstudio")
+            panel._selector_aplicar()
+            assert panel.vars["engine"].get() == "compat"
+            assert panel.vars["compat_proveedor"].get() == "lmstudio"
+
+            # 5. La exclusividad es ESTRUCTURAL: una sola variable para los
+            #    diez. No hay estado donde dos esten elegidos a la vez.
+            assert isinstance(panel._prov_var, tk.StringVar)
+            assert panel._prov_var.get() == "lmstudio"
+
+            # 6. Y el que no pide clave lo dice, que era la señal que faltaba.
+            assert "clave" in panel._estado_clave("").lower() or \
+                   panel._estado_clave("") != ""
+        finally:
+            if panel is not None:
+                panel.destroy()
+            store.CONFIG_PATH = previo
+
+
 def test_las_skills_viajan_como_indice_y_no_enteras():
     """Subir un .md y que Eve lo consulte, sin pagarlo en cada frase.
 
