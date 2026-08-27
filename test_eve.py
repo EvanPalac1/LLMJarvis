@@ -5614,6 +5614,25 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
         print("    (sin pantalla, se saltea)")
         return
 
+    # En macOS NO. Y conviene escribir por que, porque cuesta tres releases
+    # volver a averiguarlo:
+    #
+    # Este test necesita `panel.update()` --el completo, no
+    # `update_idletasks()`-- para que corra el `after(0)` con que `_ui` cruza
+    # de hilo. Es el UNICO de la suite que llama `update()` sobre un Panel, y
+    # en el runner de macOS eso no vuelve: `update()` reentra el loop de
+    # eventos y sin una sesion grafica de verdad se queda ahi. Medido con
+    # sondas: Tk arranca, el Panel se arma en un segundo, el enganche se
+    # instala, y la linea siguiente cuelga 21 minutos. Cancelar las tareas de
+    # fondo que programa la construccion --que era la sospecha-- no lo cambio.
+    #
+    # No se pierde cobertura del codigo: en macOS el backend del teclado es
+    # `pynput`, EL MISMO que en Linux, y ahi este test corre entero. Lo que no
+    # se ejercita en macOS es tkinter, que no es lo que este test mira.
+    if plataforma.MACOS:
+        print("    (macOS: update() no vuelve sin sesion grafica, se saltea)")
+        return
+
     with tempfile.TemporaryDirectory() as raiz:
         previo = store.CONFIG_PATH
         store.CONFIG_PATH = os.path.join(raiz, "config.json")
