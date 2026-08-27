@@ -376,11 +376,13 @@ def prompt_section(cfg=None) -> str:
     por configs hipoteticas --"cuanto costaria con esto en tal valor"-- y una
     seccion que se lee sola a si misma le contesta siempre lo mismo.
     """
-    from eve import addons
+    from eve import addons, mcp
 
     cfg = cfg if cfg is not None else store.load_config()
     contactos_prompt = contactos_prompt_texto()
-    extra = addons.prompt(cfg)
+    # Los dos en el mismo lugar y con la misma regla: vacio de verdad cuando no
+    # hay nada encendido. Este texto viaja en CADA llamada al modelo.
+    extra = addons.prompt(cfg) + mcp.prompt(cfg)
     return f"""## Comandos
 
 Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
@@ -1760,6 +1762,15 @@ def main(argv=None) -> int:
     ad.add_argument("accion")
     ad.add_argument("resto", nargs=argparse.REMAINDER)
 
+    # Uno solo para TODOS los servidores MCP, por la misma razon que `addon`:
+    # las herramientas se descubren en vivo, asi que un subcomando por
+    # herramienta seria un parser que hay que regenerar cada vez que un
+    # servidor se actualiza.
+    mc = sub.add_parser("mcp", help="herramientas de servidores MCP")
+    mc.add_argument("servidor")
+    mc.add_argument("herramienta")
+    mc.add_argument("argumentos", nargs="?", default="{}")
+
     a = p.parse_args(argv)
     try:
         if a.cmd == "mostrar":
@@ -1834,6 +1845,11 @@ def main(argv=None) -> int:
             from eve import addons
 
             print(addons.ejecutar(a.nombre, a.accion, a.resto, store.load_config()))
+        elif a.cmd == "mcp":
+            from eve import mcp
+
+            print(mcp.llamar(a.servidor, a.herramienta, a.argumentos,
+                             store.load_config()))
     except Exception as exc:  # noqa: BLE001 - el texto del error vuelve al modelo
         print(f"ERROR {type(exc).__name__}: {exc}")
         return 1

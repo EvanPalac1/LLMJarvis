@@ -367,12 +367,43 @@ def ejecutar(accion, args, cfg):
 Opcionales: `DESCRIPCION`, `CLAVES` (para que el panel dibuje sus campos) y
 `disponible(cfg) -> (bool, motivo)` para que no se ofrezca cuando le falta algo.
 
-**Corren dentro de Eve, con los mismos permisos que el programa.** Poné ahi solo cosas en
+**Corren dentro de Eve, con los mismos permisos que el programa.** Pon ahi solo cosas en
 las que confies. Uno que no importe o que reviente se reporta y se saltea, sin llevarse
 puesto al resto.
 
-Para **MCP**: con el motor `claude-code`, los servidores MCP se agregan por la
-configuracion del propio Claude Code y quedan disponibles sin pasar por aca.
+### Servidores MCP
+
+Desde la 1.19.0 Eve es **cliente MCP**: en *Panel > Addons > Servidores MCP*
+hay un boton que lee lo que ya tenes configurado en Claude Code, Claude
+Desktop, Cursor, LM Studio y VS Code, y te ofrece traerlo. Nada se escribe en
+esos archivos: solo se leen.
+
+**Hay dos modos, y los elegis vos**, porque no son la misma cosa con distinto
+grado sino dos tratos distintos:
+
+| Modo | Que pasa |
+|---|---|
+| `apagado` | No viaja nada al modelo y no se conecta a nada. Es el default. |
+| `prompt` | El modelo ve *que* herramientas tenes y **no las puede llamar**. Eve no levanta ningun servidor: cero superficie nueva. |
+| `cliente` | Eve levanta el servidor, descubre sus herramientas y se las ofrece al modelo. |
+
+**En modo `cliente` cada herramienta pregunta antes de correr** y queda anotada
+en la pestaña Acciones, igual que los addons. No es paranoia de mas: un
+servidor MCP puede llamarse `utils` y exponer `run_shell`, y el nombre lo elige
+quien escribio el servidor. La pregunta se saca de a una, marcando esa
+herramienta como de confianza en el panel; no hay forma de apagarlas todas de
+un saque.
+
+Los servidores importados entran **apagados**. Importar es traer la
+configuracion, no autorizar que se ejecute.
+
+El transporte es stdio con JSON-RPC 2.0, sin dependencias nuevas. Comprobado
+contra un servidor ajeno de verdad (`npx @playwright/mcp@latest`, 24
+herramientas descubiertas) y, en la suite, contra `mcp_falso.py`, que habla el
+mismo protocolo sin salir a la red.
+
+Con el motor `claude-code` ademas siguen andando los servidores MCP que el
+propio Claude Code tenga configurados, por su cuenta y sin pasar por aca.
 
 ### El cartel en pantalla
 
@@ -1811,11 +1842,13 @@ de actividad (`--consola`). Se hablan por archivos JSON en la carpeta de datos, 
 sockets ni por hilos compartidos: tkinter y pystray no comparten mainloop sin dolor, y
 este proyecto ya pago ese precio una vez.
 
-Sin servidor MCP y sin router de modelos. MCP existe para exponer tools a clientes
-externos; aca el unico cliente sos vos, asi que seria un servidor JSON-RPC para hablar
-consigo mismo. El router (un modelo barato clasificando antes de ejecutar) agrega un
-round-trip completo a cada frase para ahorrar centimos, en un sistema donde la latencia
-percibida es todo. Tampoco se envuelve el `/voice` de Claude Code: es un REPL, no una API.
+Sin **servidor** MCP y sin router de modelos. Un servidor MCP existe para exponer tools a
+clientes externos; aca el unico cliente sos vos, asi que seria un servidor JSON-RPC para
+hablar consigo mismo. El **cliente** MCP es otra cosa y si esta, desde la 1.19.0
+(`eve/mcp.py`): usar lo de otros, no que otros me usen. El router (un modelo barato
+clasificando antes de ejecutar) agrega un round-trip completo a cada frase para ahorrar
+centimos, en un sistema donde la latencia percibida es todo. Tampoco se envuelve el
+`/voice` de Claude Code: es un REPL, no una API.
 
 | Archivo | Que hace |
 |---|---|
@@ -1907,7 +1940,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 181 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 187 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

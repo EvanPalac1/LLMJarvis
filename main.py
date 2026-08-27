@@ -82,6 +82,11 @@ PROPIOS_DIFERIDOS = [
     # prompt en cada llamada.
     "eve.comandos",
     "eve.skills",
+    # Igual que los dos de arriba: `gui` lo importa a nivel de modulo pero
+    # `integrations` lo trae adentro de una funcion, y es el que arma el prompt
+    # en cada llamada. Un cliente MCP que no viajo se rompe recien cuando
+    # alguien enciende un servidor, o sea despues de la release.
+    "eve.mcp",
     # El motor por GPU. Los dos importan SIN `skia` ni `PyOpenGL` --las traen
     # adentro de funciones, para que su ausencia no impida arrancar-- asi que
     # comprobarlos aca vale en los cinco objetivos, incluido macOS, donde las

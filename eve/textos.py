@@ -162,6 +162,58 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    'Agregar a mano':
+        'Add by hand',
+    'Argumentos':
+        'Arguments',
+    'Buscar los que ya tienes':
+        'Find the ones you already have',
+    'Comando':
+        'Command',
+    "En modo lectura no me conecto. Pasa el modo a 'cliente' para que pregunte que herramientas tiene.":
+        "In read-only mode I do not connect. Switch the mode to 'cliente' so it can ask what tools it has.",
+    'Entran apagados. Encender uno es autorizar que corra en tu maquina, y eso lo eliges tu despues.':
+        'They arrive switched off. Turning one on authorises it to run on your machine, and that is your call afterwards.',
+    'Herramientas':
+        'Tools',
+    'Importados':
+        'Imported',
+    "La casilla de la izquierda la enciende. 'Sin preguntar' la deja correr sin confirmacion:\nusalo solo con las que sepas que hacen, porque el nombre lo eligio quien escribio el servidor.":
+        "The box on the left turns it on. 'No asking' lets it run without confirmation:\nuse that only for tools you know, because the name was chosen by whoever wrote the server.",
+    'Los argumentos van separados por espacios.':
+        'Arguments are separated by spaces.',
+    'Modo':
+        'Mode',
+    "Ninguno todavia. 'Buscar los que ya tienes' lee la config de Claude Code, Claude Desktop, Cursor, LM Studio y VS Code.":
+        "None yet. 'Find the ones you already have' reads the config of Claude Code, Claude Desktop, Cursor, LM Studio and VS Code.",
+    'No encontre ninguno configurado en otros programas.':
+        'I found none configured in other programs.',
+    'Nombre':
+        'Name',
+    'Quitado':
+        'Removed',
+    'Quitar el servidor':
+        'Remove the server',
+    'Servidor MCP':
+        'MCP server',
+    'Servidores MCP':
+        'MCP servers',
+    'Servidores encontrados':
+        'Servers found',
+    'Ver herramientas':
+        'See tools',
+    'apagado   no viaja nada al modelo y no se conecta a nada.\nprompt    el modelo ve QUE herramientas tienes, y no las puede\n          llamar. Eve no levanta ningun servidor.\ncliente   Eve levanta el servidor, descubre sus herramientas y\n          se las ofrece al modelo. Es correr codigo de terceros\n          en tu maquina, y por eso te pregunta antes de cada una.':
+        'apagado   nothing travels to the model and nothing is connected to.\nprompt    the model sees WHICH tools you have and cannot call\n          them. Eve starts no server.\ncliente   Eve starts the server, discovers its tools and offers\n          them to the model. That is running third-party code on\n          your machine, so it asks you before each one.',
+    'de':
+        'from',
+    'herramientas':
+        'tools',
+    'no pude hablarle a':
+        'could not talk to',
+    'preguntandole a':
+        'asking',
+    'sin preguntar':
+        'no asking',
     'Varias formas de decir lo mismo, separadas por |.':
         'Several ways of saying the same thing, separated by |.',
     'accion: una de estas, con su argumento':

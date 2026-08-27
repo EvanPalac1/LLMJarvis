@@ -347,6 +347,9 @@ DEFAULTS = {
     "skills_alcance": "consultar",
     "comandos_voz": "si",
     "comandos_aprobados": "",
+    # apagado | prompt | cliente. Apagado por defecto: encender esto es
+    # una decision del usuario, no algo que se descubra andando.
+    "mcp_modo": "apagado",
     # Cuando se abre la ventana de actividad.
     #   nunca      solo si la abris a mano desde la bandeja
     #   con_eve    se abre junto con Eve y queda ahi
@@ -1281,6 +1284,11 @@ AUTORIDADES = ("usuario", "eve", "preguntar")
 # vos las cambias en el panel cuando quieras; ella no, ni preguntando.
 NUNCA_POR_EVE = (
     "confirm_destructive",
+    # Encender los servidores MCP es autorizar que corra codigo de terceros en
+    # tu maquina. Que Eve pudiera pasar `mcp_modo` de `prompt` a `cliente`
+    # seria darle la llave del cajon donde esta guardada la llave: es
+    # exactamente la clase de ajuste que esta lista existe para cerrar.
+    "mcp_modo",
     "workdirs",
     "addons_aprobados",
     "autoridad",

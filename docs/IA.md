@@ -175,13 +175,13 @@ al navegador. Abrir Chrome para leer tres renglones es salirse del programa.
 
 Los frenos no son configurables desde adentro. Eso es a propósito.
 
-**Diez claves que Eve nunca puede escribir**, ni con `E ajustar` ni pidiéndolo
+**Once claves que Eve nunca puede escribir**, ni con `E ajustar` ni pidiéndolo
 amablemente:
 
 ```
 confirm_destructive · workdirs · addons_aprobados · autoridad
 claves_del_usuario · cc_permission_mode · ayuda_alcance · archivos_alcance
-skills_alcance · comandos_aprobados
+skills_alcance · comandos_aprobados · mcp_modo
 ```
 
 Son exactamente las que le sueltan las manos. Se encontró que `E ajustar` podía
@@ -202,6 +202,19 @@ texto viaja— y no lo es: pasarla de `nada` a `consultar` hace *existir*
 `E skill ver`, o sea que le da acceso a archivos tuyos que antes no podía leer.
 Cuánto viaja no compra permisos; que el comando exista, sí. Por eso
 `ayuda_vocabulario` sigue fuera de la lista y esta entró.
+
+**`mcp_modo` es la undécima, y es la más literal de todas.** Tiene tres
+valores: `apagado`, `prompt` —el modelo ve *qué* servidores MCP tenés y no los
+puede llamar— y `cliente`, donde Eve levanta el servidor y ejecuta sus
+herramientas. Mover esa clave de `prompt` a `cliente` **es** la autorización
+para correr código de terceros en tu máquina. Si Eve pudiera escribirla, el
+freno lo tendría ella: sería guardar la llave del cajón adentro del cajón.
+
+Aparte del modo, cada herramienta ajena pasa por el mismo freno que los addons
+—confirmación antes de correr y registro en Acciones— y eso **no** se puede
+apagar en bloque: se saca de a una, a mano, marcando esa herramienta como de
+confianza en el panel. Un servidor MCP puede llamarse `utils` y exponer
+`run_shell`; el nombre no dice nada, así que preguntar es el default.
 
 **Las dos anteriores se sumaron por el mismo camino.** Son los dos
 techos que elegís vos —hasta dónde arma sola, y hasta dónde llega con los
@@ -404,7 +417,7 @@ Un "no" medido es un resultado. Estos se descartaron con datos, no por gusto.
 | **Vosk** | Cubre 3 de 5 objetivos |
 | **whisper continuo** como puerta | Un core entero, permanentemente |
 | **Graphiti** (memoria) | Una llamada al LLM por ingesta, sobre un presupuesto de ~5 s por turno, más Neo4j |
-| **Cliente MCP** | Los addons ya son el sistema de plugins y andan en los cuatro motores |
+| **Cliente MCP** | ~~Los addons ya son el sistema de plugins~~ **Reabierto y hecho en la 1.19.0**, a pedido: los addons son plugins que hay que escribir, y un servidor MCP ya configurado en otro programa es trabajo que ya esta hecho. Ver `eve/mcp.py` |
 | **pocket-tts** | Ver abajo |
 
 ### pocket-tts: medido, y pierde

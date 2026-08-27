@@ -2925,6 +2925,294 @@ def test_el_modelo_se_ofrece_segun_el_proveedor():
             store.BASE, store.MODELOS_PATH, store.CONFIG_PATH = previos
 
 
+def test_mcp_encuentra_los_servidores_que_ya_tenes():
+    """Lee la config de otros programas, incluida la de POR PROYECTO.
+
+    Traer lo que ya configuraste es la diferencia entre "soporta MCP" y
+    "sirve": nadie quiere volver a escribir a mano el comando y los argumentos
+    de cada servidor que ya anda en otro lado.
+
+    Lo de por proyecto no es un detalle: Claude Code guarda sus servidores
+    dentro de `projects.<ruta>.mcpServers`, no en la raiz. Buscando solo en la
+    raiz, esto daba CERO servidores en la maquina donde se escribio --que es
+    justo el caso que tenia que andar-- y parecia que no habia ninguno.
+    """
+    from eve import mcp
+
+    raiz = {"mcpServers": {"uno": {"command": "node", "args": ["a.js"]}}}
+    assert sorted(mcp._servidores_de(raiz)) == ["uno"]
+
+    por_proyecto = {"projects": {
+        "C:/algo": {"mcpServers": {"dos": {"command": "npx", "args": ["-y", "x"]}}},
+        "C:/otro": {"mcpServers": {"tres": {"command": "uvx", "args": []}}},
+    }}
+    assert sorted(mcp._servidores_de(por_proyecto)) == ["dos", "tres"]
+
+    # Y los dos juntos, que es como viene `~/.claude.json`.
+    mezcla = {**raiz, **por_proyecto}
+    assert sorted(mcp._servidores_de(mezcla)) == ["dos", "tres", "uno"]
+
+    # Basura adentro no tumba nada: son archivos de OTROS programas.
+    assert mcp._servidores_de({"mcpServers": {"x": "no soy un dict"}}) == {}
+    assert mcp._servidores_de([]) == {}
+    assert mcp._servidores_de({"projects": {"p": None}}) == {}
+
+
+def test_un_servidor_importado_entra_apagado():
+    """Importar es traer la configuracion, no autorizar que se ejecute.
+
+    Que traer los de Claude Code encendiera doce servidores de golpe --doce
+    procesos ajenos listos para correr en tu maquina-- seria exactamente la
+    sorpresa que este modulo existe para evitar.
+    """
+    from eve import mcp
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previo = mcp.ARCHIVO
+        mcp.ARCHIVO = os.path.join(raiz, "mcp.json")
+        try:
+            mcp.agregar("uno", "node", ["a.js"], de="Claude Code")
+            assert list(mcp.servidores()) == ["uno"]
+            assert mcp.activos() == {}, "nacio encendido"
+
+            mcp.activar("uno", True)
+            assert list(mcp.activos()) == ["uno"]
+
+            # Y reimportar NO lo apaga: lo que el usuario eligio se respeta.
+            mcp.agregar("uno", "node", ["a.js", "--nuevo"], de="Claude Code")
+            assert list(mcp.activos()) == ["uno"], "reimportar lo apago"
+            assert mcp.servidores()["uno"]["args"] == ["a.js", "--nuevo"]
+
+            # Sin comando no es un servidor.
+            try:
+                mcp.agregar("vacio", "")
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("acepto un servidor sin comando")
+        finally:
+            mcp.ARCHIVO = previo
+
+
+def test_el_cliente_mcp_habla_el_protocolo():
+    """Contra un servidor de verdad, no contra un mock del cliente.
+
+    `mcp_falso.py` habla JSON-RPC 2.0 por stdio, un mensaje por linea, que es
+    lo que define el transporte. Lo que se prueba aca es el transporte entero:
+    initialize, tools/list, tools/call y el error.
+
+    El cliente tambien se comprobo a mano contra uno ajeno --`npx
+    @playwright/mcp@latest`, 24 herramientas descubiertas-- que es la unica
+    forma de saber que el protocolo esta bien leido y no solo que dos partes
+    mias se entienden. Eso no entra en la suite porque baja un paquete de npm.
+    """
+    from eve import mcp
+
+    raiz_repo = os.path.dirname(os.path.abspath(__file__))
+    srv = {"comando": sys.executable,
+           "args": [os.path.join(raiz_repo, "mcp_falso.py")], "env": {}}
+    with mcp.Cliente("falso", srv) as c:
+        nombres = [h["nombre"] for h in c.herramientas()]
+        assert nombres == ["saludar", "sumar"], nombres
+        assert c.llamar("sumar", {"a": 2, "b": 3}) == "5"
+        assert c.llamar("saludar", {"quien": "Eve"}) == "hola Eve"
+        # Un error del servidor vuelve como texto, no como excepcion: esto se
+        # le contesta al modelo, y una excepcion ahi corta la conversacion.
+        assert c.llamar("no existe", {}).startswith("ERROR"), "no marco el error"
+
+
+def test_ninguna_herramienta_ajena_corre_sin_freno():
+    """El freno es lo que hace que todo lo demas se pueda ofrecer.
+
+    Un servidor MCP puede llamarse `utils` y exponer `run_shell`: el nombre lo
+    elige quien escribio el servidor, asi que no hay forma de saber que hace
+    una herramienta por como se llama. Por eso se pregunta SIEMPRE, y sacar la
+    pregunta es por herramienta y a mano.
+
+    Se comprueban las cuatro puertas: el modo, el servidor apagado, la
+    herramienta apagada, y la confirmacion.
+    """
+    from eve import mcp, plataforma
+
+    raiz_repo = os.path.dirname(os.path.abspath(__file__))
+    with tempfile.TemporaryDirectory() as raiz:
+        previos = (mcp.ARCHIVO, store.CONFIG_PATH, store.DB_PATH,
+                   plataforma.preguntar)
+        mcp.ARCHIVO = os.path.join(raiz, "mcp.json")
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        preguntas = []
+        try:
+            mcp.agregar("falso", sys.executable,
+                        [os.path.join(raiz_repo, "mcp_falso.py")])
+            base = {"confirm_destructive": True}
+
+            # 1. El modo. En `prompt` no se conecta a nada.
+            for modo in ("apagado", "prompt"):
+                dicho = mcp.llamar("falso", "sumar", {"a": 1, "b": 1},
+                                   {**base, "mcp_modo": modo})
+                assert "modo lectura" in dicho, (modo, dicho)
+
+            cliente = {**base, "mcp_modo": "cliente"}
+
+            # 2. El servidor apagado.
+            dicho = mcp.llamar("falso", "sumar", {"a": 1, "b": 1}, cliente)
+            assert "No hay un servidor" in dicho, dicho
+            mcp.activar("falso", True)
+
+            # 3. La confirmacion. Que diga que no es que no corre.
+            plataforma.preguntar = lambda *a, **k: (preguntas.append(a) or False)
+            dicho = mcp.llamar("falso", "sumar", {"a": 2, "b": 3}, cliente)
+            assert preguntas, "corrio sin preguntar"
+            assert "no dejo" in dicho, dicho
+
+            # Que diga que si es que corre.
+            plataforma.preguntar = lambda *a, **k: True
+            assert mcp.llamar("falso", "sumar", {"a": 2, "b": 3}, cliente) == "5"
+
+            # 4. La herramienta apagada, aunque el servidor este encendido.
+            mcp.activar_herramienta("falso", "sumar", False)
+            dicho = mcp.llamar("falso", "sumar", {"a": 1, "b": 1}, cliente)
+            assert "apagada" in dicho, dicho
+            mcp.activar_herramienta("falso", "sumar", True)
+
+            # Y `confiadas` saca la pregunta de a UNA, no en bloque.
+            preguntas.clear()
+            plataforma.preguntar = lambda *a, **k: (preguntas.append(a) or False)
+            mcp.confiar("falso", "sumar", True)
+            assert mcp.llamar("falso", "sumar", {"a": 4, "b": 4}, cliente) == "8"
+            assert not preguntas, "pregunto por una de confianza"
+            # La otra sigue preguntando.
+            mcp.llamar("falso", "saludar", {"quien": "x"}, cliente)
+            assert preguntas, "confiar en una saco el freno de todas"
+
+            # Todo queda anotado en Acciones, permitido y denegado.
+            anotado = "\n".join(str(x) for x in store.recent_actions(50))
+            assert "mcp/falso" in anotado, anotado[:300]
+            assert "DENEGADO" in anotado, "no quedo anotado el que se nego"
+        finally:
+            (mcp.ARCHIVO, store.CONFIG_PATH, store.DB_PATH,
+             plataforma.preguntar) = previos
+
+
+def test_el_bloque_de_mcp_no_viaja_si_no_hay_nada():
+    """Este texto va en CADA llamada al modelo: vacio de verdad cuando no hay.
+
+    Es la misma regla que `addons.prompt`, y por la misma medicion: un titulo
+    con nada abajo es peaje puro, cobrado en cada frase que le digas, incluido
+    "que hora es".
+    """
+    from eve import mcp
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previo = mcp.ARCHIVO
+        mcp.ARCHIVO = os.path.join(raiz, "mcp.json")
+        try:
+            assert mcp.prompt({"mcp_modo": "apagado"}) == ""
+            assert mcp.prompt({"mcp_modo": "cliente"}) == "", "sin servidores y hablo"
+
+            mcp.agregar("falso", "python", ["x.py"])
+            mcp.activar("falso", True)
+            # Encendido pero sin herramientas vistas todavia: tampoco.
+            assert mcp.prompt({"mcp_modo": "cliente"}) == "", "sin herramientas y hablo"
+
+            datos = mcp.leer()
+            datos["servidores"]["falso"]["vistas"] = [
+                {"nombre": "sumar", "descripcion": "suma", "esquema": {}}]
+            mcp.escribir(datos)
+
+            # En modo lectura se dice que NO se pueden llamar. Que el modelo
+            # crea que puede es peor que no nombrarlas: intenta, falla, y
+            # gasta una vuelta en descubrirlo.
+            texto = mcp.prompt({"mcp_modo": "prompt"})
+            assert "sumar" in texto and "no" in texto.lower()
+            assert "E mcp" not in texto, "le ofrecio el comando en modo lectura"
+
+            texto = mcp.prompt({"mcp_modo": "cliente"})
+            assert "E mcp" in texto and "sumar" in texto
+
+            # Una herramienta apagada no se nombra: si no la puede llamar,
+            # nombrarla es pagar tokens por nada.
+            mcp.activar_herramienta("falso", "sumar", False)
+            assert mcp.prompt({"mcp_modo": "cliente"}) == ""
+        finally:
+            mcp.ARCHIVO = previo
+
+
+def test_el_panel_no_se_queda_sordo_a_los_hilos_de_fondo():
+    """Un resultado que llega tarde tiene que llegar igual.
+
+    `_ui` hacia `self.after(0, accion)` DESDE EL HILO TRABAJADOR. `after` es
+    una llamada a tkinter como cualquier otra y no es segura entre hilos:
+    andaba de casualidad hasta que no, y cuando fallaba tiraba
+    `RuntimeError: main thread is not in main loop`. El `except` lo tragaba
+    dejando `_vivo` en False PARA SIEMPRE, y a partir de ese momento TODO
+    resultado de fondo se perdia sin decir nada: buscar voces, buscar modelos,
+    buscar actualizaciones y ver las herramientas de un servidor MCP se
+    quedaban en "consultando..." sin volver nunca.
+
+    Medido antes del arreglo: pasaba a los ~1.8 segundos de abrir el panel, con
+    el worker que consulta la sesion de Outlook. O sea casi siempre.
+
+    Este test manda un resultado DESPUES de ese momento a proposito: es el caso
+    que fallaba, y con la version vieja se pone en rojo.
+    """
+    import queue as _queue
+    import tkinter as tk
+
+    from eve import gui
+
+    try:
+        tk.Tk().destroy()
+    except Exception:  # noqa: BLE001 - sin pantalla no hay nada que probar
+        print("    (sin pantalla, se saltea)")
+        return
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previos = (store.BASE, store.CONFIG_PATH, store.PERFILES_PATH,
+                   store.DB_PATH)
+        store.BASE = raiz
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        panel = None
+        try:
+            panel = gui.Panel()
+            panel.withdraw()
+            panel.update_idletasks()
+
+            # `_ui` NO puede tocar tkinter: es lo que se rompia. Se comprueba
+            # que solo deje algo en una cola, que es lo unico seguro de hacer
+            # desde otro hilo.
+            assert isinstance(panel._cola_ui, _queue.Queue)
+
+            llegaron = []
+            listo = threading.Event()
+
+            def trabajo():
+                # Despues del momento en que el panel se quedaba sordo.
+                time.sleep(2.5)
+                panel._ui(lambda: llegaron.append("tarde"))
+                listo.set()
+
+            threading.Thread(target=trabajo, daemon=True).start()
+
+            limite = time.time() + 20
+            while time.time() < limite and not llegaron:
+                panel.update()
+                time.sleep(0.02)
+
+            assert listo.is_set(), "el worker no llego a mandar nada"
+            assert llegaron == ["tarde"], (
+                "el panel se quedo sordo: un resultado de fondo no llego")
+            assert panel._vivo, "se apago la bandera por un error pasajero"
+        finally:
+            if panel is not None:
+                panel.destroy()
+            (store.BASE, store.CONFIG_PATH, store.PERFILES_PATH,
+             store.DB_PATH) = previos
+
+
 def test_los_mensajes_estan_en_espanol_neutro():
     """Ningun texto de la interfaz habla de vos.
 
@@ -2953,7 +3241,13 @@ def test_los_mensajes_estan_en_espanol_neutro():
         r"(?<![a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1])"
         r"(cerr[a\u00e1]|volv[e\u00e9]|apret[a\u00e1]|eleg[i\u00ed]|fijate|acordate"
         r"|pedile|pedis[e\u00e9]lo|pis[a\u00e1]mos|ten[e\u00e9]s|pod[e\u00e9]s"
-        r"|quer[e\u00e9]s|prob[a\u00e1]|dec[i\u00ed]s?|escrib[i\u00ed]s|segu[i\u00ed]|vos)"
+        r"|quer[e\u00e9]s|prob[a\u00e1]|dec[i\u00ed]s?|escrib[i\u00ed]s|segu[i\u00ed]|vos"
+        # Con TILDE no hay ambiguedad: "pone" puede ser tercera persona
+        # --"el boton le pone la voz"-- pero "pon\u00e9" solo puede ser voseo. Se
+        # agregaron despues de que un "Pon\u00e9 solo cosas en las que confies"
+        # sobreviviera al barrido justamente por no estar en esta lista.
+        r"|pon\u00e9|mir\u00e1|and\u00e1|toc\u00e1|us\u00e1|mand\u00e1|sac\u00e1|arm\u00e1|sub\u00e1|dej\u00e1"
+        r"|ven\u00ed|sal\u00ed|hac\u00e9|ten\u00e9|and\u00e1te|fijate|acord\u00e1)"
         r"(?![a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1])", re.I)
 
     # El voseo es el contenido, no un error. Se comparan por un pedazo que los
@@ -5230,7 +5524,11 @@ def test_eve_no_puede_soltar_sus_propios_frenos():
                          "ayuda_alcance": "codigo",
                          "archivos_alcance": "escribir",
                          "skills_alcance": "completo",
-                         "comandos_aprobados": "prende el server:deadbeef"}[clave]
+                         "comandos_aprobados": "prende el server:deadbeef",
+             # Pasar de `prompt` a `cliente` es autorizar que corra codigo de
+             # terceros en la maquina. Si Eve pudiera moverlo, el freno lo
+             # tendria ella y no el usuario.
+             "mcp_modo": "cliente"}[clave]
                 salida = integrations.ajustar(clave, nuevo)
                 assert store.load_config().get(clave) == antes, f"{clave} se escribio"
                 assert "frenan" in salida, salida
@@ -6178,6 +6476,14 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
                 except Exception:  # noqa: BLE001 - ya vencida
                     pass
 
+            # Entre las canceladas esta la bomba que vacia la cola de `_ui`, y
+            # esa NO es una tarea de construccion: es la que lleva al panel lo
+            # que llega de cualquier hilo, incluido el hook del teclado que
+            # este test mira. Sin volver a armarla, la tecla capturada se queda
+            # en la cola para siempre y el test falla por un motivo que no
+            # tiene nada que ver con lo que prueba.
+            panel._drenar_ui()
+
             panel.hotkey_capturar()
             assert len(enganchado) == 1, "no engancho"
             # Y no engancha dos veces si le das dos clics.
@@ -6186,14 +6492,32 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
 
             llego = enganchado[0]
 
+            def asentar(segundos=3.0):
+                """Deja que el panel procese lo que llego del hook.
+
+                El hook del teclado corre en OTRO hilo y su resultado cruza por
+                `_ui`, que lo deja en una cola que el panel vacia cada 50 ms.
+                Antes esto era un solo `panel.update()`, porque `_ui` llamaba a
+                `after` desde el hilo del hook --que es justo el bug que se
+                arreglo: `after` no es seguro entre hilos--. Un `update()`
+                suelto ahora puede caer entre dos vaciados.
+                """
+                limite = time.time() + segundos
+                while time.time() < limite:
+                    panel.update()
+                    if panel._cola_ui.empty():
+                        panel.update()   # y una mas, que corra lo que se saco
+                        return
+                    time.sleep(0.02)
+
             # Soltar una tecla no cuenta: si contara, la tecla con la que
             # llegaste al boton se capturaria sola al levantar el dedo.
             llego("f9", "up")
-            panel.update()
+            asentar()
             assert panel.vars["hotkey"].get() != "f9", "conto un 'up'"
 
             llego("f9", "down")
-            panel.update()
+            asentar()
             assert panel.vars["hotkey"].get() == "f9", panel.vars["hotkey"].get()
             assert desenganchado, "capturo y dejo el hook puesto"
 
@@ -6201,7 +6525,7 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
             desenganchado.clear()
             panel.hotkey_capturar()
             enganchado[-1]("esc", "down")
-            panel.update()
+            asentar()
             assert panel.vars["hotkey"].get() == "f9", "escape piso la tecla"
             assert desenganchado, "cancelo y dejo el hook puesto"
         finally:

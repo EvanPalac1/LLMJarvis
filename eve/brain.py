@@ -1,8 +1,13 @@
 """Loop de tools contra la Messages API de Anthropic.
 
-Sin servidor MCP (el unico cliente sos vos: eso es una funcion, no un protocolo)
-y sin router de modelos (un round-trip extra para ahorrar centimos en un
-asistente donde la latencia percibida es todo). Llamada directa.
+Sin SERVIDOR MCP (el unico cliente sos vos: eso es una funcion, no un
+protocolo) y sin router de modelos (un round-trip extra para ahorrar centimos
+en un asistente donde la latencia percibida es todo). Llamada directa.
+
+CLIENTE MCP si hay, y es otra cosa: `eve/mcp.py` levanta los servidores que ya
+tenes configurados en otros programas y le ofrece sus herramientas al modelo.
+Servidor es "que otros me usen"; cliente es "usar lo de otros". Lo primero
+sigue sin tener sentido aca; lo segundo lo pidio el usuario y se agrego.
 """
 
 import os

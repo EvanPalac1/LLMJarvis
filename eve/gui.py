@@ -9,12 +9,14 @@ import math
 import os
 import shutil
 import subprocess
+import queue
 import threading
 import time
+import traceback
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from . import modulos, plataforma, registro, store, textos, voice
+from . import mcp, modulos, plataforma, registro, store, textos, voice
 from .textos import t as tr
 
 CREATE_NEW_CONSOLE = 0x00000010
@@ -84,6 +86,11 @@ class Panel(tk.Tk):
     def __init__(self):
         super().__init__()
         self._vivo = True
+        # Lo que los hilos de fondo quieren dibujar. Ver `_ui`: una cola y no
+        # `after` desde el worker, porque `after` es tkinter y tkinter no se
+        # toca desde otro hilo.
+        self._cola_ui: queue.Queue = queue.Queue()
+        self._tarea_ui = None
         self.cfg = store.load_config()
         # Antes de crear un solo widget: si el idioma se fijara despues, la
         # primera mitad de la ventana quedaria en espanol y la segunda en ingles.
@@ -91,6 +98,7 @@ class Panel(tk.Tk):
         # Donde vive cada control, para el buscador; y las secciones plegables,
         # para poder abrirlas desde el.
         self._indice: list[dict] = []
+        self._drenar_ui()
         # clave -> widget, para repoblar uno despues. `_indice` es del
         # buscador y no esta indexado por clave.
         self._controles: dict = {}
@@ -431,20 +439,57 @@ class Panel(tk.Tk):
     def _ui(self, accion) -> None:
         """Corre `accion` en el hilo de tkinter desde un worker.
 
-        Se consulta una bandera propia y no `winfo_exists()`: ese ya es una
-        llamada a tkinter, y hacerla desde otro hilo es justo lo que se quiere
-        evitar. Si la ventana se cerro, no hacer nada; tocar tkinter despues
-        tira "main thread is not in main loop".
+        **Esto NO toca tkinter.** Antes hacia `self.after(0, accion)` desde el
+        hilo trabajador, y `after` es una llamada a tkinter como cualquier
+        otra: no es segura entre hilos. Andaba de casualidad hasta que no, y
+        cuando fallaba tiraba `RuntimeError: main thread is not in main loop`
+        --que el `except` de abajo tragaba dejando `_vivo` en False PARA
+        SIEMPRE--. A partir de ahi todo resultado de fondo se perdia en
+        silencio: buscar voces, buscar modelos, buscar actualizaciones y ver
+        las herramientas de un servidor MCP se quedaban en "consultando..."
+        sin decir nunca por que. Medido: pasa a los ~1.8s de abrir el panel,
+        con el worker de la sesion de Outlook.
+
+        Ahora la accion entra en una cola --`queue.Queue` es segura entre
+        hilos, es su unica razon de existir-- y la saca `_drenar_ui`, que
+        corre en el hilo de tkinter. La bandera sigue, pero solo la apaga
+        `destroy`: un error pasajero no puede volver a dejar el panel sordo.
         """
         if not getattr(self, "_vivo", False):
             return
-        try:
-            self.after(0, accion)
-        except (tk.TclError, RuntimeError):
-            self._vivo = False
+        self._cola_ui.put(accion)
+
+    def _drenar_ui(self) -> None:
+        """Corre lo que dejaron los workers. Siempre en el hilo de tkinter.
+
+        Se reprograma sola. 50 ms es lo que tarda en verse instantaneo sin
+        despertar el proceso cien veces por segundo para no hacer nada.
+        """
+        import queue as _queue
+
+        while True:
+            try:
+                accion = self._cola_ui.get_nowait()
+            except _queue.Empty:
+                break
+            try:
+                accion()
+            except Exception:  # noqa: BLE001 - un callback roto no puede
+                traceback.print_exc()   # dejar el panel sin los que siguen
+        if self._vivo:
+            try:
+                self._tarea_ui = self.after(50, self._drenar_ui)
+            except tk.TclError:
+                self._vivo = False
 
     def destroy(self) -> None:
         self._vivo = False
+        if self._tarea_ui is not None:
+            try:
+                self.after_cancel(self._tarea_ui)
+            except (tk.TclError, ValueError):
+                pass   # ya vencida, o el interprete de tk ya no esta
+            self._tarea_ui = None
         super().destroy()
 
     def buscar_update(self) -> None:
@@ -1879,7 +1924,7 @@ class Panel(tk.Tk):
             f"Pon archivos .py en:\n  {addons.CARPETA_USUARIO}\n\n"
             "Cada uno define NOMBRE, un texto para el modelo y una funcion\n"
             "ejecutar(accion, args, cfg). Ojo: corren dentro de Eve, con los mismos\n"
-            "permisos que el programa. Poné solo cosas en las que confies.",
+            "permisos que el programa. Pon solo cosas en las que confies.",
         )
         sin_revisar = addons.pendientes()
         if sin_revisar:
@@ -1918,7 +1963,265 @@ class Panel(tk.Tk):
 
         ttk.Button(caja, text=tr("Abrir la carpeta de addons"),
                    command=self._addons_carpeta).pack(anchor="w", padx=12, pady=(0, 10))
+
+        self._bloque_mcp(t)
         return t
+
+    # --- MCP ---------------------------------------------------------------
+
+    def _bloque_mcp(self, padre) -> None:
+        """Servidores MCP: el modo, lo que ya tenes configurado, y las listas.
+
+        Va en Addons y no en una pestaña propia porque es lo mismo que un
+        addon visto desde afuera --algo ajeno que le suma comandos a Eve-- y
+        separarlo obligaria a aprender dos lugares para la misma idea.
+        """
+        caja = self._seccion(padre, tr("Servidores MCP"))
+
+        fila = ttk.Frame(caja)
+        fila.pack(fill="x", padx=12, pady=(6, 2))
+        ttk.Label(fila, text=tr("Modo"),
+                  width=self._ancho_rotulo()).pack(side="left")
+        self.vars["mcp_modo"] = tk.StringVar(
+            value=str(self.cfg.get("mcp_modo", "apagado")))
+        ttk.Combobox(fila, textvariable=self.vars["mcp_modo"],
+                     values=list(mcp.MODOS), state="readonly",
+                     width=16).pack(side="left")
+
+        self._ayuda(caja, tr(
+            "apagado   no viaja nada al modelo y no se conecta a nada.\n"
+            "prompt    el modelo ve QUE herramientas tienes, y no las puede\n"
+            "          llamar. Eve no levanta ningun servidor.\n"
+            "cliente   Eve levanta el servidor, descubre sus herramientas y\n"
+            "          se las ofrece al modelo. Es correr codigo de terceros\n"
+            "          en tu maquina, y por eso te pregunta antes de cada una."))
+
+        barra = ttk.Frame(caja)
+        barra.pack(fill="x", padx=12, pady=(4, 2))
+        ttk.Button(barra, text=tr("Buscar los que ya tienes"),
+                   command=self.mcp_importar).pack(side="left")
+        ttk.Button(barra, text=tr("Agregar a mano"),
+                   command=self.mcp_agregar).pack(side="left", padx=6)
+        ttk.Button(barra, text=tr("Ver herramientas"),
+                   command=self.mcp_herramientas).pack(side="left")
+        ttk.Button(barra, text=tr("Quitar"),
+                   command=self.mcp_quitar).pack(side="left", padx=6)
+
+        self.mcp_lista = ttk.Frame(caja)
+        self.mcp_lista.pack(fill="x", padx=12, pady=(4, 2))
+        self.mcp_estado = ttk.Label(caja, text="", style="Ayuda.TLabel",
+                                    justify="left")
+        self.mcp_estado.pack(anchor="w", padx=12, pady=(2, 8))
+        self._mcp_elegido = tk.StringVar(value="")
+        self._mcp_pintar()
+
+    def _mcp_pintar(self) -> None:
+        """Un renglon por servidor: encendido, nombre, comando y de donde salio."""
+        for hijo in self.mcp_lista.winfo_children():
+            hijo.destroy()
+        srvs = mcp.servidores()
+        if not srvs:
+            ttk.Label(self.mcp_lista, style="Ayuda.TLabel", text=tr(
+                "Ninguno todavia. 'Buscar los que ya tienes' lee la config de "
+                "Claude Code, Claude Desktop, Cursor, LM Studio y VS Code.")
+            ).pack(anchor="w")
+            return
+        for nombre, srv in sorted(srvs.items()):
+            fila = ttk.Frame(self.mcp_lista)
+            fila.pack(fill="x", pady=2)
+            ttk.Radiobutton(fila, text="", value=nombre,
+                            variable=self._mcp_elegido).pack(side="left")
+            var = tk.BooleanVar(value=bool(srv.get("activo")))
+            ttk.Checkbutton(
+                fila, text=nombre, variable=var,
+                command=lambda n=nombre, v=var: self._mcp_activar(n, v)
+            ).pack(side="left")
+            resto = " ".join([srv.get("comando", "")] + srv.get("args", []))
+            de = f"   ({tr('de')} {srv['de']})" if srv.get("de") else ""
+            cuantas = len(srv.get("vistas") or [])
+            visto = f"   {cuantas} {tr('herramientas')}" if cuantas else ""
+            ttk.Label(fila, text=resto[:60] + de + visto,
+                      style="Ayuda.TLabel").pack(side="left", padx=8)
+
+    def _mcp_activar(self, nombre: str, var) -> None:
+        mcp.activar(nombre, var.get())
+        self._mcp_pintar()
+
+    def _mcp_sel(self) -> str:
+        nombre = self._mcp_elegido.get()
+        if not nombre:
+            self.mcp_estado.config(text=tr("Elige uno de la lista."))
+        return nombre
+
+    def mcp_importar(self) -> None:
+        """Trae los servidores que ya tenes configurados en otros programas.
+
+        Se ofrecen, no se importan solos, y entran APAGADOS: importar es traer
+        la configuracion, no autorizar que se ejecute.
+        """
+        hallados = mcp.descubrir()
+        if not hallados:
+            self.mcp_estado.config(text=tr(
+                "No encontre ninguno configurado en otros programas."))
+            return
+        ya = set(mcp.servidores())
+        v = tk.Toplevel(self)
+        v.title(tr("Servidores encontrados"))
+        v.transient(self)
+        elegidos = {}
+        for nombre, datos in sorted(hallados.items()):
+            fila = ttk.Frame(v)
+            fila.pack(fill="x", padx=12, pady=3)
+            var = tk.BooleanVar(value=nombre not in ya)
+            elegidos[nombre] = var
+            ttk.Checkbutton(fila, text=nombre, variable=var,
+                            width=22).pack(side="left")
+            resto = " ".join([datos["comando"]] + datos["args"])
+            ttk.Label(fila, style="Ayuda.TLabel",
+                      text=f"{datos['de']}   {resto[:60]}").pack(side="left")
+        ttk.Label(v, style="Ayuda.TLabel", justify="left", text=tr(
+            "Entran apagados. Encender uno es autorizar que corra en tu "
+            "maquina, y eso lo eliges tu despues.")).pack(anchor="w", padx=12,
+                                                           pady=(6, 2))
+
+        def traer():
+            cuantos = 0
+            for nombre, var in elegidos.items():
+                if not var.get():
+                    continue
+                d = hallados[nombre]
+                mcp.agregar(nombre, d["comando"], d["args"], d["env"], d["de"])
+                cuantos += 1
+            self._mcp_pintar()
+            self.mcp_estado.config(
+                text=f"{tr('Importados')}: {cuantos}")
+            v.destroy()
+
+        fila = ttk.Frame(v)
+        fila.pack(anchor="w", padx=12, pady=(4, 12))
+        ttk.Button(fila, text=tr("Importar"), command=traer).pack(side="left")
+        ttk.Button(fila, text=tr("Cancelar"),
+                   command=v.destroy).pack(side="left", padx=6)
+
+    def mcp_agregar(self) -> None:
+        """Uno a mano, para el que no este en ningun otro programa."""
+        v = tk.Toplevel(self)
+        v.title(tr("Servidor MCP"))
+        v.transient(self)
+        campos = {}
+        for clave, rotulo in (("nombre", tr("Nombre")),
+                              ("comando", tr("Comando")),
+                              ("args", tr("Argumentos"))):
+            fila = ttk.Frame(v)
+            fila.pack(fill="x", padx=12, pady=4)
+            ttk.Label(fila, text=rotulo, width=14).pack(side="left")
+            campos[clave] = tk.StringVar()
+            ttk.Entry(fila, textvariable=campos[clave], width=48).pack(
+                side="left", fill="x", expand=True)
+        aviso = ttk.Label(v, style="Ayuda.TLabel", text=tr(
+            "Los argumentos van separados por espacios."))
+        aviso.pack(anchor="w", padx=12)
+
+        def guardar():
+            try:
+                mcp.agregar(campos["nombre"].get(), campos["comando"].get(),
+                            campos["args"].get().split())
+            except ValueError as exc:
+                aviso.config(text=str(exc))
+                return
+            self._mcp_pintar()
+            v.destroy()
+
+        fila = ttk.Frame(v)
+        fila.pack(anchor="w", padx=12, pady=(6, 12))
+        ttk.Button(fila, text=tr("Guardar"), command=guardar).pack(side="left")
+        ttk.Button(fila, text=tr("Cancelar"),
+                   command=v.destroy).pack(side="left", padx=6)
+
+    def mcp_quitar(self) -> None:
+        nombre = self._mcp_sel()
+        if not nombre:
+            return
+        if not messagebox.askyesno(
+                tr("Servidores MCP"),
+                f"{tr('Quitar el servidor')} {nombre!r}?", parent=self):
+            return
+        mcp.quitar(nombre)
+        self._mcp_pintar()
+        self.mcp_estado.config(text=f"{tr('Quitado')}: {nombre}")
+
+    def mcp_herramientas(self) -> None:
+        """Le pregunta al servidor que tiene, y deja encender y apagar de a una.
+
+        Sale a levantar un proceso, asi que va en un hilo: un servidor que
+        arranca bajando un paquete tarda, y el panel no puede congelarse.
+        """
+        import threading
+
+        nombre = self._mcp_sel()
+        if not nombre:
+            return
+        srv = mcp.servidores().get(nombre)
+        if srv is None:
+            return
+        if mcp.modo(self.cfg) != "cliente" and not (srv.get("vistas") or []):
+            self.mcp_estado.config(text=tr(
+                "En modo lectura no me conecto. Pasa el modo a 'cliente' para "
+                "que pregunte que herramientas tiene."))
+            return
+        self.mcp_estado.config(text=f"{tr('preguntandole a')} {nombre}...")
+
+        def trabajo():
+            try:
+                with mcp.Cliente(nombre, srv) as cli:
+                    hs = cli.herramientas()
+            except Exception as exc:  # noqa: BLE001 - un servidor ajeno falla como quiere
+                fallo = str(exc)[:160]
+                self._ui(lambda: self.mcp_estado.config(
+                    text=f"{tr('no pude hablarle a')} {nombre}: {fallo}"))
+                return
+            datos = mcp.leer()
+            if nombre in datos["servidores"]:
+                datos["servidores"][nombre]["vistas"] = hs
+                mcp.escribir(datos)
+            self._ui(lambda: self._mcp_ventana_herramientas(nombre, hs))
+
+        threading.Thread(target=trabajo, daemon=True).start()
+
+    def _mcp_ventana_herramientas(self, nombre: str, hs: list) -> None:
+        self._mcp_pintar()
+        self.mcp_estado.config(text=f"{nombre}: {len(hs)} {tr('herramientas')}")
+        srv = mcp.servidores().get(nombre, {})
+        v = tk.Toplevel(self)
+        v.title(f"{tr('Herramientas')}: {nombre}")
+        v.geometry("760x480")
+        v.transient(self)
+        ttk.Label(v, style="Ayuda.TLabel", justify="left", text=tr(
+            "La casilla de la izquierda la enciende. 'Sin preguntar' la deja "
+            "correr sin confirmacion:\nusalo solo con las que sepas que hacen, "
+            "porque el nombre lo eligio quien escribio el servidor.")
+        ).pack(anchor="w", padx=12, pady=(10, 6))
+        marco = ttk.Frame(v)
+        marco.pack(fill="both", expand=True, padx=12)
+        for h in hs:
+            fila = ttk.Frame(marco)
+            fila.pack(fill="x", pady=2)
+            activa = tk.BooleanVar(value=mcp.herramienta_activa(srv, h["nombre"]))
+            ttk.Checkbutton(
+                fila, text=h["nombre"], width=30, variable=activa,
+                command=lambda n=h["nombre"], var=activa:
+                    mcp.activar_herramienta(nombre, n, var.get())
+            ).pack(side="left")
+            confiada = tk.BooleanVar(value=h["nombre"] in srv.get("confiadas", []))
+            ttk.Checkbutton(
+                fila, text=tr("sin preguntar"), variable=confiada,
+                command=lambda n=h["nombre"], var=confiada:
+                    mcp.confiar(nombre, n, var.get())
+            ).pack(side="left", padx=8)
+            ttk.Label(fila, text=h["descripcion"][:70],
+                      style="Ayuda.TLabel").pack(side="left", padx=8)
+        ttk.Button(v, text=tr("Cerrar"), command=v.destroy).pack(pady=8)
+
 
     def _addons_carpeta(self):
         from . import addons

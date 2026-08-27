@@ -1,9 +1,10 @@
 """Instrucciones tuyas, en `.md`, que Eve puede consultar.
 
 **Esto NO es un cliente MCP**, y conviene decirlo porque el nombre se parece.
-Aquel --descartado en `brain.py:2-5` con su razon-- es un protocolo con un
-proceso aparte y descubrimiento en vivo, para un cliente unico. Esto es texto
-que vos escribis y Eve lee, que es lo mismo que ya hacen `EVE.md` y los addons.
+Aquel es un protocolo con un proceso aparte y descubrimiento en vivo, y desde
+la 1.19.0 existe de verdad en `eve/mcp.py`. Esto otro es texto que vos escribis
+y Eve lee, que es lo mismo que ya hacen `EVE.md` y los addons: sin proceso, sin
+protocolo y sin nada ajeno corriendo en tu maquina.
 
 **El freno esta en cuanto viaja, y es la razon de ser del modulo.** Meter los
 `.md` enteros en el prompt seria pagarlos en CADA frase que le digas, incluso
