@@ -49,6 +49,12 @@ class Campo(NamedTuple):
     etiqueta: str
     opciones: list | str | None = None
     ancho: int = 44
+    # Con `abierto`, las opciones son SUGERENCIAS y se puede escribir otra
+    # cosa. El modelo de un servicio compatible es el caso: se ofrecen los que
+    # ese servicio dijo tener, pero nadie puede garantizar que la lista este
+    # completa, y un desplegable cerrado ahi impediria usar uno nuevo hasta la
+    # proxima version del programa.
+    abierto: bool = False
 
 
 class Interruptor(NamedTuple):
@@ -631,7 +637,8 @@ GENERAL = (
         "Otros motores",
         (
             # `compat_proveedor` se elige arriba, en el selector.
-            Campo("compat_modelo", "compat: modelo"),
+            Campo("compat_modelo", "compat: modelo",
+                  "_modelos_del_proveedor", abierto=True),
             Campo("compat_url", "compat: URL propia", None, 40),
             Fila((
                 Boton("Buscar modelos", "compat_buscar_modelos"),

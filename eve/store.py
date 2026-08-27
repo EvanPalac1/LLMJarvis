@@ -788,6 +788,38 @@ def perfiles_de_ejemplo() -> dict:
     return salida
 
 
+MODELOS_PATH = os.path.join(BASE, "modelos.json")
+
+
+def modelos_vistos(proveedor: str) -> list:
+    """Los modelos que ESE servicio contesto la ultima vez que se le pregunto.
+
+    Aprendidos y no escritos a mano. Una lista de modelos por proveedor dentro
+    del codigo se pudre sola --Google saca modelos de circulacion, OpenRouter
+    publica cientos y cambian todas las semanas-- y quedaria mintiendo hasta la
+    proxima release. Esto se llena con lo que el propio servicio contesta en
+    `/v1/models`, que es la unica fuente que no envejece.
+
+    Vacio hasta que se aprete Buscar modelos una vez. Ahi el desplegable
+    muestra solo el modelo sugerido del preset, que es lo que ya habia.
+    """
+    datos = _leer_json(MODELOS_PATH, {})
+    lista = datos.get(str(proveedor)) if isinstance(datos, dict) else None
+    return [str(x) for x in lista] if isinstance(lista, list) else []
+
+
+def recordar_modelos(proveedor: str, lista: list) -> None:
+    """Guarda lo que el servicio contesto, para no tener que volver a preguntar."""
+    proveedor = str(proveedor or "").strip()
+    if not proveedor or not lista:
+        return
+    datos = _leer_json(MODELOS_PATH, {})
+    if not isinstance(datos, dict):
+        datos = {}
+    datos[proveedor] = [str(x) for x in lista]
+    _escribir_json(MODELOS_PATH, datos)
+
+
 def perfiles_disponibles() -> dict:
     """{nombre: (config, de_fabrica)} de TODOS: los tuyos y los de ejemplo.
 

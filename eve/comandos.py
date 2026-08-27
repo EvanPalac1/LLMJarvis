@@ -39,6 +39,7 @@ import hashlib
 import os
 import re
 import subprocess
+import time
 import unicodedata
 
 from . import store
@@ -206,6 +207,33 @@ def _hacer_accion(valor: str, cfg: dict) -> str:
     return "Cartel a la vista."
 
 
+def correr_sistema(valor: str, timeout: int = 120) -> dict:
+    """Corre el comando y devuelve TODO: codigo, salida, error y cuanto tardo.
+
+    Separado de `ejecutar` porque son dos preguntas distintas. `ejecutar`
+    contesta en voz alta y ahi 200 caracteres es correcto --nadie quiere
+    escuchar cuarenta lineas de salida--. El boton Probar del panel es lo
+    contrario: se prueba justamente para VER que paso, y recortar a 200 en una
+    etiqueta de una linea era mostrar el principio de un error y esconder el
+    resto.
+
+    `stdout` y `stderr` van separados y no pegados: un comando puede escribir
+    en los dos, y con el ultimo pisando al primero --que era lo que hacia el
+    `or`-- se pierde justo el que explica la falla.
+    """
+    arranque = time.monotonic()
+    try:
+        r = subprocess.run(valor, shell=True, capture_output=True, text=True,
+                           timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"codigo": None, "salida": "", "error": "",
+                "segundos": time.monotonic() - arranque, "timeout": timeout}
+    return {"codigo": r.returncode,
+            "salida": (r.stdout or "").strip(),
+            "error": (r.stderr or "").strip(),
+            "segundos": time.monotonic() - arranque, "timeout": 0}
+
+
 def ejecutar(cmd: dict, cfg: dict) -> tuple:
     """(que_hacer, dato). `que_hacer` es 'hecho' o 'prompt'.
 
@@ -222,14 +250,12 @@ def ejecutar(cmd: dict, cfg: dict) -> tuple:
         return "hecho", ("Ese comando todavia no esta aprobado. Miralo en el "
                          "panel, en Comandos, y aprobalo si es lo que querias.")
     store.log_action("comandos", "sistema", f"{cmd['frases'][0]}: {valor[:120]}")
-    try:
-        r = subprocess.run(valor, shell=True, capture_output=True, text=True,
-                           timeout=120)
-    except subprocess.TimeoutExpired:
+    r = correr_sistema(valor)
+    if r["timeout"]:
         return "hecho", "El comando tardo mas de dos minutos y lo corte."
-    salida = (r.stdout or r.stderr or "").strip()
-    if r.returncode != 0:
-        return "hecho", f"Fallo: {salida[:200] or 'codigo ' + str(r.returncode)}"
+    salida = r["salida"] or r["error"]
+    if r["codigo"] != 0:
+        return "hecho", f"Fallo: {salida[:200] or 'codigo ' + str(r['codigo'])}"
     return "hecho", (salida[:200] if salida else "Listo.")
 
 
@@ -247,6 +273,34 @@ def resolver(texto: str, cfg: dict) -> tuple:
     if not cmd:
         return "nada", ""
     return ejecutar(cmd, cfg)
+
+
+CABECERA = PLANTILLA.split("## ", 1)[0].rstrip() + "\n"
+
+
+def escribir(lista: list) -> None:
+    """Reescribe `Comandos.md` ENTERO con los comandos dados.
+
+    Entero y no parcheado: el archivo se puede editar a mano, asi que las
+    lineas no estan donde el panel cree --alguien agrega un comentario y todos
+    los numeros se corren--. Reescribirlo desde lo que se leyo es la unica
+    forma de que las dos vias, el panel y el editor de texto, no se peleen.
+
+    Lo que se pierde a cambio, y hay que decirlo: los comentarios sueltos que
+    hayas escrito entre comandos no sobreviven a un guardado desde el panel.
+    La cabecera si.
+    """
+    partes = [CABECERA]
+    for cmd in lista:
+        frases = [str(f).strip() for f in cmd.get("frases", []) if str(f).strip()]
+        tipo = str(cmd.get("tipo", "")).strip()
+        valor = str(cmd.get("valor", "")).strip()
+        if not frases or tipo not in TIPOS or not valor:
+            continue
+        partes.append(f"\n## {' | '.join(frases)}\n{tipo}: {valor}\n")
+    os.makedirs(os.path.dirname(RUTA), exist_ok=True)
+    with open(RUTA, "w", encoding="utf-8") as f:
+        f.write("".join(partes))
 
 
 def asegurar_archivo() -> str:

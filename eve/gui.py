@@ -91,6 +91,9 @@ class Panel(tk.Tk):
         # Donde vive cada control, para el buscador; y las secciones plegables,
         # para poder abrirlas desde el.
         self._indice: list[dict] = []
+        # clave -> widget, para repoblar uno despues. `_indice` es del
+        # buscador y no esta indexado por clave.
+        self._controles: dict = {}
         self._secciones: list = []
         # Las tarjetas dibujadas, para poder repintarlas al cambiar de tema:
         # un Canvas no consulta el motor de estilos de ttk, hay que avisarle.
@@ -628,7 +631,8 @@ class Panel(tk.Tk):
                 opciones = item.opciones
                 if isinstance(opciones, str):
                     opciones = getattr(self, opciones)()
-                self._row(padre, tr(item.etiqueta), item.clave, opciones, item.ancho)
+                self._row(padre, tr(item.etiqueta), item.clave, opciones,
+                          item.ancho, abierto=item.abierto)
             elif isinstance(item, registro.Salida):
                 # Etiqueta vacia que el panel llena despues; queda accesible por
                 # `self.<atributo>`, que es como la buscan los botones de prueba.
@@ -886,6 +890,50 @@ class Panel(tk.Tk):
         self.prov_label.pack(anchor="w", padx=12, pady=(8, 2))
         self._prov_estado()
 
+    def _modelos_del_proveedor(self) -> list:
+        """Los modelos que se le pueden ofrecer al proveedor que este elegido.
+
+        El sugerido del preset --que es el que va a usar si no tocas nada-- mas
+        los que ese servicio contesto la ultima vez que se apreto Buscar
+        modelos. No hay una lista escrita a mano en el codigo a proposito: los
+        catalogos cambian todas las semanas y una lista congelada quedaria
+        mintiendo hasta la proxima release.
+        """
+        from . import compat_engine
+
+        prov = ""
+        var = self.vars.get("compat_proveedor")
+        if var is not None:
+            prov = var.get().strip()
+        prov = prov or str(self.cfg.get("compat_proveedor", "")).strip()
+        preset = compat_engine.PROVEEDORES.get(prov)
+        salida = [preset[2]] if preset and preset[2] else []
+        for nombre in store.modelos_vistos(prov):
+            if nombre not in salida:
+                salida.append(nombre)
+        return salida
+
+    def _refrescar_modelos(self) -> None:
+        """Repuebla el desplegable de modelos y, si el que hay no es de este
+        proveedor, deja el sugerido.
+
+        Lo segundo importa mas que lo primero: cambiar de Groq a Gemini dejaba
+        `llama-3.3-70b-versatile` escrito en el campo, que Gemini contesta con
+        un 404 recien cuando le hablas. Se pisa solo cuando el modelo que habia
+        NO esta entre los de este proveedor: si escribiste uno a mano y sigue
+        siendo valido, se respeta."""
+        combo = self._controles.get("compat_modelo")
+        var = self.vars.get("compat_modelo")
+        if combo is None or var is None:
+            return
+        lista = self._modelos_del_proveedor()
+        try:
+            combo["values"] = lista
+        except tk.TclError:
+            return
+        if lista and var.get().strip() not in lista:
+            var.set(lista[0])
+
     def _selector_aplicar(self) -> None:
         """Escribe las DOS claves de una. Es el punto del control.
 
@@ -904,6 +952,7 @@ class Panel(tk.Tk):
             if motor == "compat":
                 self.vars["compat_proveedor"].set(ident)
             break
+        self._refrescar_modelos()
         self._prov_estado()
 
     def _estado_clave(self, clave: str) -> str:
@@ -1443,14 +1492,31 @@ class Panel(tk.Tk):
 
         barra = ttk.Frame(padre)
         barra.pack(fill="x", padx=12, pady=(0, 4))
-        ttk.Button(barra, text=tr("Abrir Comandos.md"),
-                   command=self.comando_abrir_archivo).pack(side="left")
-        ttk.Button(barra, text=tr("Recargar"),
-                   command=lambda: self._comandos_refrescar()).pack(side="left", padx=6)
+        ttk.Button(barra, text=tr("Nuevo"),
+                   command=self.comando_nuevo).pack(side="left")
+        ttk.Button(barra, text=tr("Editar"),
+                   command=self.comando_editar).pack(side="left", padx=6)
+        ttk.Button(barra, text=tr("Borrar"),
+                   command=self.comando_borrar).pack(side="left")
         ttk.Button(barra, text=tr("Revisar y aprobar"),
-                   command=self.comando_aprobar).pack(side="left")
+                   command=self.comando_aprobar).pack(side="left", padx=6)
         ttk.Button(barra, text=tr("Probar"),
-                   command=self.comando_probar).pack(side="left", padx=6)
+                   command=self.comando_probar).pack(side="left")
+
+        otra = ttk.Frame(padre)
+        otra.pack(fill="x", padx=12, pady=(0, 4))
+        ttk.Button(otra, text=tr("Abrir Comandos.md"),
+                   command=self.comando_abrir_archivo).pack(side="left")
+        ttk.Button(otra, text=tr("Recargar"),
+                   command=lambda: self._comandos_refrescar()).pack(side="left", padx=6)
+
+        # Doble clic para editar: es lo que hace cualquier lista y ahorra
+        # tener que apuntarle al boton.
+        self.cmd_tree.bind("<Double-Button-1>",
+                           lambda _e: self.comando_editar())
+
+        self._cmd_revision = self._panel_de_aprobacion(padre)
+
         self.cmd_estado = ttk.Label(padre, text="", style="Ayuda.TLabel",
                                     justify="left")
         self.cmd_estado.pack(anchor="w", padx=12, pady=(2, 6))
@@ -1492,46 +1558,256 @@ class Panel(tk.Tk):
 
         plataforma.abrir(mod.asegurar_archivo())
 
+    def _panel_de_aprobacion(self, padre):
+        """El cartel de aprobar, DENTRO del panel y no en un cuadro del sistema.
+
+        Estaba en un `messagebox.askyesno`, que trae tres problemas juntos: el
+        cuadro del sistema recorta el texto largo sin decirlo --y lo que se
+        aprueba es justamente el texto--, no se puede copiar de ahi para
+        mirarlo, y tapa la lista, asi que no se ve cual de todos era. Aca el
+        comando se muestra entero, se puede seleccionar, y la lista queda a la
+        vista al lado.
+
+        Arranca escondido: solo aparece cuando hay algo que aprobar.
+        """
+        marco = ttk.Frame(padre)
+        self._cmd_rev_titulo = ttk.Label(marco, text="", justify="left")
+        self._cmd_rev_titulo.pack(anchor="w", padx=12, pady=(6, 2))
+        self._cmd_rev_texto = tk.Text(marco, height=3, wrap="word")
+        self._cmd_rev_texto.pack(fill="x", padx=12)
+        fila = ttk.Frame(marco)
+        fila.pack(anchor="w", padx=12, pady=(4, 8))
+        ttk.Button(fila, text=tr("Aprobar"),
+                   command=self._comando_aprobar_ahora).pack(side="left")
+        ttk.Button(fila, text=tr("Cancelar"),
+                   command=self._comando_revision_cerrar).pack(side="left", padx=6)
+        ttk.Label(fila, style="Ayuda.TLabel",
+                  text=tr("Se aprueba ESTE texto: si despues lo editas, "
+                          "vuelve a quedar frenado.")).pack(side="left", padx=10)
+        self._cmd_en_revision = None
+        return marco
+
+    def _comando_revision_cerrar(self) -> None:
+        self._cmd_en_revision = None
+        self._cmd_revision.pack_forget()
+
+    def _comando_aprobar_ahora(self) -> None:
+        from . import comandos as mod
+
+        cmd = self._cmd_en_revision
+        if cmd is None:
+            return
+        mod.aprobar(cmd)
+        self.cfg = store.load_config()
+        self._comando_revision_cerrar()
+        self._comandos_refrescar()
+        self.cmd_estado.config(text=f"{tr('Aprobado')}: {cmd['frases'][0]}")
+
     def comando_aprobar(self) -> None:
-        """Aprueba el comando elegido, mostrandolo entero primero.
+        """Muestra el comando entero y deja el boton al lado.
 
         Se muestra ANTES de aprobar y no despues: aprobar a ciegas seria el
         mismo agujero que aprobar un addon sin leerlo. Y la aprobacion es del
         TEXTO --por hash-- asi que editarlo despues lo vuelve a frenar.
         """
-        from . import comandos as mod
-
         cmd = self._comando_elegido()
         if cmd is None:
-            messagebox.showinfo(tr("Comandos"), tr("Elige uno de la lista."))
+            self.cmd_estado.config(text=tr("Elige uno de la lista."))
             return
         if cmd["tipo"] != "sistema":
-            messagebox.showinfo(tr("Comandos"),
-                                tr("Ese no corre nada: no hace falta aprobarlo."))
+            self.cmd_estado.config(
+                text=tr("Ese no corre nada: no hace falta aprobarlo."))
             return
-        ok = messagebox.askyesno(
-            tr("Comandos"),
-            f"{tr('Al decir')} \"{cmd['frases'][0]}\" {tr('se va a correr')}:\n\n"
-            f"{cmd['valor']}\n\n{tr('Lo apruebo?')}")
-        if not ok:
-            store.log_action("comandos", "aprobar", f"DENEGADO {cmd['frases'][0]}")
-            return
-        mod.aprobar(cmd)
-        self.cfg = store.load_config()
-        self._comandos_refrescar()
+        self._cmd_en_revision = cmd
+        self._cmd_rev_titulo.config(
+            text=f"{tr('Al decir')} \"{cmd['frases'][0]}\" {tr('se va a correr')}:")
+        self._cmd_rev_texto.delete("1.0", "end")
+        self._cmd_rev_texto.insert("1.0", cmd["valor"])
+        self._cmd_revision.pack(fill="x", before=self.cmd_estado)
 
     def comando_probar(self) -> None:
-        """Lo corre ahora, sin tener que decirlo en voz alta."""
+        """Lo corre ahora y muestra TODO lo que paso.
+
+        Antes escribia el resultado en una etiqueta de una linea recortado a
+        300 caracteres: para un comando que falla, eso es ver el principio del
+        error y perder el resto, que es la parte que sirve. Ahora sale en una
+        ventana con la salida entera, el codigo de retorno y cuanto tardo.
+
+        Un `sistema` sin aprobar NO se corre, ni siquiera desde aca: probar
+        seria el atajo perfecto para saltear el freno. Se dice, y el boton de
+        aprobar queda a un clic.
+        """
         from . import comandos as mod
 
         cmd = self._comando_elegido()
         if cmd is None:
-            messagebox.showinfo(tr("Comandos"), tr("Elige uno de la lista."))
+            self.cmd_estado.config(text=tr("Elige uno de la lista."))
             return
-        que, dato = mod.ejecutar(cmd, self.cfg)
-        if que == "prompt":
-            dato = f"{tr('le mandaria al modelo')}: {dato}"
-        self.cmd_estado.config(text=str(dato)[:300])
+
+        if cmd["tipo"] == "sistema" and not mod.aprobado(cmd, self.cfg):
+            self.cmd_estado.config(text=tr("Sin aprobar: no se corre. Revisalo "
+                                           "con 'Revisar y aprobar'."))
+            self.comando_aprobar()
+            return
+
+        if cmd["tipo"] == "sistema":
+            store.log_action("comandos", "probar",
+                             f"{cmd['frases'][0]}: {cmd['valor'][:120]}")
+            r = mod.correr_sistema(cmd["valor"])
+            if r["timeout"]:
+                cuerpo = (f"{tr('Se corto a los')} {r['timeout']}s.\n\n"
+                          + tr("El comando seguia corriendo."))
+            else:
+                cuerpo = (
+                    f"{tr('codigo de retorno')}: {r['codigo']}\n"
+                    f"{tr('tardo')}: {r['segundos']:.2f}s\n\n"
+                    f"--- salida ---\n{r['salida'] or '(vacia)'}\n\n"
+                    f"--- errores ---\n{r['error'] or '(ninguno)'}")
+        else:
+            que, dato = mod.ejecutar(cmd, self.cfg)
+            cuerpo = (f"{tr('le mandaria al modelo')}:\n\n{dato}"
+                      if que == "prompt" else str(dato))
+
+        self.cmd_estado.config(text=f"{tr('Probado')}: {cmd['frases'][0]}")
+        self._ventana_texto(
+            f"{tr('Probar')}: {cmd['frases'][0]}",
+            f"{cmd['tipo']}: {cmd['valor']}\n\n{cuerpo}")
+
+    def _ventana_texto(self, titulo: str, cuerpo: str) -> None:
+        """Una ventana con texto que se puede leer entero y copiar.
+
+        Existe porque `messagebox` recorta el texto largo sin avisar y no deja
+        seleccionarlo, que son las dos cosas que uno necesita cuando algo
+        fallo.
+        """
+        v = tk.Toplevel(self)
+        v.title(titulo)
+        v.geometry("720x460")
+        v.transient(self)
+        texto = tk.Text(v, wrap="word")
+        barra = ttk.Scrollbar(v, orient="vertical", command=texto.yview)
+        texto.configure(yscrollcommand=barra.set)
+        barra.pack(side="right", fill="y")
+        texto.pack(side="left", fill="both", expand=True)
+        texto.insert("1.0", cuerpo)
+        ttk.Button(v, text=tr("Cerrar"), command=v.destroy).pack(
+            side="bottom", pady=6)
+
+    # --- editar la lista sin abrir el .md ----------------------------------
+
+    def comando_nuevo(self) -> None:
+        self._comando_editor(None)
+
+    def comando_editar(self) -> None:
+        cmd = self._comando_elegido()
+        if cmd is None:
+            self.cmd_estado.config(text=tr("Elige uno de la lista."))
+            return
+        self._comando_editor(cmd)
+
+    def comando_borrar(self) -> None:
+        from . import comandos as mod
+
+        cmd = self._comando_elegido()
+        if cmd is None:
+            self.cmd_estado.config(text=tr("Elige uno de la lista."))
+            return
+        if not messagebox.askyesno(
+                tr("Comandos"),
+                f"{tr('Borrar el comando')} \"{cmd['frases'][0]}\"?", parent=self):
+            return
+        # Se compara por identidad de contenido y no por indice: entre que se
+        # pinto la lista y este clic, el archivo pudo cambiar desde el editor.
+        quedan = [c for c in mod.leer()
+                  if (c["frases"], c["tipo"], c["valor"])
+                  != (cmd["frases"], cmd["tipo"], cmd["valor"])]
+        mod.escribir(quedan)
+        self._comandos_refrescar()
+        self.cmd_estado.config(text=f"{tr('Borrado')}: {cmd['frases'][0]}")
+
+    def _comando_editor(self, cmd) -> None:
+        """Alta y edicion de un comando, sin salir del panel.
+
+        El archivo sigue siendo la fuente: esto lee, cambia y lo reescribe
+        entero. Tener el panel guardando en un lado y el .md en otro es como se
+        terminan teniendo dos verdades.
+        """
+        from . import comandos as mod
+
+        v = tk.Toplevel(self)
+        v.title(tr("Comando nuevo") if cmd is None else tr("Editar comando"))
+        v.transient(self)
+        v.resizable(True, False)
+
+        fila = ttk.Frame(v)
+        fila.pack(fill="x", padx=12, pady=(12, 4))
+        ttk.Label(fila, text=tr("Frases"), width=10).pack(side="left")
+        frases = tk.StringVar(value=" | ".join(cmd["frases"]) if cmd else "")
+        ttk.Entry(fila, textvariable=frases, width=54).pack(
+            side="left", fill="x", expand=True)
+
+        fila = ttk.Frame(v)
+        fila.pack(fill="x", padx=12, pady=4)
+        ttk.Label(fila, text=tr("Tipo"), width=10).pack(side="left")
+        tipo = tk.StringVar(value=cmd["tipo"] if cmd else "accion")
+        ttk.Combobox(fila, textvariable=tipo, values=list(mod.TIPOS),
+                     state="readonly", width=14).pack(side="left")
+
+        fila = ttk.Frame(v)
+        fila.pack(fill="x", padx=12, pady=4)
+        ttk.Label(fila, text=tr("Hace"), width=10).pack(side="left")
+        valor = tk.StringVar(value=cmd["valor"] if cmd else "")
+        ttk.Entry(fila, textvariable=valor, width=54).pack(
+            side="left", fill="x", expand=True)
+
+        # La lista de acciones va FUERA del `tr(...)`: un `tr` con una
+        # variable adentro es invisible para el chequeo de traducciones, y esos
+        # son justo los textos que se quedan en espanol con el panel en ingles.
+        ayuda = (tr("Varias formas de decir lo mismo, separadas por |.") + "\n"
+                 + tr("accion: una de estas, con su argumento") + ": "
+                 + ", ".join(mod.ACCIONES) + "\n"
+                 + tr("prompt: el texto largo que se le manda al modelo.") + "\n"
+                 + tr("sistema: el comando que corre. Hay que aprobarlo despues."))
+        ttk.Label(v, style="Ayuda.TLabel", justify="left",
+                  text=ayuda).pack(anchor="w", padx=12, pady=(6, 4))
+
+        aviso = ttk.Label(v, style="Ayuda.TLabel", text="")
+        aviso.pack(anchor="w", padx=12)
+
+        def guardar():
+            partes = [p.strip() for p in frases.get().split("|") if p.strip()]
+            if not partes:
+                aviso.config(text=tr("Falta la frase."))
+                return
+            if not valor.get().strip():
+                aviso.config(text=tr("Falta lo que hace."))
+                return
+            nuevo = {"frases": partes, "tipo": tipo.get(),
+                     "valor": valor.get().strip()}
+            lista = mod.leer()
+            if cmd is None:
+                lista.append(nuevo)
+            else:
+                lista = [nuevo if (c["frases"], c["tipo"], c["valor"])
+                         == (cmd["frases"], cmd["tipo"], cmd["valor"]) else c
+                         for c in lista]
+            # Dos comandos con la misma frase serian una moneda al aire: gana
+            # el primero que aparezca en el archivo y el otro no anda nunca.
+            dichas = [mod.normalizar(f) for c in lista for f in c["frases"]]
+            repetida = next((d for d in dichas if dichas.count(d) > 1), "")
+            if repetida:
+                aviso.config(text=f"{tr('Esa frase ya esta usada')}: {repetida}")
+                return
+            mod.escribir(lista)
+            self._comandos_refrescar()
+            self.cmd_estado.config(text=f"{tr('Guardado')}: {partes[0]}")
+            v.destroy()
+
+        fila = ttk.Frame(v)
+        fila.pack(anchor="w", padx=12, pady=(6, 12))
+        ttk.Button(fila, text=tr("Guardar"), command=guardar).pack(side="left")
+        ttk.Button(fila, text=tr("Cancelar"),
+                   command=v.destroy).pack(side="left", padx=6)
 
     def _tab_cuentas(self, nb):
         return self._componer(
@@ -1761,18 +2037,23 @@ class Panel(tk.Tk):
                                      min(self.ROTULO_MAX, max(largos or [0])))
         return self._rotulo_cache
 
-    def _row(self, parent, label, key, values=None, width=44):
+    def _row(self, parent, label, key, values=None, width=44, abierto=False):
         frame = ttk.Frame(parent)
         frame.pack(fill="x", padx=12, pady=5)
         ttk.Label(frame, text=label, width=self._ancho_rotulo()).pack(side="left")
         var = tk.StringVar(value=str(self.cfg.get(key, "")))
         self.vars[key] = var
-        widget = (
-            ttk.Combobox(frame, textvariable=var, values=values, width=width - 2, state="readonly")
-            if values
-            else ttk.Entry(frame, textvariable=var, width=width)
-        )
+        if values:
+            widget = ttk.Combobox(frame, textvariable=var, values=values,
+                                  width=width - 2,
+                                  state="normal" if abierto else "readonly")
+        else:
+            widget = ttk.Entry(frame, textvariable=var, width=width)
         widget.pack(side="left", fill="x", expand=True)
+        # Por clave, para poder repoblar uno despues: el desplegable de modelos
+        # cambia cuando cambias de proveedor. `_indice` no sirve para esto --lo
+        # usa el buscador y no esta indexado por clave.
+        self._controles[key] = widget
         self._anotar(label, key, widget)
         return var
 
@@ -2652,6 +2933,7 @@ class Panel(tk.Tk):
                 fallo = str(exc)[:120]
                 self._ui(lambda: decir(f"{tr('no pude preguntarle')}: {fallo}"))
                 return
+            store.recordar_modelos(motor.proveedor, lista)
             self._ui(lambda: self._elegir_modelo(lista, decir))
 
         threading.Thread(target=trabajo, daemon=True).start()
@@ -2693,6 +2975,12 @@ class Panel(tk.Tk):
         def elegir(_e=None):
             sel = caja.curselection()
             if sel and self.vars.get("compat_modelo") is not None:
+                combo = self._controles.get("compat_modelo")
+                if combo is not None:
+                    try:
+                        combo["values"] = lista
+                    except tk.TclError:
+                        pass
                 self.vars["compat_modelo"].set(lista[sel[0]])
                 decir(f"{tr('elegido')}: {lista[sel[0]]}")
             v.destroy()

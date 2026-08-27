@@ -2770,6 +2770,161 @@ def test_ningun_rotulo_del_panel_sale_cortado():
         f"la columna mide {ancho} y el rotulo mas largo {max(n for n, _t in largos)}")
 
 
+def test_los_comandos_se_editan_desde_el_panel():
+    """Crear, editar y borrar sin abrir el .md, con el archivo como fuente.
+
+    Hasta ahora el panel solo LEIA `Comandos.md`: para agregar uno habia que
+    abrir el archivo, acordarse del formato y volver a Recargar. El archivo
+    sigue siendo la fuente --se reescribe entero desde lo que se leyo-- asi que
+    editar por las dos vias no puede dejarlas diciendo cosas distintas.
+    """
+    from eve import comandos as mod
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previa = mod.RUTA
+        mod.RUTA = os.path.join(raiz, "Comandos.md")
+        try:
+            mod.escribir([
+                {"frases": ["prende el server", "arranca el server"],
+                 "tipo": "sistema", "valor": "echo hola"},
+                {"frases": ["modo foco"], "tipo": "accion", "valor": "abrir Spotify"},
+            ])
+            leidos = mod.leer()
+            assert len(leidos) == 2, leidos
+            assert leidos[0]["frases"] == ["prende el server", "arranca el server"]
+            assert leidos[1]["tipo"] == "accion"
+
+            # Lo que no es un comando valido no entra: un tipo inventado
+            # quedaria en el archivo como un `##` suelto y desapareceria al
+            # releer, o sea que el panel diria haberlo guardado y no.
+            mod.escribir(leidos + [{"frases": ["x"], "tipo": "magia", "valor": "y"}])
+            assert len(mod.leer()) == 2, "colo un tipo que no existe"
+
+            # Borrar es reescribir sin el.
+            mod.escribir([leidos[1]])
+            assert [c["frases"] for c in mod.leer()] == [["modo foco"]]
+
+            # Y la cabecera del archivo sobrevive: es lo que explica el formato
+            # a quien lo abra a mano.
+            with open(mod.RUTA, encoding="utf-8") as f:
+                texto = f.read()
+            assert texto.startswith("# Comandos por voz"), texto[:40]
+        finally:
+            mod.RUTA = previa
+
+
+def test_probar_un_comando_muestra_todo_lo_que_paso():
+    """Salida entera, codigo de retorno y cuanto tardo.
+
+    `ejecutar` recorta a 200 caracteres porque su respuesta se LEE EN VOZ ALTA,
+    y ahi recortar es correcto. El boton Probar del panel es lo contrario: se
+    prueba para VER que paso, y mostrar el principio de un error escondiendo el
+    resto es justo lo que no sirve. Son dos funciones distintas por eso.
+    """
+    from eve import comandos as mod
+
+    largo = "python -c " + repr("print('x' * 900)")
+    r = mod.correr_sistema(largo)
+    assert r["codigo"] == 0, r
+    assert len(r["salida"]) >= 900, f"la salida vino recortada: {len(r['salida'])}"
+    assert r["segundos"] >= 0
+    assert not r["timeout"]
+
+    # stdout y stderr separados: un comando puede escribir en los dos, y con el
+    # ultimo pisando al primero se pierde justo el que explica la falla.
+    falla = "python -c " + repr("import sys; print('bien'); sys.stderr.write('mal'); sys.exit(3)")
+    r = mod.correr_sistema(falla)
+    assert r["codigo"] == 3, r
+    assert "bien" in r["salida"] and "mal" in r["error"], r
+
+    # Y `ejecutar` sigue recortando, que es lo suyo.
+    cfg = {"comandos_aprobados": ""}
+    cmd = {"frases": ["largo"], "tipo": "sistema", "valor": largo}
+    cfg["comandos_aprobados"] = f"largo:{mod.firma(cmd)}"
+    que, dicho = mod.ejecutar(cmd, cfg)
+    assert que == "hecho" and len(dicho) <= 200, len(dicho)
+
+
+def test_probar_no_es_un_atajo_para_saltear_la_aprobacion():
+    """Un `sistema` sin aprobar no corre, ni siquiera desde el boton Probar.
+
+    Es la guarda que hace que todo lo demas valga: si Probar corriera el
+    comando igual, alcanzaba con apretar Probar en vez de decir la frase y el
+    freno no frenaba nada.
+    """
+    from eve import comandos as mod
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previa, previo_cfg = mod.RUTA, store.CONFIG_PATH
+        mod.RUTA = os.path.join(raiz, "Comandos.md")
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        testigo = os.path.join(raiz, "corrio.txt")
+        try:
+            cmd = {"frases": ["tocame esto"], "tipo": "sistema",
+                   "valor": f'python -c "open(r\'{testigo}\', \'w\').write(\'si\')"'}
+            mod.escribir([cmd])
+            cfg = store.load_config()
+            assert not mod.aprobado(mod.leer()[0], cfg), "nacio aprobado"
+
+            que, dicho = mod.ejecutar(mod.leer()[0], cfg)
+            assert que == "hecho" and "aprobado" in dicho, dicho
+            assert not os.path.exists(testigo), "corrio sin aprobacion"
+
+            # Aprobado, si corre.
+            mod.aprobar(mod.leer()[0])
+            cfg = store.load_config()
+            mod.ejecutar(mod.leer()[0], cfg)
+            assert os.path.exists(testigo), "aprobado y no corrio"
+
+            # Y editarlo lo vuelve a frenar: se aprueba el TEXTO.
+            mod.escribir([{**cmd, "valor": "echo otra cosa"}])
+            assert not mod.aprobado(mod.leer()[0], store.load_config()), (
+                "cambio lo que hace y siguio aprobado")
+        finally:
+            mod.RUTA, store.CONFIG_PATH = previa, previo_cfg
+
+
+def test_el_modelo_se_ofrece_segun_el_proveedor():
+    """Elegir Gemini y quedarte con el modelo de Groq era un 404 diferido.
+
+    El campo del modelo era texto libre: cambiar de proveedor dejaba escrito el
+    modelo del anterior, y eso no falla al guardar --falla cuando le hablas--.
+    Ahora ofrece los de ese proveedor y, si el que hay no es de ahi, pone el
+    sugerido.
+
+    La lista NO esta escrita a mano en el codigo: es el sugerido del preset mas
+    lo que ese servicio contesto la ultima vez que se apreto Buscar modelos.
+    Una tabla de modelos por proveedor dentro del programa quedaria vencida a
+    la semana siguiente.
+    """
+    from eve import compat_engine, gui
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previos = store.BASE, store.MODELOS_PATH, store.CONFIG_PATH
+        store.BASE = raiz
+        store.MODELOS_PATH = os.path.join(raiz, "modelos.json")
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        try:
+            assert store.modelos_vistos("groq") == [], "nacio con modelos inventados"
+            store.recordar_modelos("groq", ["uno", "dos"])
+            assert store.modelos_vistos("groq") == ["uno", "dos"]
+            assert store.modelos_vistos("gemini") == [], "se mezclaron proveedores"
+
+            panel = gui.Panel.__new__(gui.Panel)
+            panel.cfg = {"compat_proveedor": "groq"}
+            panel.vars = {}
+            ofrecidos = panel._modelos_del_proveedor()
+            # El sugerido primero: es el que se va a usar si no tocas nada.
+            assert ofrecidos[0] == compat_engine.PROVEEDORES["groq"][2], ofrecidos
+            assert "uno" in ofrecidos and "dos" in ofrecidos, ofrecidos
+
+            panel.cfg = {"compat_proveedor": "gemini"}
+            assert panel._modelos_del_proveedor() == [
+                compat_engine.PROVEEDORES["gemini"][2]], "trajo los de otro"
+        finally:
+            store.BASE, store.MODELOS_PATH, store.CONFIG_PATH = previos
+
+
 def test_los_mensajes_estan_en_espanol_neutro():
     """Ningun texto de la interfaz habla de vos.
 

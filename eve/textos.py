@@ -162,6 +162,52 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    'Varias formas de decir lo mismo, separadas por |.':
+        'Several ways of saying the same thing, separated by |.',
+    'accion: una de estas, con su argumento':
+        'accion: one of these, with its argument',
+    'prompt: el texto largo que se le manda al modelo.':
+        'prompt: the long text that gets sent to the model.',
+    'sistema: el comando que corre. Hay que aprobarlo despues.':
+        'sistema: the command it runs. You have to approve it afterwards.',
+    'Aprobado':
+        'Approved',
+    'Borrado':
+        'Deleted',
+    'Borrar el comando':
+        'Delete the command',
+    'Cancelar':
+        'Cancel',
+    'Comando nuevo':
+        'New command',
+    'Editar':
+        'Edit',
+    'Editar comando':
+        'Edit command',
+    'El comando seguia corriendo.':
+        'The command was still running.',
+    'Esa frase ya esta usada':
+        'That phrase is already taken',
+    'Falta la frase.':
+        'The phrase is missing.',
+    'Falta lo que hace.':
+        'What it does is missing.',
+    'Frases':
+        'Phrases',
+    'Nuevo':
+        'New',
+    'Probado':
+        'Tested',
+    'Se aprueba ESTE texto: si despues lo editas, vuelve a quedar frenado.':
+        'THIS text is what gets approved: editing it later blocks it again.',
+    'Se corto a los':
+        'Cut off after',
+    "Sin aprobar: no se corre. Revisalo con 'Revisar y aprobar'.":
+        "Not approved: it will not run. Check it with 'Review and approve'.",
+    'codigo de retorno':
+        'exit code',
+    'tardo':
+        'took',
     'El panel se cierra para volver a armarse con el tema nuevo. Abrelo otra vez para verlo.':
         'The panel closes so it can be rebuilt with the new theme. Open it again to see it.',
     'Catalogo de voces':
@@ -206,8 +252,6 @@ EN = {
         'Phrases that do something fixed',
     'Frases tuyas que hacen algo fijo, sin pasar por el modelo.':
         'Phrases of yours that do something fixed, without going through the model.',
-    'Lo apruebo?':
-        'Approve it?',
     'Recargar':
         'Reload',
     'Revisar y aprobar':
