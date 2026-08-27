@@ -690,7 +690,7 @@ class Panel(tk.Tk):
         """
         fila = ttk.Frame(padre)
         fila.pack(fill="x", padx=12, pady=(4, 8))
-        ttk.Label(fila, text=tr("Formas"), width=24).pack(side="left")
+        ttk.Label(fila, text=tr("Formas"), width=self._ancho_rotulo()).pack(side="left")
         self.forma_var = tk.StringVar()
         combo = ttk.Combobox(fila, textvariable=self.forma_var,
                              values=sorted(overlay_formas()), state="readonly")
@@ -989,7 +989,8 @@ class Panel(tk.Tk):
 
         fila = ttk.Frame(padre)
         fila.pack(fill="x", padx=12, pady=5)
-        ttk.Label(fila, text=tr("Imagen (PNG o GIF)"), width=24).pack(side="left")
+        ttk.Label(fila, text=tr("Imagen (PNG o GIF)"),
+                  width=self._ancho_rotulo()).pack(side="left")
         var = tk.StringVar(value=str(self.cfg.get("ui_banner", "")))
         self.vars["ui_banner"] = var
         ttk.Entry(fila, textvariable=var).pack(side="left", fill="x", expand=True)
@@ -1728,10 +1729,42 @@ class Panel(tk.Tk):
 
     # --- helpers -----------------------------------------------------------
 
+    # Minimo y maximo de la columna de rotulos, en caracteres. El minimo es lo
+    # que habia fijo; el maximo evita que un rotulo suelto y larguisimo empuje
+    # todos los campos del panel contra el borde derecho.
+    ROTULO_MIN, ROTULO_MAX = 24, 38
+
+    def _ancho_rotulo(self) -> int:
+        """Los caracteres que necesita el rotulo mas largo que se va a mostrar.
+
+        Estaba clavado en 24 y los rotulos mas largos salian CORTADOS: en un
+        `ttk.Label` el ancho es en caracteres y lo que no entra no se recorta
+        con puntos, se pierde. "Hasta donde llega con los archivos" son 34, y
+        en ingles hay uno de 35: la version traducida se cortaba en lugares
+        distintos que la espanola, que es lo que hacia parecer que dependia de
+        "la distribucion de la ventana".
+
+        Se calcula sobre el registro --que es de donde salen todos-- y en el
+        idioma que esta puesto, una sola vez por panel. Un numero fijo mas
+        grande tampoco servia: cambia con el idioma y con cada rotulo nuevo.
+        """
+        if getattr(self, "_rotulo_cache", None) is None:
+            # Se mide el rotulo en LOS DOS idiomas, no en el que este puesto.
+            # Dos razones: la columna queda igual al cambiar de idioma --si no,
+            # el panel entero se corre al pasar a ingles-- y no hace falta
+            # traducir una variable, que es lo que el chequeo de traducciones
+            # marca con razon (un texto que solo existe dentro de una variable
+            # se queda sin traducir y nadie se entera).
+            largos = [max(len(item.etiqueta), len(textos.EN.get(item.etiqueta, "")))
+                      for item in registro.campos()]
+            self._rotulo_cache = max(self.ROTULO_MIN,
+                                     min(self.ROTULO_MAX, max(largos or [0])))
+        return self._rotulo_cache
+
     def _row(self, parent, label, key, values=None, width=44):
         frame = ttk.Frame(parent)
         frame.pack(fill="x", padx=12, pady=5)
-        ttk.Label(frame, text=label, width=24).pack(side="left")
+        ttk.Label(frame, text=label, width=self._ancho_rotulo()).pack(side="left")
         var = tk.StringVar(value=str(self.cfg.get(key, "")))
         self.vars[key] = var
         widget = (
@@ -1797,7 +1830,7 @@ class Panel(tk.Tk):
         self._galeria_perfiles(caja)
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=(8, 4))
-        ttk.Label(fila, text=tr("Perfil activo"), width=24).pack(side="left")
+        ttk.Label(fila, text=tr("Perfil activo"), width=self._ancho_rotulo()).pack(side="left")
         self.perfil_var = tk.StringVar(value=self.cfg.get("perfil_activo", ""))
         self.perfil_combo = ttk.Combobox(fila, textvariable=self.perfil_var,
                                          values=self._nombres_perfiles(),
@@ -2073,7 +2106,12 @@ class Panel(tk.Tk):
         store.aplicar_perfil(nombre)
         messagebox.showinfo(
             tr("Perfiles"),
-            f"Perfil {nombre!r} aplicado.\n\nCierra y vuelve a abrir el panel para verlo.",
+            # Lo que va a pasar, no lo que hay que hacer: el panel se cierra
+            # solo en la linea de abajo. Decia "cierra y vuelve a abrir"
+            # sobre una ventana que ya se estaba cerrando.
+            f"Perfil {nombre!r} aplicado.\n\n"
+            + tr("El panel se cierra para volver a armarse con el tema "
+                 "nuevo. Abrelo otra vez para verlo."),
         )
         self.destroy()
 
@@ -2487,17 +2525,25 @@ class Panel(tk.Tk):
         self._contacto_limpiar()
 
     def _bloque_voces(self, nb):
-        """Catalogo de Piper: 173 voces de la comunidad en 49 idiomas."""
+        """Catalogo de Piper: 173 voces de la comunidad en 49 idiomas.
+
+        Va en una seccion como TODOS los demas bloques. Era el unico que
+        colgaba sus controles de un marco pelado, asi que en la pestaña Voz el
+        catalogo quedaba fuera de la tarjeta, flotando contra el fondo, con una
+        separacion distinta de la de arriba. Se veia como un error de armado
+        porque lo era.
+        """
         t = ttk.Frame(nb)
+        caja = self._seccion(t, tr("Catalogo de voces"))
         ttk.Label(
-            t,
+            caja,
             text=tr("Voces entrenadas por la comunidad (Piper). Gratis, offline, y las unicas\n"
             "que suenan igual en Windows, macOS y Linux. Se verifica el md5 al descargar."),
             style="Ayuda.TLabel",
             justify="left",
         ).pack(anchor="w", padx=12, pady=(10, 6))
 
-        barra = ttk.Frame(t)
+        barra = ttk.Frame(caja)
         barra.pack(fill="x", padx=12)
         ttk.Label(barra, text=tr("Idioma")).pack(side="left")
         self.voz_idioma = tk.StringVar(value="Spanish")
@@ -2510,13 +2556,13 @@ class Panel(tk.Tk):
         self.voz_estado.pack(side="left", padx=10)
 
         cols = ("key", "calidad", "mb", "estado")
-        self.voz_tree = ttk.Treeview(t, columns=cols, show="headings", height=9)
+        self.voz_tree = ttk.Treeview(caja, columns=cols, show="headings", height=9)
         for c, w in zip(cols, (300, 90, 80, 110)):
             self.voz_tree.heading(c, text=c)
             self.voz_tree.column(c, width=w)
         self.voz_tree.pack(fill="both", expand=True, padx=12, pady=8)
 
-        botones = ttk.Frame(t)
+        botones = ttk.Frame(caja)
         botones.pack(anchor="w", padx=12, pady=(0, 10))
         ttk.Button(botones, text=tr("Descargar"), command=self.voz_descargar).pack(side="left")
         ttk.Button(botones, text=tr("Usar esta"), command=self.voz_usar).pack(side="left", padx=6)
@@ -2945,7 +2991,7 @@ class Panel(tk.Tk):
         clave = f"{prefijo}_color_{rol}"
         fila = ttk.Frame(padre)
         fila.pack(fill="x", padx=12, pady=3)
-        ttk.Label(fila, text=etiqueta, width=24).pack(side="left")
+        ttk.Label(fila, text=etiqueta, width=self._ancho_rotulo()).pack(side="left")
         var = tk.StringVar(value=str(self.cfg.get(clave, "")))
         self.vars[clave] = var
         entrada = ttk.Entry(fila, textvariable=var, width=12)
@@ -3549,7 +3595,8 @@ class Panel(tk.Tk):
         caja = self._seccion(padre, titulo)
         fila = ttk.Frame(caja)
         fila.pack(fill="x", padx=12, pady=5)
-        ttk.Label(fila, text=tr("Imagen (PNG o GIF)"), width=24).pack(side="left")
+        ttk.Label(fila, text=tr("Imagen (PNG o GIF)"),
+                  width=self._ancho_rotulo()).pack(side="left")
         var = tk.StringVar(value=str(self.cfg.get(f"{prefijo}_fondo", "")))
         self.vars[f"{prefijo}_fondo"] = var
         ttk.Entry(fila, textvariable=var).pack(side="left", fill="x", expand=True)
@@ -3591,7 +3638,7 @@ class Panel(tk.Tk):
 
         fila = ttk.Frame(padre)
         fila.pack(fill="x", padx=12, pady=3)
-        ttk.Label(fila, text=etiqueta, width=24).pack(side="left")
+        ttk.Label(fila, text=etiqueta, width=self._ancho_rotulo()).pack(side="left")
         var = tk.StringVar(value=str(self.cfg.get(clave, "")))
         self.vars[clave] = var
         ttk.Entry(fila, textvariable=var, width=12).pack(side="left")

@@ -2725,6 +2725,44 @@ def test_los_perfiles_de_fabrica_y_los_tuyos_son_una_sola_lista():
             store.CONFIG_PATH, store.PERFILES_PATH = previos
 
 
+def test_ningun_rotulo_del_panel_sale_cortado():
+    """La columna de rotulos entra en cualquiera de los dos idiomas.
+
+    En un `ttk.Label` el ancho es en CARACTERES y lo que no entra no se recorta
+    con puntos: se pierde. La columna estaba clavada en 24 y hay rotulos de 34
+    --"Hasta donde llega con los archivos"-- y de 35 en ingles. Como los dos
+    idiomas se cortaban en lugares distintos, parecia que dependia del tamano
+    de la ventana; no dependia de nada, siempre estuvo cortado.
+
+    Ahora la columna se calcula sobre el registro y en los dos idiomas a la
+    vez. Lo que hay que vigilar es el TOPE: un rotulo mas largo que
+    `ROTULO_MAX` volveria a cortarse, y ese tope existe para que un rotulo
+    suelto no empuje todos los campos del panel contra el borde derecho. Si
+    este test se pone en rojo, el rotulo nuevo hay que acortarlo, no subir el
+    tope.
+    """
+    from eve import gui, registro, textos
+
+    largos = []
+    for item in registro.campos():
+        for texto in (item.etiqueta, textos.EN.get(item.etiqueta, "")):
+            if texto:
+                largos.append((len(texto), texto))
+    assert largos, "sin campos en el registro no se prueba nada"
+
+    pasados = [(n, t) for n, t in largos if n > gui.Panel.ROTULO_MAX]
+    assert not pasados, (
+        f"mas largos que la columna ({gui.Panel.ROTULO_MAX}): {sorted(pasados)[-3:]}")
+
+    # Y la columna tiene que ser al menos tan ancha como el mas largo: si
+    # alguien vuelve a poner un numero fijo, esto lo agarra.
+    panel = gui.Panel.__new__(gui.Panel)
+    panel._rotulo_cache = None
+    ancho = panel._ancho_rotulo()
+    assert ancho >= max(n for n, _t in largos), (
+        f"la columna mide {ancho} y el rotulo mas largo {max(n for n, _t in largos)}")
+
+
 def test_los_mensajes_estan_en_espanol_neutro():
     """Ningun texto de la interfaz habla de vos.
 

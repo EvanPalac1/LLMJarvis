@@ -162,6 +162,12 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    'El panel se cierra para volver a armarse con el tema nuevo. Abrelo otra vez para verlo.':
+        'The panel closes so it can be rebuilt with the new theme. Open it again to see it.',
+    'Catalogo de voces':
+        'Voice catalogue',
+    'El panel se cierra para volver a armarse con el tema nuevo. Abrelo otra vez para verlo.':
+        'The panel closes so it can be rebuilt with the new theme. Open it again to see it.',
     'Ese viene con el programa y no se borra. Guarda uno propio con el mismo nombre si quieres cambiarlo.':
         'That one ships with the program and cannot be deleted. Save your own with the same name to change it.',
     'Un clic para elegirlo, dos para aplicarlo. Los que dicen (de fabrica)\nno se borran: guardar uno propio con el mismo nombre no los pisa.':

@@ -932,6 +932,27 @@ SINONIMOS = {
 }
 
 
+def campos(bloque=None) -> list:
+    """Solo los `Campo`, en orden. Los `Interruptor` NO entran.
+
+    Existe para una cosa concreta: el panel pone el rotulo de cada campo en una
+    columna de ancho fijo, y ese ancho tiene que ser el del rotulo mas largo o
+    los largos salen cortados. El de un interruptor no cuenta porque no vive en
+    esa columna --va adentro de la casilla-- y el mas largo de todos es uno de
+    esos, de 56 caracteres: contarlo empujaria todos los campos del panel
+    contra el borde derecho por un rotulo que ni siquiera esta ahi.
+    """
+    if bloque is None:
+        bloque = [item for tabla in TABLAS for item in tabla]
+    salida = []
+    for item in bloque:
+        if isinstance(item, Campo):
+            salida.append(item)
+        elif isinstance(item, (Seccion, Fila)):
+            salida.extend(campos(item.hijos))
+    return salida
+
+
 def catalogo(bloque=None, seccion: str = "") -> list[dict]:
     """Cada ajuste con lo que hace falta para encontrarlo y explicarlo.
 
