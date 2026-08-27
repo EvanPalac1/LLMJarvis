@@ -5608,11 +5608,13 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
 
     from eve import gui, plataforma, store
 
+    print("      [sonda] probando Tk", flush=True)
     try:
         tk.Tk().destroy()
     except Exception:  # noqa: BLE001 - sin pantalla no hay nada que probar
-        print("    (sin pantalla, se saltea)")
+        print("    (sin pantalla, se saltea)", flush=True)
         return
+    print("      [sonda] Tk anda", flush=True)
 
     with tempfile.TemporaryDirectory() as raiz:
         previo = store.CONFIG_PATH
@@ -5628,11 +5630,15 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
                                                   ("falso", cb))[1]
             plataforma.unhook_teclado = desenganchado.append
 
+            print("      [sonda] armando el panel", flush=True)
             panel = gui.Panel()
+            print("      [sonda] panel armado", flush=True)
             panel.withdraw()
             panel.update_idletasks()
+            print("      [sonda] panel dibujado", flush=True)
 
             panel.hotkey_capturar()
+            print("      [sonda] engancho", flush=True)
             assert len(enganchado) == 1, "no engancho"
             # Y no engancha dos veces si le das dos clics.
             panel.hotkey_capturar()
