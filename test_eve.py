@@ -5608,13 +5608,11 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
 
     from eve import gui, plataforma, store
 
-    print("      [sonda] probando Tk", flush=True)
     try:
         tk.Tk().destroy()
     except Exception:  # noqa: BLE001 - sin pantalla no hay nada que probar
-        print("    (sin pantalla, se saltea)", flush=True)
+        print("    (sin pantalla, se saltea)")
         return
-    print("      [sonda] Tk anda", flush=True)
 
     with tempfile.TemporaryDirectory() as raiz:
         previo = store.CONFIG_PATH
@@ -5630,15 +5628,29 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
                                                   ("falso", cb))[1]
             plataforma.unhook_teclado = desenganchado.append
 
-            print("      [sonda] armando el panel", flush=True)
             panel = gui.Panel()
-            print("      [sonda] panel armado", flush=True)
             panel.withdraw()
             panel.update_idletasks()
-            print("      [sonda] panel dibujado", flush=True)
+
+            # El panel programa tareas de fondo al construirse: refrescar el
+            # estado, buscar voces --que sale a la RED--, consultar Outlook y
+            # la sesion del CLI. `update_idletasks()` NO corre temporizadores;
+            # `update()` si, y este test es el primero de la suite que lo
+            # llama sobre un Panel. En el runner de macOS eso colgo el paso
+            # Tests 21 minutos, tres releases seguidas.
+            #
+            # Lo que se mira aca es el enganche del teclado, no las tareas de
+            # fondo. Se cancelan las que quedaron programadas por la
+            # construccion; las que el propio test agenda despues --el
+            # `after(0)` con que `_ui` cruza de hilo-- se programan mas tarde y
+            # sobreviven, que es lo que hace que esto siga probando lo que dice.
+            for tarea in panel.tk.call("after", "info"):
+                try:
+                    panel.after_cancel(tarea)
+                except Exception:  # noqa: BLE001 - ya vencida
+                    pass
 
             panel.hotkey_capturar()
-            print("      [sonda] engancho", flush=True)
             assert len(enganchado) == 1, "no engancho"
             # Y no engancha dos veces si le das dos clics.
             panel.hotkey_capturar()
