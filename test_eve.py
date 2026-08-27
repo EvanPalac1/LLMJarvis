@@ -120,6 +120,43 @@ def test_path_allowlist():
         assert not safety.path_allowed(inside, [])  # sin allowlist, nada pasa
 
 
+def test_dos_workdirs_en_unidades_distintas():
+    """Un workdir en C: y otro en D: --que es una config normal en Windows.
+
+    `os.path.commonpath` TIRA `ValueError` cuando las rutas estan en unidades
+    distintas, en vez de decir que no tienen nada en comun. El bucle no lo
+    atrapaba, asi que la comprobacion entera reventaba en el PRIMER workdir de
+    otra unidad: no solo se rechazaba lo de afuera, se rechazaba con un
+    traceback lo que SI estaba permitido, porque la excepcion salia antes de
+    llegar a mirar el segundo workdir.
+
+    Se encontro corriendo el BINARIO de la 1.17.0, no los tests: la suite usaba
+    carpetas temporales, que caen todas en la misma unidad. Es la misma leccion
+    del Paso 13 --el test tiene que ejercer el caso real, no uno que se le
+    parezca-- y por eso este usa rutas de dos unidades a proposito, sin
+    importar que la maquina las tenga: `path_allowed` es aritmetica de strings
+    sobre rutas absolutas y no toca el disco para decidir.
+    """
+    dos = ["C:\\Users\\alguien\\Documents", "D:\\Server"]
+
+    # Lo permitido en la SEGUNDA unidad tiene que pasar. Este es el caso que
+    # estaba roto: fallaba al comparar contra el primer workdir.
+    assert safety.path_allowed("D:\\Server\\mundo\\nivel.dat", dos)
+    # Y lo de la primera sigue pasando.
+    assert safety.path_allowed("C:\\Users\\alguien\\Documents\\a.txt", dos)
+    # Una tercera unidad no esta permitida, y lo dice en vez de reventar.
+    assert not safety.path_allowed("E:\\otra\\cosa.txt", dos)
+    # Y algo de la unidad permitida pero fuera de la carpeta, tampoco.
+    assert not safety.path_allowed("D:\\Otra\\cosa.txt", dos)
+    assert not safety.path_allowed("C:\\Windows\\System32\\x", dos)
+
+    # Con el orden al reves da igual: lo que importa es que ninguna unidad
+    # ajena corte el recorrido antes de tiempo.
+    invertido = list(reversed(dos))
+    assert safety.path_allowed("D:\\Server\\mundo\\nivel.dat", invertido)
+    assert safety.path_allowed("C:\\Users\\alguien\\Documents\\a.txt", invertido)
+
+
 def test_needs_confirmation():
     with tempfile.TemporaryDirectory() as root:
         ok = os.path.join(root, "nota.txt")

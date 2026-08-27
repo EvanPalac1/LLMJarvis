@@ -74,6 +74,14 @@ PROPIOS_DIFERIDOS = [
     # NINGUNA de las tres ventanas, y ese es exactamente el tipo de cosa que se
     # da por sentada hasta que un dia no viaja.
     "eve.textos",
+    # Los dos entran por un `from . import` adentro de una funcion, asi que
+    # PyInstaller los levanta solo --comprobado sobre el binario de la 1.17.0--
+    # pero nada lo garantizaba. Un modulo que se importa tarde y no viajo se
+    # rompe recien al usarse, que es el modo de falla que esta lista existe
+    # para atrapar: `comandos` lo llama el listener al oirte y `skills` el
+    # prompt en cada llamada.
+    "eve.comandos",
+    "eve.skills",
     # El motor por GPU. Los dos importan SIN `skia` ni `PyOpenGL` --las traen
     # adentro de funciones, para que su ausencia no impida arrancar-- asi que
     # comprobarlos aca vale en los cinco objetivos, incluido macOS, donde las

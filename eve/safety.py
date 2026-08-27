@@ -51,7 +51,21 @@ def path_allowed(path: str, workdirs: list[str]) -> bool:
             base = os.path.realpath(os.path.abspath(root))
         except (OSError, ValueError):
             continue
-        if os.path.commonpath([target, base]) == base:
+        try:
+            dentro = os.path.commonpath([target, base]) == base
+        except ValueError:
+            # En Windows `commonpath` TIRA si las rutas estan en unidades
+            # distintas, en vez de decir que no tienen nada en comun. Sin este
+            # except, un workdir en C: y otro en D: --que es una config
+            # normal-- hacia reventar la comprobacion ENTERA en el primer
+            # workdir de otra unidad: no solo se rechazaba lo de afuera, se
+            # rechazaba con un traceback lo que SI estaba permitido, porque la
+            # excepcion salia antes de mirar el segundo workdir.
+            #
+            # Rutas en otra unidad no estan adentro de esta: se sigue con la
+            # que viene. La guarda queda fail-closed igual.
+            continue
+        if dentro:
             return True
     return False
 
