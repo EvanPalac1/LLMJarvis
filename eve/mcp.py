@@ -266,12 +266,21 @@ class Cliente:
             stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
             errors="replace", bufsize=1, env=entorno,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        self._pedir("initialize", {
-            "protocolVersion": PROTOCOLO,
-            "capabilities": {},
-            "clientInfo": {"name": "Eve", "version": _version()},
-        })
-        self._avisar("notifications/initialized")
+        # Si el saludo falla, el proceso YA ESTA LEVANTADO. Sin este try queda
+        # huerfano: `__enter__` revienta, `__exit__` no llega a correr, y nadie
+        # lo baja nunca. Un servidor MCP que no contesta es el caso normal de
+        # esa falla --se colgo, o no era un servidor MCP-- asi que no es una
+        # rama rara.
+        try:
+            self._pedir("initialize", {
+                "protocolVersion": PROTOCOLO,
+                "capabilities": {},
+                "clientInfo": {"name": "Eve", "version": _version()},
+            })
+            self._avisar("notifications/initialized")
+        except BaseException:
+            self.cerrar()
+            raise
 
     def cerrar(self) -> None:
         if self.proc is None:

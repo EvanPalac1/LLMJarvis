@@ -3020,6 +3020,25 @@ def test_el_cliente_mcp_habla_el_protocolo():
         # le contesta al modelo, y una excepcion ahi corta la conversacion.
         assert c.llamar("no existe", {}).startswith("ERROR"), "no marco el error"
 
+    # Y un comando que NO habla MCP falla SIN dejar el proceso vivo. Sin esa
+    # guarda el proceso queda huerfano --`__enter__` revienta y `__exit__` no
+    # llega a correr-- y un huerfano en un runner de CI cuelga el job entero al
+    # terminar, que es como se descubrio.
+    mudo = mcp.Cliente("mudo", {"comando": sys.executable,
+                                "args": ["-c", "import time; time.sleep(60)"],
+                                "env": {}})
+    espera = mcp.ESPERA
+    mcp.ESPERA = 3.0
+    try:
+        mudo.abrir()
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("un proceso que no habla MCP abrio igual")
+    finally:
+        mcp.ESPERA = espera
+    assert mudo.proc is None, "quedo un proceso huerfano"
+
 
 def test_ninguna_herramienta_ajena_corre_sin_freno():
     """El freno es lo que hace que todo lo demas se pueda ofrecer.
@@ -3160,12 +3179,27 @@ def test_el_panel_no_se_queda_sordo_a_los_hilos_de_fondo():
     import queue as _queue
     import tkinter as tk
 
-    from eve import gui
+    from eve import gui, plataforma
 
     try:
         tk.Tk().destroy()
     except Exception:  # noqa: BLE001 - sin pantalla no hay nada que probar
         print("    (sin pantalla, se saltea)")
+        return
+
+    # En macOS NO, por lo mismo que `test_asignar_tecla_...`, que esta escrito
+    # ahi con su medicion: este test necesita `panel.update()` --el completo,
+    # no `update_idletasks()`, porque la cola la vacia un temporizador-- y en
+    # el runner de macOS eso no vuelve. Se comprobo de nuevo escribiendo este
+    # test: los dos jobs de macOS quedaron 18 minutos en "Post Run checkout"
+    # con el proceso vivo, y los otros tres objetivos en verde en ocho.
+    #
+    # No se pierde lo que el test mira: la cola es `queue.Queue` y una tarea de
+    # tk, sin nada especifico de un sistema, y corre entera en Windows y en los
+    # dos Linux. Lo que no se ejercita en macOS es tkinter, que no es lo que
+    # esto prueba.
+    if plataforma.MACOS:
+        print("    (macOS: update() no vuelve sin sesion grafica, se saltea)")
         return
 
     with tempfile.TemporaryDirectory() as raiz:
