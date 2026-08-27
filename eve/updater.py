@@ -189,7 +189,7 @@ def main(argv=None) -> int:
         return 1
 
     if not nueva:
-        print("Ya tenes la ultima version.")
+        print("Ya tienes la ultima version.")
         return 0
 
     print(f"Hay una nueva: {nueva['version']}  ->  {nueva['url']}")

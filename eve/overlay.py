@@ -253,16 +253,17 @@ class Pintor:
         # mismo alto, se pierde el perfil que hace que una palabra se reconozca
         # de un vistazo, y hay que deletrearla. En un cartel que se mira de
         # reojo mientras haces otra cosa, eso es justo lo que no se quiere.
-        _texto(c, x, self.alto * 0.30, titulo, p["texto"],
-               (self.fuente, self._tam_titulo(titulo, self.ancho - x - 22 * e), "bold"),
+        cabe, tam = self._titulo_que_entra(titulo, self.ancho - x - 22 * e)
+        _texto(c, x, self.alto * 0.30, cabe, p["texto"],
+               (self.fuente, tam, "bold"),
                tema.halo_de(p["texto"]), anchor="w")
         _texto(c, x, self.alto * 0.50, linea2, p["texto_tenue"],
                (self.fuente, max(8, int(tema.pt("ayuda") * e))),
                tema.halo_de(p["texto_tenue"]), anchor="w")
         self._onda(c, x, self.alto * 0.74, self.ancho - x - 22 * e, 30 * e)
 
-    def _tam_titulo(self, titulo: str, ancho: float) -> int:
-        """El tamano mas grande con el que el titulo entra en la tarjeta.
+    def _titulo_que_entra(self, titulo: str, ancho: float) -> tuple:
+        """(texto, tamano) para que el titulo entre en la tarjeta.
 
         Antes era fijo, asi que un nombre largo se salia por el costado sin
         aviso: la tarjeta mide lo mismo siempre y el texto no se recorta solo.
@@ -285,12 +286,26 @@ class Pintor:
             try:
                 medida = tkfont.Font(family=self.fuente, size=tam, weight="bold")
                 if medida.measure(texto) <= ancho:
-                    return tam
+                    return texto, tam
             except tk.TclError:
                 # Sin un root vivo no se puede medir: mejor el de siempre que
                 # tirar el cartel abajo por un tamano de letra.
-                return base
-        return piso
+                return texto, base
+
+        # Ni al piso entra. Achicar mas lo dejaria ilegible, asi que se RECORTA
+        # con puntos suspensivos, que es lo que hace cualquier interfaz cuando
+        # un nombre no entra. Antes se dibujaba entero y se salia por el
+        # costado sin aviso: en las miniaturas de perfiles --que son el cartel
+        # al 40%-- "Laboratorio Naranja" quedaba cortado contra el borde y
+        # parecia un error de dibujo, no un nombre largo.
+        try:
+            medida = tkfont.Font(family=self.fuente, size=piso, weight="bold")
+        except tk.TclError:
+            return texto, piso
+        puntos = "\u2026"
+        while texto and medida.measure(texto + puntos) > ancho:
+            texto = texto[:-1]
+        return (texto + puntos) if texto else puntos, piso
 
     # --- piezas ------------------------------------------------------------
 

@@ -84,7 +84,7 @@ MOTIVOS = {
     403: "la clave no tiene permiso para este modelo",
     404: "ese modelo no existe para esta cuenta",
     413: "el pedido es mas grande de lo que acepta el plan",
-    429: "te frenaron por cuota, proba mas tarde",
+    429: "te frenaron por cuota, prueba mas tarde",
     500: "el servicio tuvo un error interno",
     503: "el servicio esta saturado",
 }
@@ -164,7 +164,7 @@ class CompatEve(OllamaEve):
     def comprobar(self) -> tuple[bool, str]:
         """Se llama en el constructor: sin esto el error aparece recien al hablar."""
         if not self.host:
-            return False, ("Falta la URL del servicio. Panel > Cuentas, o elegi un "
+            return False, ("Falta la URL del servicio. Panel > Cuentas, o elige un "
                            "proveedor conocido en vez de 'propio'.")
         if not self.modelo:
             # A "Modelos y claves", no a "Cuentas": el modelo se mudo de
@@ -289,4 +289,4 @@ class CompatEve(OllamaEve):
                     "content": texto[:6000],
                 })
 
-        return f"Me perdi con {self.proveedor}. Proba de nuevo o cambia de motor."
+        return f"Me perdi con {self.proveedor}. Prueba de nuevo o cambia de motor."

@@ -96,7 +96,7 @@ def contacto(nombre: str) -> str:
     """Resuelve un nombre contra la agenda. Para cuando no entra en el prompt."""
     hits = store.buscar_contacto(nombre)
     if not hits:
-        return f"No tengo a {nombre!r} en la agenda. Pedile el dato al usuario."
+        return f"No tengo a {nombre!r} en la agenda. Pidele el dato al usuario."
     if len(hits) > 1:
         nombres = ", ".join(c.get("nombre", "?") for c in hits)
         return f"Hay varios y no se cual: {nombres}. Preguntale al usuario."
@@ -201,7 +201,7 @@ def _alcanza(nivel: str, cfg=None) -> str:
     if ARCHIVOS_ALCANCE.index(tengo) >= ARCHIVOS_ALCANCE.index(nivel):
         return ""
     return (f"No puedo: 'Hasta donde llega con los archivos' esta en {tengo!r} y "
-            f"esto necesita {nivel!r}. Pediselo al usuario, se cambia en el panel, "
+            f"esto necesita {nivel!r}. Pideselo al usuario, se cambia en el panel, "
             "en General. No insistas con otro comando.")
 
 
@@ -419,7 +419,7 @@ Ejecutalos con run_command / Bash. Sustitui E por este texto literal: {cli()}
       (canal del webhook). Con un nombre, --tipo dm manda al privado y
       --tipo canal al canal de servidor. NO pidas IDs si el contacto ya tiene.
       Si dice que quedo en la lista de amigos, el ID guardado es el del usuario
-      y no el del chat: deci que carguen el @usuario en el panel > Contactos.
+      y no el del chat: di que carguen el @usuario en el panel > Contactos.
   E steam-info                           biblioteca y horas
   E programa NOMBRE                      busca un programa que no este en la lista
   E modulo crear ID --tipo T --donde tablero|overlay --prop x=40 --prop alto=60
@@ -560,8 +560,8 @@ def ui_buscar(consulta: str, tope: int = 6) -> str:
 
     hallados = registro.buscar(consulta, excluir=store.NUNCA_POR_EVE, tope=tope)
     if not hallados:
-        return (f"Nada parecido a {consulta!r}. Proba con otras palabras, o "
-                "decile al usuario que lo busque en el panel con Ctrl+F.")
+        return (f"Nada parecido a {consulta!r}. Prueba con otras palabras, o "
+                "dile al usuario que lo busque en el panel con Ctrl+F.")
     cfg = store.load_config()
     lineas = []
     for e in hallados:
@@ -631,10 +631,10 @@ def ajustar(clave: str, valor: str) -> str:
     if clave in store.NUNCA_POR_EVE:
         store.log_action("ajustar", f"{clave} = {valor}", "RECHAZADO: clave de freno")
         return (f"No puedo tocar {clave}: es una de las que me frenan a mi. "
-                "Cambiala vos en el panel si querés.")
+                "Cambiala tu en el panel si quieres.")
     if store.trabada(clave, cfg):
         return (f"{clave} la fijo el usuario a mano y manda el usuario. "
-                "Deci que si quiere que la cambies, la destrabe en el panel "
+                "Di que si quiere que la cambies, la destrabe en el panel "
                 "o te pida 'destraba " + clave + "'.")
     autoridad = str(cfg.get("autoridad", "usuario"))
     if autoridad == "preguntar":
@@ -839,7 +839,7 @@ def componer(app: str, destino: str, texto: str) -> str:
 
     plataforma.abrir(uri)
     return (
-        f"Abri {app} con el mensaje cargado. NO lo envie: revisalo y toca enviar vos. "
+        f"Abri {app} con el mensaje cargado. NO lo envie: revisalo y envialo tu. "
         f"Texto: {texto!r}"
     )
 
@@ -885,7 +885,7 @@ def whatsapp_enviar(numero: str, texto: str) -> str:
     if not cfg.get("whatsapp_autosend", False):
         return (
             "El envio automatico de WhatsApp esta apagado. Activalo en el panel > General "
-            "si lo querés. Mientras tanto usa `componer`, que deja el mensaje listo."
+            "si lo quieres. Mientras tanto usa `componer`, que deja el mensaje listo."
         )
 
     digitos = "".join(c for c in numero if c.isdigit())
@@ -1067,7 +1067,7 @@ def discord_enviar(canal: str, texto: str, tipo: str = "dm") -> str:
     if not cfg.get("discord_autosend", False):
         return (
             "El envio automatico de Discord esta apagado. Activalo en el panel > Claves. "
-            "Mientras tanto podes usar `discord-postear` (webhook) o `componer`."
+            "Mientras tanto puedes usar `discord-postear` (webhook) o `componer`."
         )
 
     destino = _destino_discord(canal, tipo)
@@ -1097,7 +1097,7 @@ def discord_enviar(canal: str, texto: str, tipo: str = "dm") -> str:
 
     if not donde:
         pista = (f" El ID guardado para {canal!r} parece ser el del usuario y no el "
-                 "del chat: en Discord, abri el privado y usa 'Copiar enlace', o "
+                 "del chat: en Discord, abre el privado y usa 'Copiar enlace', o "
                  "carga su @usuario en el panel > Contactos.") if destino else ""
         return f"Discord no abrio ningun chat, quedo en la lista de amigos.{pista} No mande nada."
 
@@ -1298,7 +1298,7 @@ def _outlook():
         except Exception as exc:  # noqa: BLE001
             ultimo = exc
     raise RuntimeError(
-        f"Outlook no responde ({ultimo}). Abrilo una vez a mano y volve a intentar."
+        f"Outlook no responde ({ultimo}). Abrelo una vez a mano y vuelve a intentar."
     )
 
 
@@ -1369,7 +1369,7 @@ def outlook_redactar(para: str, asunto: str, cuerpo: str, enviar_ya: bool = True
             mail.Send()
             return f"Mail enviado a {para}."
         mail.Display()
-        return f"Abri el borrador para {para}. Revisalo y toca enviar vos."
+        return f"Abri el borrador para {para}. Revisalo y envialo tu."
     finally:
         pythoncom.CoUninitialize()
 
@@ -1442,7 +1442,7 @@ def outlook_contactos(busqueda: str) -> str:
             except Exception:  # noqa: BLE001
                 continue
         if not hits:
-            return f"Ningun contacto coincide con {busqueda!r}. Pedile la direccion al usuario."
+            return f"Ningun contacto coincide con {busqueda!r}. Pidele la direccion al usuario."
         if len(hits) > 1:
             return "Hay varios, preguntale al usuario cual:\n" + "\n".join(hits)
         return hits[0]
@@ -1664,7 +1664,7 @@ def main(argv=None) -> int:
     wa.add_argument("--to", required=True, help="numero con codigo de pais, no un nombre")
     wa.add_argument("--text", required=True)
 
-    de = sub.add_parser("discord-enviar", help="escribe en Discord como vos (opt-in)")
+    de = sub.add_parser("discord-enviar", help="escribe en Discord como tu (opt-in)")
     de.add_argument("--canal", default="", help="nombre de la agenda, link, ID, o vacio = webhook")
     de.add_argument("--text", required=True)
     de.add_argument("--tipo", default="dm", choices=["dm", "canal"],

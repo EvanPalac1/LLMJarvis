@@ -355,7 +355,7 @@ class Listener:
             else:
                 motivo = self.escucha.error or "no se pudo abrir"
                 print(f"NO pude abrir el microfono para la palabra clave: {motivo}")
-                print("Segui usando la tecla. Se reintenta al proximo cambio de config.")
+                print("Sigue usando la tecla. Se reintenta al proximo cambio de config.")
                 store.log_action("listener", "wake", f"microfono no disponible: {motivo}")
                 self.escucha.parar()
                 self.escucha = None

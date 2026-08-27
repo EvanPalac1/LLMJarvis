@@ -172,7 +172,7 @@ def descargar(key: str, progreso=None) -> str:
     """
     entrada = catalogo().get(key)
     if not entrada:
-        return f"No existe la voz {key!r}. Fijate en el catalogo."
+        return f"No existe la voz {key!r}. Revisa el catalogo."
 
     archivos = {
         ruta: meta

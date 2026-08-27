@@ -581,7 +581,7 @@ def speak(text: str, cfg: dict, progreso=None) -> None:
         # sapi en Linux se come un ImportError pelado en vez de saber que hacer.
         raise RuntimeError(
             f"El TTS 'sapi' solo existe en Windows y aca corre {plataforma.NOMBRE}. "
-            "Panel > Voz: elegi Piper."
+            "Panel > Voz: elige Piper."
         )
     import pyttsx3
 

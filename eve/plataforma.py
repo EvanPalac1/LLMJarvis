@@ -152,7 +152,7 @@ def solo_windows(func):
         if not WINDOWS:
             return (
                 f"'{func.__name__}' solo funciona en Windows; aca corre {NOMBRE}. "
-                "Deci esto en voz alta y no intentes rodearlo."
+                "Di esto en voz alta y no intentes rodearlo."
             )
         return func(*args, **kwargs)
 

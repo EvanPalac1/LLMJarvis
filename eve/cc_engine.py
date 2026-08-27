@@ -86,7 +86,7 @@ class ClaudeCodeEve:
         if not previos:
             return ""
         lineas = [
-            ("Usuario" if t["role"] == "user" else "Vos") + ": " + str(t["content"])[:400]
+            ("Usuario" if t["role"] == "user" else "Tu") + ": " + str(t["content"])[:400]
             for t in previos
         ]
         cuerpo = "\n".join(lineas)

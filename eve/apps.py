@@ -286,13 +286,13 @@ def buscar(consulta: str, cuantos: int = 8) -> str:
     todos = {**data["games"], **data["apps"]}
     consulta = consulta.strip().lower()
     if not consulta:
-        return "Deci que programa buscar."
+        return "Di que programa buscar."
     exactos = [n for n in todos if n.lower() == consulta]
     parciales = [n for n in todos if consulta in n.lower() and n not in exactos]
     hallados = (exactos + parciales)[:cuantos]
     if not hallados:
         return (f"No tengo ningun programa que se parezca a {consulta!r}. "
-                "Proba con Get-StartApps.")
+                "Prueba con Get-StartApps.")
     return "\n".join(_linea(n, todos[n]) for n in hallados)
 
 
@@ -331,7 +331,7 @@ def catalog_header(parcial: bool = False) -> str:
     vez de buscarlo, que es la unica forma de que recortar el catalogo salga mal.
     """
     aviso = ("\nEsta lista es SOLO lo que abris seguido, no todo lo instalado. Si "
-             "te piden algo\nque no esta, NO digas que no lo tenes: buscalo con "
+             "te piden algo\nque no esta, NO digas que no lo tienes: buscalo con "
              "`E programa NOMBRE`.\n") if parcial else ""
     if not plataforma.WINDOWS:
         verbo = "open" if plataforma.MACOS else "xdg-open"

@@ -351,7 +351,7 @@ VOZ = (
                   "  22:00-06:00=noche, discord=gaming\n"
                   "\nLa condicion es un rango de horas si tiene forma de rango,\n"
                   "y si no el nombre del programa. GANA LA PRIMERA QUE ENTRA,\n"
-                  "asi que el orden en que las escribis es el orden de\n"
+                  "asi que el orden en que las escribes es el orden de\n"
                   "prioridad -- es lo unico de esto que no se adivina.\n"
                   "\nEl nombre del programa se compara por pedazo: `discord`\n"
                   "agarra tambien `Discord.exe` y `discordptb`, para no tener\n"
@@ -675,7 +675,7 @@ GENERAL = (
                   "que hace adentro.\n"
                   "  exacto     leer un archivo si le dictas la ruta entera\n"
                   "  explorar   ademas listar una carpeta y buscar por nombre;\n"
-                  "             sin esto, encontrar algo dependia de que vos\n"
+                  "             sin esto, encontrar algo dependia de que tu\n"
                   "             supieras y dictaras la ruta\n"
                   "  escribir   ademas crear y reemplazar. Pisar un archivo que\n"
                   "             ya existe te pregunta primero, salvo que hayas\n"
@@ -693,8 +693,8 @@ GENERAL = (
             Propio("_skills_lista", ()),
             Campo("skills_alcance", "Cuanto de las skills viaja",
                   ["nada", "consultar", "completo"]),
-            Ayuda("Una skill es un .md tuyo con instrucciones: como queres un\n"
-                  "informe, como se hace un deploy, con que tono le escribis a un\n"
+            Ayuda("Una skill es un .md tuyo con instrucciones: como quieres un\n"
+                  "informe, como se hace un deploy, con que tono le escribes a un\n"
                   "cliente.\n"
                   "  nada        no existen para ella\n"
                   "  consultar   viaja el INDICE --nombre y un renglon-- y el texto\n"

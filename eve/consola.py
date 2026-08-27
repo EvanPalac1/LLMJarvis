@@ -288,7 +288,7 @@ class Consola:
                     tr("Agregalos con el boton de aca al lado. Sin ninguno, el\n"
                        "cartel dibuja el diseno de siempre y no cambia nada."))
         return (tr("Esta ventana esta vacia porque el tablero no tiene modulos."),
-                tr("Toca 'Armar el tablero' aca arriba para poner los de arranque,\n"
+                tr("Toca 'Armar el tablero' aqui arriba para poner los de arranque,\n"
                    "o agregalos uno por uno desde el panel, en Apariencia > Modulos."))
 
     def _dibujar_vacio(self) -> None:

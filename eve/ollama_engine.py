@@ -174,7 +174,7 @@ class OllamaEve:
                     {"ts": time.time(), "role": "tool", "content": texto[:6000]}
                 )
 
-        return "Me perdi con el modelo local. Proba de nuevo o cambia a un motor en la nube."
+        return "Me perdi con el modelo local. Prueba de nuevo o cambia a un motor en la nube."
 
     def _ejecutar(self, nombre: str, args: dict) -> tuple[str, bool]:
         """Pasa por el mismo freno que el motor de Anthropic."""

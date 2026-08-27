@@ -53,7 +53,7 @@ ACCIONES = ("abrir", "panel", "cartel", "mostrar")
 
 PLANTILLA = """# Comandos por voz
 
-Cada `##` es lo que decis. Varias formas de decir lo mismo van separadas
+Cada `##` es lo que dices. Varias formas de decir lo mismo van separadas
 por `|`. Debajo, una linea `tipo: valor`.
 
 Tipos: `accion` (lista cerrada, no llama al modelo), `prompt` (reemplaza tu

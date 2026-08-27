@@ -119,7 +119,7 @@ def revisar(audio, sr: int = voice.SAMPLE_RATE) -> tuple:
         return False, (f"Te adelantaste: {ms:.0f} ms de silencio y hacen falta "
                        f"{SILENCIO_MINIMO_MS}. Espera a que diga HABLA.")
     if float(np.abs(audio).max()) < 0.02:
-        return False, "Casi no se te escucha. Fijate el microfono."
+        return False, "Casi no se te escucha. Revisa el microfono."
     return True, (f"Bien: {ms:.0f} ms de silencio, ruido de fondo "
                   f"{ruido_de_fondo_db(audio, sr):.0f} dBFS.")
 

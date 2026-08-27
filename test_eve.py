@@ -2669,6 +2669,128 @@ def test_motor_compat():
     assert o.host == "http://localhost:11434" and o.modelo == "qwen3:8b"
 
 
+def test_los_perfiles_de_fabrica_y_los_tuyos_son_una_sola_lista():
+    """Elegir una muestra de la galeria y darle Cargar tiene que funcionar.
+
+    El usuario lo reporto asi: "cuando cargo perfil del panel esta bug, no me
+    deja usar los de los botones, solo me deja usar los importados
+    manualmente". La causa era que habia DOS listas: la galeria pintaba
+    `perfiles_de_ejemplo()` y el desplegable de al lado listaba
+    `listar_perfiles()`, que son los tuyos. Un clic en una muestra dejaba en el
+    desplegable un nombre que el desplegable no conocia, y `aplicar_perfil`
+    --que solo miraba entre los tuyos-- tiraba `ValueError: No existe el
+    perfil` sin atrapar. Los importados a mano SI estaban en esa lista, de ahi
+    que fueran los unicos que andaban.
+
+    Se comprueba por los dos lados: la funcion del store y la lista del panel.
+    """
+    from eve import gui
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previos = store.CONFIG_PATH, store.PERFILES_PATH
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.PERFILES_PATH = os.path.join(raiz, "perfiles.json")
+        try:
+            ejemplos = store.perfiles_de_ejemplo()
+            assert ejemplos, "sin perfiles de ejemplo no se prueba nada"
+            nombre = sorted(ejemplos)[0]
+
+            # Sin haberlo guardado como propio: es justo el paso que el panel
+            # ya no da, y el que hacia que aplicar una muestra te dejara una
+            # copia con el mismo nombre para siempre.
+            assert nombre not in store.listar_perfiles()
+            nueva = store.aplicar_perfil(nombre)
+            assert nueva["perfil_activo"] == nombre
+            for clave, valor in ejemplos[nombre].items():
+                assert nueva[clave] == valor, clave
+
+            # Y la lista del panel los tiene a los dos.
+            store.guardar_perfil("uno mio", {**store.load_config(),
+                                             "ui_tema": "ambar"})
+            todos = store.perfiles_disponibles()
+            assert todos[nombre][1] is True, "el de fabrica no viene marcado"
+            assert todos["uno mio"][1] is False, "el tuyo salio como de fabrica"
+            assert set(gui.Panel._nombres_perfiles()) == set(todos), (
+                "el desplegable y la galeria volvieron a ser dos listas")
+
+            # Un nombre que no existe en ningun lado sigue siendo un error: la
+            # guarda es para los de fabrica, no para tapar cualquier cosa.
+            try:
+                store.aplicar_perfil("no existe ni de casualidad")
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("aplico un perfil inexistente")
+        finally:
+            store.CONFIG_PATH, store.PERFILES_PATH = previos
+
+
+def test_los_mensajes_estan_en_espanol_neutro():
+    """Ningun texto de la interfaz habla de vos.
+
+    El programa lo escribe alguien que habla rioplatense, asi que el voseo se
+    cuela solo: "Cerra y volve a abrir el panel", "Lo pisamos?", "apreta la
+    tecla", "Acordate de Guardar", "Pediselo al usuario". Eran veinte y pico
+    repartidos por nueve archivos, y varios ni pasaban por `tr()`, o sea que
+    ademas salian en espanol con la interfaz en ingles.
+
+    Un barrido a mano no sirve de nada si el proximo mensaje vuelve a entrar en
+    argentino. Por eso esto es un test y no una revision: se mide sobre las
+    CADENAS del codigo --las de verdad, las que ve el usuario-- salteando los
+    docstrings, que son notas internas y no interfaz.
+
+    Dos textos quedan afuera a proposito, y estan listados uno por uno: el
+    preset de personalidad rioplatense y la ayuda que explica ese ajuste. Ahi
+    el voseo ES el contenido, no un descuido. Un `# noqa` global no serviria:
+    lo que hace util a esta lista es que agregarle algo obligue a justificarlo.
+    """
+    import glob
+
+    # Solo formas donde el neutro es OTRA palabra. `usa`, `toca`, `manda` o
+    # `revisa` entran igual en las dos variantes y marcarlas seria ruido: la
+    # primera version de esta busqueda daba 128 lineas, casi todas falsas.
+    voseo = re.compile(
+        r"(?<![a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1])"
+        r"(cerr[a\u00e1]|volv[e\u00e9]|apret[a\u00e1]|eleg[i\u00ed]|fijate|acordate"
+        r"|pedile|pedis[e\u00e9]lo|pis[a\u00e1]mos|ten[e\u00e9]s|pod[e\u00e9]s"
+        r"|quer[e\u00e9]s|prob[a\u00e1]|dec[i\u00ed]s?|escrib[i\u00ed]s|segu[i\u00ed]|vos)"
+        r"(?![a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1])", re.I)
+
+    # El voseo es el contenido, no un error. Se comparan por un pedazo que los
+    # identifique, para que el resto del texto pueda cambiar sin tocar esto.
+    A_PROPOSITO = (
+        "Hablas rioplatense:",        # el preset de personalidad
+        "Nada de vos ni de vo",       # el preset de Colombia, que lo nombra
+        "tu contra vos",              # la ayuda que explica ese mismo ajuste
+        "tu against vos",             # y su traduccion
+    )
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    malos = []
+    for archivo in sorted(glob.glob(os.path.join(raiz, "eve", "*.py"))):
+        with open(archivo, encoding="utf-8") as f:
+            arbol = ast.parse(f.read())
+        docs = set()
+        for nodo in ast.walk(arbol):
+            if isinstance(nodo, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                                 ast.ClassDef)):
+                doc = ast.get_docstring(nodo, clean=False)
+                if doc:
+                    docs.add(doc)
+        for nodo in ast.walk(arbol):
+            if not (isinstance(nodo, ast.Constant) and isinstance(nodo.value, str)):
+                continue
+            texto = nodo.value
+            if texto in docs or any(p in texto for p in A_PROPOSITO):
+                continue
+            encontrado = sorted({m.lower() for m in voseo.findall(texto)})
+            if encontrado:
+                malos.append(f"{os.path.basename(archivo)}:{nodo.lineno} "
+                             f"{encontrado} :: {texto[:70]!r}")
+
+    assert not malos, "voseo en textos de la interfaz:\n  " + "\n  ".join(malos)
+
+
 def test_mover_el_mouse_no_repinta_el_cursor_en_cada_pixel():
     """La ventana de actividad parpadeaba fuerte al mover el mouse.
 
@@ -3750,20 +3872,33 @@ def test_titulo_largo_no_se_sale():
         # maquina donde lo escribi.
         for titulo in ("Eve", "Mayordomo Dorado", "Supercalifragilistico",
                        "Un nombre absurdamente largo para un asistente"):
-            tam = pintor._tam_titulo(titulo, hueco)
+            cabe, tam = pintor._titulo_que_entra(titulo, hueco)
             # Se mide el titulo tal cual, no en mayusculas: el cartel dejo de
             # ponerlo en versalitas --las HIG piden capitalizacion normal-- y
             # medir otra cosa de la que se dibuja no prueba nada.
             ancho = tkfont.Font(family=pintor.fuente, size=tam,
-                                weight="bold").measure(titulo)
-            assert ancho <= hueco or tam == piso, (
-                f"{titulo!r} mide {ancho}px en {hueco}px a {tam}pt"
-            )
-        assert pintor._tam_titulo("Eve", hueco) == base, "uno corto no se achica"
+                                weight="bold").measure(cabe)
+            # Y ahora entra SIEMPRE: si ni al piso entraba, se devuelve
+            # recortado con puntos suspensivos en vez de dibujarse por encima
+            # del borde. Antes esto aceptaba "no entra, pero toque el piso
+            # intentandolo", que es exactamente el caso que se veia mal.
+            assert ancho <= hueco, (
+                f"{cabe!r} mide {ancho}px en {hueco}px a {tam}pt")
+        assert pintor._titulo_que_entra("Eve", hueco) == ("Eve", base), (
+            "uno corto no se achica ni se recorta")
         # Cuarenta y cinco caracteres no entran al tamano grande con ninguna
         # fuente.
-        assert pintor._tam_titulo(
-            "Un nombre absurdamente largo para un asistente", hueco) < base
+        assert pintor._titulo_que_entra(
+            "Un nombre absurdamente largo para un asistente", hueco)[1] < base
+
+        # Y el caso que antes se dibujaba encima del borde: un hueco tan
+        # angosto que ni el piso entra. Pasa cuando alguien angosta el cartel o
+        # le pone un nombre larguisimo; no se puede achicar mas sin dejarlo
+        # ilegible, asi que se recorta.
+        cabe, tam = pintor._titulo_que_entra("Laboratorio Naranja", 40)
+        assert cabe.endswith("…"), f"no se recorto: {cabe!r}"
+        assert tkfont.Font(family=pintor.fuente, size=tam,
+                           weight="bold").measure(cabe) <= 40, cabe
     finally:
         raiz.destroy()
 
@@ -6576,7 +6711,8 @@ def test_el_cartel_se_lee_sobre_cualquier_escritorio():
         # sube con el resto en vez de quedarse en un numero de otra epoca.
         pintor = overlay.Pintor(cfg, tema.PALETAS["oscuro"])
         hueco = pintor.ancho - 200
-        assert pintor._tam_titulo("Eve", hueco) == int(tema.pt("display") * pintor.esc)
+        assert pintor._titulo_que_entra("Eve", hueco)[1] == int(
+            tema.pt("display") * pintor.esc)
     finally:
         raiz.destroy()
 
@@ -6803,7 +6939,17 @@ def test_openrouter_y_lmstudio_estan_y_se_configuran_solos():
     url, clave, modelo = ce.PROVEEDORES["omniroute"]
     assert url.startswith("http://localhost"), url
     assert clave, "tiene nombre de cabecera: la manda SI esta cargada"
-    assert not modelo, "enruta a cientos: elegir uno por el usuario seria adivinar"
+    # El modelo venia VACIO, con el argumento de que enruta a cientos y elegir
+    # uno seria adivinar. El argumento era bueno y la consecuencia mala:
+    # elegir OmniRoute tiraba `RuntimeError: Falta el nombre del modelo` con
+    # solo abrir el programa. Y dejar pasar el vacio no arreglaba nada:
+    # preguntado asi, el servicio contesta `Missing model`.
+    #
+    # `auto/best-chat` sale de la lista que publica LA PASARELA para que ella
+    # elija, o sea que no es elegir por el usuario: es no elegir, delegado en
+    # quien sabe. Comprobado contra el servicio: resolvio a mistral y contesto.
+    assert modelo.startswith("auto/"), (
+        f"{modelo!r}: si no enruta, es elegir un modelo por el usuario")
 
     with tempfile.TemporaryDirectory() as raiz:
         previo = store.CONFIG_PATH

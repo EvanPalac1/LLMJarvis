@@ -788,6 +788,26 @@ def perfiles_de_ejemplo() -> dict:
     return salida
 
 
+def perfiles_disponibles() -> dict:
+    """{nombre: (config, de_fabrica)} de TODOS: los tuyos y los de ejemplo.
+
+    Existe porque tenerlos en dos listas separadas era un bug con forma de
+    diseño. La galeria del panel pintaba `perfiles_de_ejemplo()` y el
+    desplegable de al lado listaba `listar_perfiles()`, que son los tuyos:
+    elegir una muestra dejaba en el desplegable un nombre que el desplegable no
+    conocia, y el boton Cargar tiraba `ValueError: No existe el perfil` sin
+    atrapar. Desde afuera se veia exactamente como lo reporto el usuario: "no
+    me deja usar los de los botones, solo los importados manualmente" --los
+    importados si estaban en la lista de los tuyos.
+
+    Si un nombre esta en las dos, gana el TUYO: guardar uno propio llamado
+    igual que uno de fabrica es pisarlo para vos, no borrarlo del programa.
+    """
+    salida = {n: (cfg, True) for n, cfg in perfiles_de_ejemplo().items()}
+    salida.update({n: (cfg, False) for n, cfg in listar_perfiles().items()})
+    return salida
+
+
 def guardar_perfil(nombre: str, cfg: dict) -> None:
     nombre = nombre.strip()
     if not nombre:
@@ -814,6 +834,13 @@ def aplicar_perfil(nombre: str) -> dict:
     porque los perfiles de antes de este arreglo si traen esas claves adentro.
     """
     perfil = listar_perfiles().get(nombre)
+    if perfil is None:
+        # Los de fabrica tambien se aplican. Antes solo se miraba entre los
+        # tuyos, asi que aplicar una muestra exigia guardarla primero como
+        # propia y cualquier otro camino --el boton Cargar, la bandeja, un
+        # perfil por contexto que nombre uno de ejemplo-- reventaba. La guarda
+        # va aca, en la funcion por la que pasan todos, y no en cada llamador.
+        perfil = perfiles_de_ejemplo().get(nombre)
     if perfil is None:
         raise ValueError(f"No existe el perfil {nombre!r}.")
     nueva = {**load_config(),

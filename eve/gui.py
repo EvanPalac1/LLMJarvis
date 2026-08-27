@@ -768,19 +768,25 @@ class Panel(tk.Tk):
 
         from . import skills as mod_skills
 
-        ruta = filedialog.askopenfilename(
-            title=tr("Elegi el .md de la skill"), parent=self,
+        rutas = filedialog.askopenfilenames(
+            title=tr("Elige los .md de las skills"), parent=self,
             filetypes=[(tr("Texto"), "*.md *.markdown *.txt"), (tr("Todos"), "*.*")],
         )
-        if not ruta:
+        if not rutas:
             return
-        try:
-            mod_skills.importar(ruta)
-        except ValueError as exc:
-            messagebox.showerror(tr("Skills"), str(exc))
-            return
-        except OSError as exc:
-            messagebox.showerror(tr("Skills"), f"{tr('no pude copiarla')}: {exc}")
+        hechos, fallos = [], []
+        for ruta in rutas:
+            corto = os.path.basename(ruta)
+            try:
+                mod_skills.importar(ruta)
+            except ValueError as exc:
+                fallos.append((corto, str(exc)))
+            except OSError as exc:
+                fallos.append((corto, f"{tr('no pude copiarla')}: {exc}"))
+            else:
+                hechos.append(corto)
+        self._informe_importacion(tr("Skills"), hechos, fallos)
+        if not hechos:
             return
         self._skills_refrescar()
 
@@ -1462,7 +1468,7 @@ class Panel(tk.Tk):
             faltan = len([c for c in self._cmd_filas
                           if c["tipo"] == "sistema" and not mod.aprobado(c, self.cfg)])
             if not self._cmd_filas:
-                self.cmd_estado.config(text=tr("Todavia no hay comandos. Abri el archivo y escribi uno."))
+                self.cmd_estado.config(text=tr("Todavia no hay comandos. Abre el archivo y escribe uno."))
             elif faltan:
                 self.cmd_estado.config(
                     text=f"{faltan} {tr('sin aprobar: esas frases no hacen nada todavia.')}")
@@ -1496,7 +1502,7 @@ class Panel(tk.Tk):
 
         cmd = self._comando_elegido()
         if cmd is None:
-            messagebox.showinfo(tr("Comandos"), tr("Elegi uno de la lista."))
+            messagebox.showinfo(tr("Comandos"), tr("Elige uno de la lista."))
             return
         if cmd["tipo"] != "sistema":
             messagebox.showinfo(tr("Comandos"),
@@ -1519,7 +1525,7 @@ class Panel(tk.Tk):
 
         cmd = self._comando_elegido()
         if cmd is None:
-            messagebox.showinfo(tr("Comandos"), tr("Elegi uno de la lista."))
+            messagebox.showinfo(tr("Comandos"), tr("Elige uno de la lista."))
             return
         que, dato = mod.ejecutar(cmd, self.cfg)
         if que == "prompt":
@@ -1593,7 +1599,7 @@ class Panel(tk.Tk):
         caja = self._seccion(t, tr("Agregar los tuyos"))
         self._ayuda(
             caja,
-            f"Poné archivos .py en:\n  {addons.CARPETA_USUARIO}\n\n"
+            f"Pon archivos .py en:\n  {addons.CARPETA_USUARIO}\n\n"
             "Cada uno define NOMBRE, un texto para el modelo y una funcion\n"
             "ejecutar(accion, args, cfg). Ojo: corren dentro de Eve, con los mismos\n"
             "permisos que el programa. Poné solo cosas en las que confies.",
@@ -1794,7 +1800,7 @@ class Panel(tk.Tk):
         ttk.Label(fila, text=tr("Perfil activo"), width=24).pack(side="left")
         self.perfil_var = tk.StringVar(value=self.cfg.get("perfil_activo", ""))
         self.perfil_combo = ttk.Combobox(fila, textvariable=self.perfil_var,
-                                         values=sorted(store.listar_perfiles()),
+                                         values=self._nombres_perfiles(),
                                          state="readonly")
         self.perfil_combo.pack(side="left", fill="x", expand=True)
 
@@ -1817,80 +1823,213 @@ class Panel(tk.Tk):
         )
         return t
 
-    # % del tamaño real del cartel. Sale de una cuenta y no de probar: la
-    # ventana abre en 900, la barra lateral se lleva 178, los margenes de la
-    # tarjeta y el scroll ~60, asi que quedan ~660 para tres columnas con 10 de
-    # separacion -> 200 cada una. A 46% el cartel mide 211 y la tercera columna
-    # se cortaba; a 40% mide 184 y entra con aire.
-    ESCALA_MUESTRA = 40
+    # % del tamaño real del cartel para las miniaturas.
+    #
+    # Estuvo en 40 y las miniaturas salian CORTADAS, con el nombre y el
+    # subtitulo pisando el borde derecho. No era la fuente: `overlay._num`
+    # tiene piso 50 para `hud_escala` --por debajo el cartel de verdad no se
+    # lee-- asi que el Pintor dibujaba a 50 (230x64) dentro de un lienzo que
+    # esta clase habia calculado a 40 (184x51). Dos cuentas del mismo tamano,
+    # en dos lugares, con distinto resultado.
+    #
+    # Ahora el numero es el mismo que el piso, y sobre todo el lienzo ya no
+    # calcula nada: le pregunta al Pintor cuanto ocupa. Si manana el piso
+    # cambia, la miniatura lo sigue sola.
+    ESCALA_MUESTRA = 50
+
+    # Separacion entre miniaturas, y el ancho que se supone disponible cuando
+    # la ventana todavia no se dibujo y no se le puede preguntar.
+    HUECO_MUESTRA = 10
+    ANCHO_GALERIA_SUPUESTO = 660
 
     def _galeria_perfiles(self, padre) -> None:
-        """Los ocho perfiles que vienen, dibujados como se van a ver.
+        """TODOS los perfiles dibujados como se van a ver: los de fabrica y los tuyos.
 
-        Hasta ahora se llegaba a ellos por Importar y un dialogo de archivos:
-        habia que saber que existian, donde estaban, y abrirlos de a uno para
-        ver cual era cual. Un tema que no se puede ver antes de aplicarlo no se
-        elige, se sortea.
+        Hasta ahora se llegaba a los de ejemplo por Importar y un dialogo de
+        archivos: habia que saber que existian, donde estaban, y abrirlos de a
+        uno para ver cual era cual. Un tema que no se puede ver antes de
+        aplicarlo no se elige, se sortea.
+
+        Y los TUYOS no se veian en ningun lado: caian en el desplegable de al
+        lado, como texto. Eran dos mundos para la misma cosa, y de ahi salia el
+        bug reportado: el desplegable no conocia los nombres de fabrica, asi
+        que elegir una muestra y darle Cargar tiraba un ValueError sin atrapar.
+        Una sola lista --`store.perfiles_disponibles()`-- es el arreglo y la
+        funcion que faltaba, a la vez.
 
         Cada muestra la dibuja **el mismo `overlay.Pintor` que el cartel de
-        verdad**, con la escala bajada. No es una imagen de promocion que
-        alguien tiene que acordarse de regenerar: si el dibujo del cartel
-        cambia, las muestras cambian con el. Es lo mismo que ya hace la vista
-        previa de Apariencia.
+        verdad**, con la escala bajada, y encima una maqueta del panel. No es
+        una imagen de promocion que alguien tiene que acordarse de regenerar:
+        si el dibujo del cartel cambia, las muestras cambian con el.
+
+        Se dibujan todas al abrir. Medido: 9.2 ms cada una, 183 ms las veinte.
+        Dibujarlas bajo demanda seria codigo nuevo para ahorrar un decimo de
+        segundo que nadie llega a ver.
         """
+        if not store.perfiles_disponibles():
+            return
+        self._muestras: dict = {}
+        # Se guarda el marco para poder repintarlo: guardar un perfil nuevo
+        # tiene que hacerlo aparecer, y antes la galeria se armaba una sola vez
+        # al abrir el panel, asi que no aparecia hasta cerrar y volver a abrir.
+        self._galeria_marco = ttk.Frame(padre)
+        self._galeria_marco.pack(fill="x", padx=12, pady=(8, 2))
+        self._pintar_galeria()
+
+        self._ayuda(padre, tr(
+            "Un clic para elegirlo, dos para aplicarlo. Los que dicen (de fabrica)\n"
+            "no se borran: guardar uno propio con el mismo nombre no los pisa."))
+
+    def _informe_importacion(self, titulo: str, hechos: list, fallos: list) -> None:
+        # `titulo` llega YA traducido. Traducirlo aca seria `tr(variable)`, que
+        # el chequeo de traducciones no puede ver: los textos que solo existen
+        # dentro de una variable son justo los que se quedan sin traducir.
+        """Que entro y que no, en un solo aviso.
+
+        Importar de a varios sin decir cuales fallaron es peor que importar de
+        a uno: con uno, el error se ve; con doce, doce dialogos seguidos o --lo
+        que pasaba en el primer intento-- ninguno, y uno se entera despues de
+        que faltan tres.
+        """
+        partes = []
+        if hechos:
+            partes.append(f"{tr('Entraron')} {len(hechos)}: " + ", ".join(hechos))
+        if fallos:
+            partes.append(f"{tr('No entraron')} {len(fallos)}:\n" +
+                          "\n".join(f"  {n}: {m}" for n, m in fallos))
+        if not partes:
+            return
+        aviso = messagebox.showwarning if fallos else messagebox.showinfo
+        aviso(titulo, "\n\n".join(partes), parent=self)
+
+    @staticmethod
+    def _nombres_perfiles() -> list:
+        """Los nombres que van al desplegable: los mismos que en la galeria.
+
+        Listaba solo `listar_perfiles()` --los tuyos-- mientras la galeria de
+        arriba pintaba los de fabrica. Elegir una muestra dejaba en el
+        desplegable un nombre que no estaba entre sus valores, y Cargar tiraba
+        `ValueError: No existe el perfil`. Que las dos vistas salgan de la
+        misma funcion es lo que impide que vuelvan a separarse.
+        """
+        return sorted(store.perfiles_disponibles())
+
+    def _refrescar_perfiles(self) -> None:
+        """Las dos vistas al dia despues de guardar, importar o borrar."""
+        if hasattr(self, "perfil_combo"):
+            self.perfil_combo["values"] = self._nombres_perfiles()
+        self._refrescar_galeria()
+
+    def _refrescar_galeria(self) -> None:
+        """Vuelve a pintar las muestras. Se llama al guardar, importar o borrar."""
+        if getattr(self, "_galeria_marco", None) is None:
+            return
+        try:
+            self._pintar_galeria()
+        except tk.TclError:
+            pass   # el panel se esta cerrando; no hay nada que repintar
+
+    def _pintar_galeria(self) -> None:
         from . import overlay as ov
         from . import tema as tema_mod
 
-        ejemplos = store.perfiles_de_ejemplo()
-        if not ejemplos:
-            return
-        self._muestras: dict = {}
-        rejilla = ttk.Frame(padre)
-        rejilla.pack(fill="x", padx=12, pady=(8, 2))
-        # Tres y no cuatro: la barra lateral se lleva 178 px del ancho, y con
-        # cuatro la ultima columna quedaba cortada por el borde de la tarjeta.
-        # Se conto sobre la captura, no a ojo.
-        por_fila = 3
-        ancho = int(ov.ANCHO * self.ESCALA_MUESTRA / 100)
-        alto = int(ov.ALTO * self.ESCALA_MUESTRA / 100)
+        marco = self._galeria_marco
+        for hijo in marco.winfo_children():
+            hijo.destroy()
+        self._muestras = {}
 
-        for i, (nombre, propio) in enumerate(sorted(ejemplos.items())):
+        # Cuanto ocupa una miniatura lo dice el Pintor, no una cuenta paralela:
+        # una sola es la que dibuja y la otra siempre termina desfasada.
+        modelo = ov.Pintor({**store.DEFAULTS, "hud_escala": self.ESCALA_MUESTRA},
+                           tema_mod.PALETAS["oscuro"])
+        ancho, alto = modelo.ancho, modelo.alto
+        alto_panel = max(26, int(alto * 0.45))
+
+        # Las columnas se cuentan, no se fijan en 3: con la barra lateral, el
+        # panel a otro tamano o un cartel mas grande, un numero clavado deja la
+        # ultima columna cortada --que es como estaba-- o desperdicia lugar.
+        disponible = marco.winfo_width()
+        if disponible <= 1:   # todavia no se dibujo: no hay a quien preguntarle
+            disponible = self.ANCHO_GALERIA_SUPUESTO
+        por_fila = max(1, disponible // (ancho + self.HUECO_MUESTRA))
+
+        # Los tuyos primero: son los que vas a usar. Dentro de cada grupo,
+        # alfabetico.
+        orden = sorted(store.perfiles_disponibles().items(),
+                       key=lambda par: (par[1][1], par[0].lower()))
+        for i, (nombre, (propio, de_fabrica)) in enumerate(orden):
             fila, col = divmod(i, por_fila)
-            celda = ttk.Frame(rejilla)
-            celda.grid(row=fila, column=col, padx=(0, 10), pady=(0, 10), sticky="w")
+            celda = ttk.Frame(marco)
+            celda.grid(row=fila, column=col, padx=(0, self.HUECO_MUESTRA),
+                       pady=(0, self.HUECO_MUESTRA), sticky="w")
 
             cfg = {**store.DEFAULTS, **propio}
             cfg["hud_escala"] = self.ESCALA_MUESTRA
+
+            # DOS lienzos y no uno con dos dibujos: `Pintor.pintar` hace
+            # `delete("all")` en el suyo --tiene que hacerlo, repinta treinta
+            # veces por segundo en el cartel de verdad-- y se llevaria puesta
+            # la maqueta del panel. Apilarlos cuesta un widget y no obliga a
+            # meterle un desplazamiento al pintor del cartel.
+            tapa = tk.Canvas(celda, width=ancho, height=alto_panel,
+                             highlightthickness=0, borderwidth=0)
             lienzo = tk.Canvas(celda, width=ancho, height=alto,
                                highlightthickness=0, borderwidth=0)
             # `_eve_color_propio`: la muestra ES el color del perfil, y el
             # repintado del tema la dejaria del color del panel, o sea todas
             # iguales -- que es lo contrario de para lo que esta.
-            lienzo._eve_color_propio = True
+            tapa._eve_color_propio = lienzo._eve_color_propio = True
+            tapa.pack()
             lienzo.pack()
             try:
                 paleta = tema_mod.resolver(cfg, "hud")
                 lienzo.configure(background=paleta["fondo"])
-                pintor = ov.Pintor(cfg, paleta)
-                pintor.pintar(lienzo, "escuchando",
-                              cfg.get("hud_titulo") or nombre,
-                              cfg.get("hud_subtitulo") or "")
+                # El PANEL arriba y el cartel abajo. Antes la miniatura dibujaba
+                # solo el cartel, y como Claro y Oscuro difieren unicamente en
+                # `ui_tema` --los dos llevan el cartel oscuro-- se veian
+                # identicas: la miniatura no mostraba lo unico que cambiaba.
+                self._maqueta_panel(tapa, ancho, alto_panel,
+                                    tema_mod.resolver(cfg, "ui"))
+                ov.Pintor(cfg, paleta).pintar(
+                    lienzo, "escuchando", cfg.get("hud_titulo") or nombre,
+                    cfg.get("hud_subtitulo") or "")
             except Exception as exc:  # noqa: BLE001 - un perfil roto no tumba el panel
                 lienzo.create_text(ancho / 2, alto / 2, text=str(exc)[:40],
                                    fill=tema_mod.PALETAS["oscuro"]["alerta"])
 
-            rotulo = ttk.Label(celda, text=nombre, style="Ayuda.TLabel")
+            texto = f"{nombre}  ({tr('de fabrica')})" if de_fabrica else nombre
+            rotulo = ttk.Label(celda, text=texto, style="Ayuda.TLabel",
+                               wraplength=ancho)
             rotulo.pack(anchor="w", pady=(3, 0))
             self._muestras[nombre] = (lienzo, propio)
-            for w in (lienzo, rotulo):
+            for w in (tapa, lienzo, rotulo):
                 w.bind("<Button-1>",
                        lambda _e, n=nombre: self._elegir_muestra(n))
                 w.bind("<Double-Button-1>",
                        lambda _e, n=nombre: self._aplicar_muestra(n))
 
-        self._ayuda(padre, tr(
-            "Un clic para elegirlo, dos para aplicarlo. Vienen con el programa y no\n"
-            "se borran: guardar uno propio con el mismo nombre no los pisa."))
+    @staticmethod
+    def _maqueta_panel(lienzo, ancho: int, alto: int, paleta: dict) -> None:
+        """Un panel de juguete: fondo, barra lateral, tarjeta y dos renglones.
+
+        No pretende ser el panel: alcanza con que use los colores del perfil en
+        los mismos ROLES que el panel de verdad --fondo, panel, borde, acento,
+        texto-- para que dos perfiles que solo cambian `ui_tema` se distingan
+        de un vistazo, que era justo lo que no pasaba.
+        """
+        lienzo.delete("all")
+        lienzo.configure(background=paleta["fondo"])
+        lado = max(8, int(ancho * 0.22))
+        lienzo.create_rectangle(0, 0, lado, alto, fill=paleta["panel"], width=0)
+        lienzo.create_rectangle(3, 4, lado - 3, 8, fill=paleta["acento"], width=0)
+        lienzo.create_rectangle(lado + 4, 4, ancho - 4, alto - 5,
+                                fill=paleta["panel"], outline=paleta["borde"])
+        for n in range(2):
+            y = 10 + n * 8
+            if y + 3 < alto - 6:
+                lienzo.create_rectangle(lado + 9, y, ancho - 11, y + 3,
+                                        fill=paleta["texto"], width=0)
+        lienzo.create_line(0, alto - 1, ancho, alto - 1, fill=paleta["borde"])
 
     def _elegir_muestra(self, nombre: str) -> None:
         """Deja el nombre puesto en el combo, sin aplicar nada todavia."""
@@ -1905,17 +2044,17 @@ class Panel(tk.Tk):
         los tuyos y se puede volver a el, en vez de ser algo que se aplico una
         vez y no se sabe como recuperar.
         """
-        propio = dict(self._muestras.get(nombre, (None, {}))[1])
-        if not propio:
+        if nombre not in self._muestras:
             return
-        # Primero se guarda como uno tuyo y despues se delega en `_perfil_cargar`,
-        # que es el camino que ya existe: pide confirmacion, aplica y cierra el
-        # panel para que vuelva a armarse con el tema nuevo. Escribir aca un
-        # segundo camino que aplique distinto es como se terminan teniendo dos
-        # comportamientos para lo mismo.
-        store.guardar_perfil(nombre, {**store.load_config(), **propio})
-        if hasattr(self, "perfil_combo"):
-            self.perfil_combo.config(values=sorted(store.listar_perfiles()))
+        # Se delega en `_perfil_cargar`, que es el camino que ya existe: pide
+        # confirmacion, aplica y cierra el panel para que vuelva a armarse con
+        # el tema nuevo. Escribir aca un segundo camino que aplique distinto es
+        # como se terminan teniendo dos comportamientos para lo mismo.
+        #
+        # Antes se guardaba una copia propia primero, porque `aplicar_perfil`
+        # solo miraba entre los tuyos. Ya no hace falta --conoce los de
+        # fabrica-- y esa copia era ademas lo que ensuciaba la lista: aplicar
+        # una muestra te dejaba un perfil propio llamado igual, para siempre.
         if hasattr(self, "perfil_var"):
             self.perfil_var.set(nombre)
         self._perfil_cargar()
@@ -1934,7 +2073,7 @@ class Panel(tk.Tk):
         store.aplicar_perfil(nombre)
         messagebox.showinfo(
             tr("Perfiles"),
-            f"Perfil {nombre!r} aplicado.\n\nCerra y volve a abrir el panel para verlo.",
+            f"Perfil {nombre!r} aplicado.\n\nCierra y vuelve a abrir el panel para verlo.",
         )
         self.destroy()
 
@@ -1948,7 +2087,7 @@ class Panel(tk.Tk):
             return
         nombre = nombre.strip()
         if nombre in store.listar_perfiles() and not messagebox.askyesno(
-            tr("Ya existe"), f"Ya hay un perfil {nombre!r}. Lo pisamos?"
+            tr("Ya existe"), f"Ya hay un perfil {nombre!r}. Se reemplaza?"
         ):
             return
         # Se guarda lo que hay en pantalla, no lo ultimo guardado en disco.
@@ -1958,7 +2097,7 @@ class Panel(tk.Tk):
         cfg["perfil_activo"] = nombre
         store.save_config(cfg)
         self.perfil_var.set(nombre)
-        self.perfil_combo["values"] = sorted(store.listar_perfiles())
+        self._refrescar_perfiles()
         messagebox.showinfo(tr("Perfiles"), f"Guardado como {nombre!r}.")
 
     def _perfil_exportar(self):
@@ -1987,50 +2126,72 @@ class Panel(tk.Tk):
         )
 
     def _perfil_importar(self):
+        """Uno o varios `.eveperfil` de una sola vez.
+
+        De a uno se preguntaba el nombre con que guardarlo, que esta bien para
+        uno y es insoportable para doce. Con varios se usa el nombre que trae
+        cada archivo --que es el que su autor le puso-- y el aviso final dice
+        cuales entraron.
+        """
         from tkinter import filedialog, simpledialog
 
         # Arranca en los perfiles que vienen con el programa. Sin esto el dialogo
-        # abre donde haya quedado la ultima vez y los ocho de ejemplo son
-        # invisibles en la practica: nadie sale a buscarlos dentro de _internal.
+        # abre donde haya quedado la ultima vez y los de ejemplo son invisibles
+        # en la practica: nadie sale a buscarlos dentro de _internal.
         ejemplos = os.path.join(plataforma.recursos(), "perfiles")
-        ruta = filedialog.askopenfilename(
-            title=tr("Importar perfil"), parent=self,
+        rutas = filedialog.askopenfilenames(
+            title=tr("Importar perfiles"), parent=self,
             initialdir=ejemplos if os.path.isdir(ejemplos) else None,
             filetypes=[("Perfil de Eve", "*.eveperfil"), ("Todos", "*.*")],
         )
-        if not ruta:
+        if not rutas:
             return
-        try:
-            nombre, config = store.leer_perfil_archivo(ruta)
-        except ValueError as exc:
-            messagebox.showerror(tr("Importar"), str(exc))
-            return
-        nombre = simpledialog.askstring("Importar perfil", "Guardarlo con el nombre:",
-                                        initialvalue=nombre, parent=self) or ""
-        if not nombre.strip():
-            return
-        nombre = nombre.strip()
-        if nombre in store.listar_perfiles() and not messagebox.askyesno(
-            tr("Ya existe"), f"Ya hay un perfil {nombre!r}. Lo pisamos?"
-        ):
-            return
-        store.guardar_perfil(nombre, {**store.DEFAULTS, **config})
-        self.perfil_var.set(nombre)
-        self.perfil_combo["values"] = sorted(store.listar_perfiles())
-        messagebox.showinfo(
-            tr("Importar"),
-            f"Perfil {nombre!r} importado con {len(config)} opciones.\n\n"
-            "Toca 'Cargar' para aplicarlo.",
-        )
+
+        hechos, fallos = [], []
+        for ruta in rutas:
+            corto = os.path.basename(ruta)
+            try:
+                nombre, config = store.leer_perfil_archivo(ruta)
+            except ValueError as exc:
+                fallos.append((corto, str(exc)))
+                continue
+            if len(rutas) == 1:
+                nombre = simpledialog.askstring(
+                    tr("Importar perfil"), tr("Guardarlo con el nombre:"),
+                    initialvalue=nombre, parent=self) or ""
+            nombre = nombre.strip()
+            if not nombre:
+                continue
+            if nombre in store.listar_perfiles() and not messagebox.askyesno(
+                tr("Ya existe"), f"{tr('Ya hay un perfil')} {nombre!r}. "
+                                 f"{tr('Se reemplaza?')}", parent=self
+            ):
+                continue
+            store.guardar_perfil(nombre, {**store.DEFAULTS, **config})
+            hechos.append(nombre)
+
+        if hechos:
+            self.perfil_var.set(hechos[-1])
+        self._refrescar_perfiles()
+        self._informe_importacion(tr("Importar perfiles"), hechos, fallos)
 
     def _perfil_borrar(self):
         nombre = self.perfil_var.get()
         if not nombre:
             return
+        if nombre not in store.listar_perfiles():
+            # Ahora que la lista incluye los de fabrica, se puede elegir uno y
+            # darle Borrar. `borrar_perfil` no lo encuentra y no hace nada: sin
+            # este aviso el boton se veria simplemente roto.
+            messagebox.showinfo(
+                tr("Borrar perfil"),
+                tr("Ese viene con el programa y no se borra. Guarda uno propio "
+                   "con el mismo nombre si quieres cambiarlo."))
+            return
         if messagebox.askyesno(tr("Borrar perfil"), f"Borrar el perfil {nombre!r}?"):
             store.borrar_perfil(nombre)
             self.perfil_var.set("")
-            self.perfil_combo["values"] = sorted(store.listar_perfiles())
+            self._refrescar_perfiles()
 
     def _bloque_general(self, nb):
         """Lo de General, agrupado por lo que uno viene a hacer.
@@ -2270,17 +2431,23 @@ class Panel(tk.Tk):
     def _contacto_importar(self):
         from tkinter import filedialog
 
-        ruta = filedialog.askopenfilename(
-            title=tr("Abrir contacto compartido"),
+        rutas = filedialog.askopenfilenames(
+            title=tr("Abrir contactos compartidos"),
             filetypes=[("Contacto de Eve", "*.evecontact"), ("JSON", "*.json"), ("Todos", "*.*")],
         )
-        if not ruta:
+        if not rutas:
             return
-        try:
-            nuevos = store.leer_contactos_archivo(ruta)
-        except ValueError as exc:
-            messagebox.showerror(tr("Importar"), str(exc))
+        nuevos, fallos = {}, []
+        for ruta in rutas:
+            try:
+                nuevos.update(store.leer_contactos_archivo(ruta))
+            except ValueError as exc:
+                fallos.append((os.path.basename(ruta), str(exc)))
+        if fallos:
+            self._informe_importacion(tr("Importar"), [], fallos)
+        if not nuevos:
             return
+
 
         agregados, cambiados, conflictos = store.importar_contactos(nuevos)
         if conflictos:
@@ -2546,19 +2713,25 @@ class Panel(tk.Tk):
 
         from . import voices
 
-        ruta = filedialog.askopenfilename(
-            title=tr("Elegi el .onnx de la voz"), parent=self,
+        rutas = filedialog.askopenfilenames(
+            title=tr("Elige los .onnx de las voces"), parent=self,
             filetypes=[(tr("Voz de Piper"), "*.onnx"), (tr("Todos"), "*.*")],
         )
-        if not ruta:
+        if not rutas:
             return
-        try:
-            clave = voices.importar(ruta)
-        except ValueError as exc:
-            messagebox.showerror(tr("Voces"), str(exc))
-            return
-        except OSError as exc:
-            messagebox.showerror(tr("Voces"), f"{tr('no pude copiarla')}: {exc}")
+        hechos, fallos, clave = [], [], ""
+        for ruta in rutas:
+            try:
+                clave = voices.importar(ruta)
+            except ValueError as exc:
+                fallos.append((os.path.basename(ruta), str(exc)))
+            except OSError as exc:
+                fallos.append((os.path.basename(ruta),
+                               f"{tr('no pude copiarla')}: {exc}"))
+            else:
+                hechos.append(clave)
+        self._informe_importacion(tr("Voces"), hechos, fallos)
+        if not hechos:
             return
         # Queda elegida: importar una voz y despues tener que ir a buscarla en
         # una lista seria dejar el trabajo por la mitad.
@@ -3128,7 +3301,7 @@ class Panel(tk.Tk):
                                style="Ok.TLabel")
         elif intento >= 40:
             self.estado.config(
-                text=tr("el listener no llego a dar señales; fijate en Acciones"),
+                text=tr("el listener no llego a dar señales; revisa Acciones"),
                 style="Ayuda.TLabel")
         else:
             try:
@@ -3698,7 +3871,7 @@ class Panel(tk.Tk):
         from . import plataforma
 
         self._capturando = True
-        self.tecla_label.config(text=tr("apreta la tecla que quieras...")
+        self.tecla_label.config(text=tr("presiona la tecla que quieras...")
                                 + "  " + tr("(Escape cancela)"))
 
         def soltar():
@@ -3716,7 +3889,7 @@ class Panel(tk.Tk):
                 return
             self.vars["hotkey"].set(nombre)
             self.tecla_label.config(
-                text=f"{tr('tecla')}: {nombre}. {tr('Acordate de Guardar.')}")
+                text=f"{tr('tecla')}: {nombre}. {tr('Recuerda Guardar.')}")
 
         def llego(nombre, tipo):
             # Del hilo del hook, que no es el de tkinter.
@@ -3744,7 +3917,7 @@ class Panel(tk.Tk):
         """
         vivo = store.latido()
         esperada = str(self.cfg.get("hotkey", ""))
-        self.tecla_label.config(text=f"apreta '{esperada}' ahora...")
+        self.tecla_label.config(text=f"presiona '{esperada}' ahora...")
 
         def llego(evento):
             self.unbind("<Key>", ident)
@@ -3905,7 +4078,7 @@ class Panel(tk.Tk):
                     url, data=_j.dumps(cuerpo).encode("utf-8"),
                     headers={"Content-Type": "application/json"}, method="POST")
                 with urllib.request.urlopen(pedido, timeout=15) as r:
-                    return f"Mandado (HTTP {r.status}). Fijate en el canal."
+                    return f"Mandado (HTTP {r.status}). Revisa el canal."
             except Exception as exc:  # noqa: BLE001
                 return f"No pude mandarlo: {type(exc).__name__}: {str(exc)[:120]}"
 

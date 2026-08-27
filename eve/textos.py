@@ -162,6 +162,26 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    'Ese viene con el programa y no se borra. Guarda uno propio con el mismo nombre si quieres cambiarlo.':
+        'That one ships with the program and cannot be deleted. Save your own with the same name to change it.',
+    'Un clic para elegirlo, dos para aplicarlo. Los que dicen (de fabrica)\nno se borran: guardar uno propio con el mismo nombre no los pisa.':
+        'One click to pick it, two to apply it. The ones marked (stock) cannot\nbe deleted: saving your own with the same name does not overwrite them.',
+    'Abrir contactos compartidos':
+        'Open shared contacts',
+    'Entraron':
+        'Imported',
+    'Guardarlo con el nombre:':
+        'Save it under the name:',
+    'Importar perfiles':
+        'Import profiles',
+    'No entraron':
+        'Not imported',
+    'Se reemplaza?':
+        'Replace it?',
+    'Ya hay un perfil':
+        'There is already a profile named',
+    'de fabrica':
+        'stock',
     'Abrir Comandos.md':
         'Open Comandos.md',
     'Al decir':
@@ -172,7 +192,7 @@ EN = {
         'Voice commands',
     "Con 'si', una frase que coincida con las de Comandos.md se\nresuelve sin llamar al modelo. Con 'no', todo va al modelo\ncomo antes, y el archivo se ignora.\nLa coincidencia es EXACTA --sin mayusculas ni acentos-- y no\ndifusa a proposito: un comando que a veces agarra es peor que\nuno que no existe.":
         "With 'si', a phrase matching one in Comandos.md resolves\nwithout calling the model. With 'no', everything goes to the\nmodel as before and the file is ignored.\nMatching is EXACT --no case, no accents-- and deliberately not\nfuzzy: a command that works sometimes is worse than one that\ndoes not exist.",
-    'Elegi uno de la lista.':
+    'Elige uno de la lista.':
         'Pick one from the list.',
     'Ese no corre nada: no hace falta aprobarlo.':
         'That one runs nothing: no approval needed.',
@@ -188,7 +208,7 @@ EN = {
         'Review and approve',
     'SIN APROBAR':
         'NOT APPROVED',
-    'Todavia no hay comandos. Abri el archivo y escribi uno.':
+    'Todavia no hay comandos. Abre el archivo y escribe uno.':
         'No commands yet. Open the file and write one.',
     'Todos listos.':
         'All set.',
@@ -212,13 +232,13 @@ EN = {
         'key missing, load it below',
     'Skills que le pasas':
         'Skills you hand her',
-    "Una skill es un .md tuyo con instrucciones: como queres un\ninforme, como se hace un deploy, con que tono le escribis a un\ncliente.\n  nada        no existen para ella\n  consultar   viaja el INDICE --nombre y un renglon-- y el texto\n              entero lo pide con 'E skill ver' cuando hace falta\n  completo    viajan enteras, siempre\nLa diferencia se paga en CADA frase que le digas, incluido 'que\nhora es'. Medido con cinco skills de una pagina: 'consultar'\nsuma 4% al prompt y 'completo' 145%, o sea que lo duplica.":
+    "Una skill es un .md tuyo con instrucciones: como quieres un\ninforme, como se hace un deploy, con que tono le escribes a un\ncliente.\n  nada        no existen para ella\n  consultar   viaja el INDICE --nombre y un renglon-- y el texto\n              entero lo pide con 'E skill ver' cuando hace falta\n  completo    viajan enteras, siempre\nLa diferencia se paga en CADA frase que le digas, incluido 'que\nhora es'. Medido con cinco skills de una pagina: 'consultar'\nsuma 4% al prompt y 'completo' 145%, o sea que lo duplica.":
         "A skill is a .md of yours with instructions: how you want a\nreport, how a deploy is done, what tone you use with a client.\n  nada        they do not exist for her\n  consultar   the INDEX travels --name and one line-- and the\n              full text is fetched with 'E skill ver' when needed\n  completo    they travel whole, always\nThe difference is paid on EVERY sentence you say, 'what time is\nit' included. Measured with five one-page skills: 'consultar'\nadds 4% to the prompt and 'completo' 145%, i.e. it doubles it.",
     'Skills':
         'Skills',
     'Importar skill...':
         'Import a skill...',
-    'Elegi el .md de la skill':
+    'Elige los .md de las skills':
         "Pick the skill's .md",
     'Cuanto de las skills viaja':
         'How much of the skills travels',
@@ -232,19 +252,19 @@ EN = {
         'The apps Eve writes to. All optional.',
     'Asignar tecla':
         'Assign a key',
-    'apreta la tecla que quieras...':
+    'presiona la tecla que quieras...':
         'press whichever key you want...',
     '(Escape cancela)':
         '(Escape cancels)',
     'cancelado':
         'cancelled',
-    'Acordate de Guardar.':
+    'Recuerda Guardar.':
         'Remember to hit Save.',
     'no llego ninguna tecla':
         'no key came through',
     'Importar voz...':
         'Import a voice...',
-    'Elegi el .onnx de la voz':
+    'Elige los .onnx de las voces':
         "Pick the voice's .onnx",
     'Voz de Piper':
         'Piper voice',
@@ -276,8 +296,6 @@ EN = {
         'The model used to be a free text field, which means knowing the exact\nidentifier: OpenRouter publishes hundreds and LM Studio serves\nwhichever one you loaded. The button asks the service itself --\n`GET /v1/models` is part of the protocol -- and lets you pick from\nthe list.\n\nLM Studio and Ollama do NOT ask for a key: they listen on your own\nmachine. The cloud ones do, and that goes under Accounts.',
     'elegido':
         'picked',
-    'Un clic para elegirlo, dos para aplicarlo. Vienen con el programa y no\nse borran: guardar uno propio con el mismo nombre no los pisa.':
-        'One click to pick it, two to apply it. They ship with the program and\ncannot be deleted: saving one of your own under the same name does not\noverwrite them.',
     'Navegacion':
         'Navigation',
     'Como se pasa de una seccion a otra:\n  lateral    una barra a la izquierda\n  pestanas   las de arriba, como era antes\nSiete pestañas arriba ya rozan el ancho de la ventana. La barra\nesta dibujada pero se maneja con el teclado igual: entra en el\ntabulador, las flechas mueven y Enter activa.\n\nEl cambio se ve al reabrir el panel.':
@@ -314,7 +332,7 @@ EN = {
         'Check listener',
     'abriendo el listener...':
         'opening the listener...',
-    'el listener no llego a dar señales; fijate en Acciones':
+    'el listener no llego a dar señales; revisa Acciones':
         'the listener never reported in; check the Actions tab',
     'el listener ya esta abierto':
         'the listener is already open',
@@ -388,7 +406,7 @@ EN = {
         'overlay',
     'Perfil segun el contexto':
         'Profile by context',
-    'Cambia de perfil solo, segun la hora o el programa que\ntengas adelante. Misma sintaxis que la linea de arriba:\n  22:00-06:00=noche, discord=gaming\n\nLa condicion es un rango de horas si tiene forma de rango,\ny si no el nombre del programa. GANA LA PRIMERA QUE ENTRA,\nasi que el orden en que las escribis es el orden de\nprioridad -- es lo unico de esto que no se adivina.\n\nEl nombre del programa se compara por pedazo: `discord`\nagarra tambien `Discord.exe` y `discordptb`, para no tener\nque abrir el administrador de tareas para escribir una\nregla.\n\nVacio no cambia nada. Y un perfil solo toca como se VE y\ncomo suena Eve: no puede cambiarte el motor, la tecla, los\npermisos ni tus datos.':
+    'Cambia de perfil solo, segun la hora o el programa que\ntengas adelante. Misma sintaxis que la linea de arriba:\n  22:00-06:00=noche, discord=gaming\n\nLa condicion es un rango de horas si tiene forma de rango,\ny si no el nombre del programa. GANA LA PRIMERA QUE ENTRA,\nasi que el orden en que las escribes es el orden de\nprioridad -- es lo unico de esto que no se adivina.\n\nEl nombre del programa se compara por pedazo: `discord`\nagarra tambien `Discord.exe` y `discordptb`, para no tener\nque abrir el administrador de tareas para escribir una\nregla.\n\nVacio no cambia nada. Y un perfil solo toca como se VE y\ncomo suena Eve: no puede cambiarte el motor, la tecla, los\npermisos ni tus datos.':
         'Switches profile on its own, by the time of day or by the program\nyou have in front. Same syntax as the line above:\n  22:00-06:00=night, discord=gaming\n\nThe condition is a time range if it looks like one, and otherwise\nthe name of the program. THE FIRST MATCH WINS, so the order you\nwrite them in is their priority -- it is the only part of this you\ncannot guess.\n\nThe program name matches by substring: `discord` also catches\n`Discord.exe` and `discordptb`, so you do not have to open the task\nmanager to write a rule.\n\nEmpty changes nothing. And a profile only touches how Eve LOOKS and\nsounds: it cannot change your engine, your key, your permissions or\nyour data.',
     'Motor de dibujo':
         'Drawing engine',
@@ -418,7 +436,7 @@ EN = {
         'Build the board',
     'Esta ventana esta vacia porque el tablero no tiene modulos.':
         'This window is empty because the board has no modules.',
-    "Toca 'Armar el tablero' aca arriba para poner los de arranque,\no agregalos uno por uno desde el panel, en Apariencia > Modulos.":
+    "Toca 'Armar el tablero' aqui arriba para poner los de arranque,\no agregalos uno por uno desde el panel, en Apariencia > Modulos.":
         "Press 'Build the board' above to add the starter ones,\nor add them one by one from the panel, under Appearance > Modules.",
     'listo, ahi estan':
         'done, there they are',
@@ -438,8 +456,6 @@ EN = {
         '(no saved profiles)',
     "0 = donde lo dejes, sin restriccion, y puedes arrastrarlo de un\nmonitor al otro. 1 en adelante lo fija a ese monitor y lo mantiene\nadentro aunque lo arrastres. Si desenchufas el que elegiste, vuelve\nal escritorio entero en vez de quedar en un lugar que no existe.\n'trabajo' descuenta la barra de tareas; solo cambia algo en Windows.":
         "0 = wherever you leave it, no constraint, and you can drag it from one\nmonitor to the other. 1 and up pins it to that monitor and keeps it\ninside even if you drag it. If you unplug the one you picked, it falls\nback to the whole desktop instead of sitting somewhere that no longer exists.\n'trabajo' subtracts the taskbar; it only changes anything on Windows.",
-    'Abrir contacto compartido':
-        'Open a shared contact',
     'Abrir la carpeta de addons':
         'Open the addons folder',
     'Abrir la ventana de actividad':
@@ -712,7 +728,7 @@ EN = {
         'How far it goes with files',
     'Hasta donde puede meterse':
         'How far it is allowed to go',
-    "Que puede hacer Eve DENTRO de las rutas de arriba. Las rutas\nsiguen siendo el limite: esto no agranda lo permitido, decide\nque hace adentro.\n  exacto     leer un archivo si le dictas la ruta entera\n  explorar   ademas listar una carpeta y buscar por nombre;\n             sin esto, encontrar algo dependia de que vos\n             supieras y dictaras la ruta\n  escribir   ademas crear y reemplazar. Pisar un archivo que\n             ya existe te pregunta primero, salvo que hayas\n             apagado la confirmacion aca arriba\nCon 'exacto' los comandos de explorar no existen para ella y\ntampoco se nombran en el prompt: una capacidad que no se puede\nusar solo gasta lugar e invita a que pruebe y le digan que no.":
+    "Que puede hacer Eve DENTRO de las rutas de arriba. Las rutas\nsiguen siendo el limite: esto no agranda lo permitido, decide\nque hace adentro.\n  exacto     leer un archivo si le dictas la ruta entera\n  explorar   ademas listar una carpeta y buscar por nombre;\n             sin esto, encontrar algo dependia de que tu\n             supieras y dictaras la ruta\n  escribir   ademas crear y reemplazar. Pisar un archivo que\n             ya existe te pregunta primero, salvo que hayas\n             apagado la confirmacion aca arriba\nCon 'exacto' los comandos de explorar no existen para ella y\ntampoco se nombran en el prompt: una capacidad que no se puede\nusar solo gasta lugar e invita a que pruebe y le digan que no.":
         "What Eve may do INSIDE the paths above. Those paths are still\nthe limit: this does not widen what is allowed, it decides what\nit does inside.\n  exacto     read a file if you dictate the whole path\n  explorar   plus list a folder and search by name; without it,\n             finding anything depended on you knowing and\n             dictating the path\n  escribir   plus create and replace. Overwriting a file that\n             already exists asks you first, unless you turned\n             the confirmation above off\nWith 'exacto' the exploring commands do not exist for it and are\nnot named in the prompt either: a capability that cannot be used\nonly wastes room and invites it to try and be told no.",
     'Historial limpiado':
         'History cleared',
