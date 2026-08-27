@@ -5680,7 +5680,7 @@ def test_un_comando_tuyo_no_llega_al_modelo():
     """
     import numpy as np
 
-    from eve import comandos, store, voice as voz
+    from eve import comandos, integrations, store, voice as voz
     from eve.listener import Listener
 
     with tempfile.TemporaryDirectory() as raiz:
@@ -5690,6 +5690,16 @@ def test_un_comando_tuyo_no_llega_al_modelo():
         comandos.RUTA = os.path.join(raiz, "Comandos.md")
         previo_motor = Listener._build_engine
         previo_hablar, previo_transcribir = voz.speak, voz.transcribe
+        # `mostrar` termina en `consola.asegurar()`, que LANZA la ventana de
+        # actividad como proceso aparte. Un test no tiene por que abrir una
+        # ventana, y en el runner de macOS ese hijo quedaba vivo: el paso
+        # Tests se colgo 21 minutos con un "Terminate orphan process (Python)"
+        # al final. Se intercepta y de paso queda comprobado QUE se llamo, que
+        # antes no se comprobaba.
+        mostrados = []
+        previo_mostrar = integrations.mostrar
+        integrations.mostrar = lambda t, x="", a="": (
+            mostrados.append(x) or f"mostrado: {x}")
         try:
             with open(comandos.RUTA, "w", encoding="utf-8") as f:
                 f.write(
@@ -5768,8 +5778,9 @@ def test_un_comando_tuyo_no_llega_al_modelo():
                 lis._process(np.array([1], dtype="float32"))
                 return list(dichos)
 
-            # Un comando NO llega al motor.
+            # Un comando NO llega al motor, y SI hace lo suyo.
             assert correr("modo concentracion") == [], "el comando llego al modelo"
+            assert mostrados and "modo foco" in mostrados[-1], mostrados
             # Uno de sistema tampoco.
             assert correr("prende el server") == []
             # El de tipo `prompt` SI llega, pero con el texto reemplazado.
@@ -5780,6 +5791,7 @@ def test_un_comando_tuyo_no_llega_al_modelo():
         finally:
             Listener._build_engine = previo_motor
             voz.speak, voz.transcribe = previo_hablar, previo_transcribir
+            integrations.mostrar = previo_mostrar
             store.CONFIG_PATH, store.DB_PATH, comandos.RUTA = previos
 
 
@@ -8828,6 +8840,11 @@ if __name__ == "__main__":
                 fallo = name
                 break
             print(f"ok  {name}")
+            # Con flush, y no solo al final: si un test SE CUELGA, el log
+            # muestra hasta donde llego. Sin esto, macOS colgo 21 minutos en la
+            # 1.17.0 y el log no decia en cual --stdout sale en bloque y se
+            # perdio al matar el proceso--, asi que hubo que adivinar.
+            sys.stdout.flush()
     print("\nTodo verde." if not fallo else f"\nRojo: fallo {fallo}.")
     # os._exit no vacia los buffers de stdio, de ahi el flush.
     sys.stdout.flush()
