@@ -162,6 +162,46 @@ def textos_invisibles(carpeta: str = "") -> list:
 
 
 EN = {
+    'Abrir Comandos.md':
+        'Open Comandos.md',
+    'Al decir':
+        'Saying',
+    'Comandos':
+        'Commands',
+    'Comandos por voz':
+        'Voice commands',
+    "Con 'si', una frase que coincida con las de Comandos.md se\nresuelve sin llamar al modelo. Con 'no', todo va al modelo\ncomo antes, y el archivo se ignora.\nLa coincidencia es EXACTA --sin mayusculas ni acentos-- y no\ndifusa a proposito: un comando que a veces agarra es peor que\nuno que no existe.":
+        "With 'si', a phrase matching one in Comandos.md resolves\nwithout calling the model. With 'no', everything goes to the\nmodel as before and the file is ignored.\nMatching is EXACT --no case, no accents-- and deliberately not\nfuzzy: a command that works sometimes is worse than one that\ndoes not exist.",
+    'Elegi uno de la lista.':
+        'Pick one from the list.',
+    'Ese no corre nada: no hace falta aprobarlo.':
+        'That one runs nothing: no approval needed.',
+    'Frases que hacen algo fijo':
+        'Phrases that do something fixed',
+    'Frases tuyas que hacen algo fijo, sin pasar por el modelo.':
+        'Phrases of yours that do something fixed, without going through the model.',
+    'Lo apruebo?':
+        'Approve it?',
+    'Recargar':
+        'Reload',
+    'Revisar y aprobar':
+        'Review and approve',
+    'SIN APROBAR':
+        'NOT APPROVED',
+    'Todavia no hay comandos. Abri el archivo y escribi uno.':
+        'No commands yet. Open the file and write one.',
+    'Todos listos.':
+        'All set.',
+    'aprobado':
+        'approved',
+    'le mandaria al modelo':
+        'would send to the model',
+    'se va a correr':
+        'will run',
+    'sin aprobar: esas frases no hacen nada todavia.':
+        'not approved: those phrases do nothing yet.',
+    'sin riesgo':
+        'harmless',
     'no necesita clave':
         'no key needed',
     'clave cargada':
@@ -1064,6 +1104,16 @@ EN = {
         "usuario: whatever you change by hand is locked and Eve does not\noverwrite it. eve: she can change whatever she wants.  preguntar: she\nasks permission every time.\nTo release what is locked, tell her 'destraba <key>' or clear the list below.",
     'ventana de actividad abierta':
         'activity window opened',
+    'Frase':
+        'Phrase',
+    'Tipo':
+        'Kind',
+    'Hace':
+        'Does',
+    'Estado':
+        'State',
 }
+
+
 
 TABLA = {"en": EN}

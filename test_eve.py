@@ -4667,7 +4667,8 @@ def test_eve_no_puede_soltar_sus_propios_frenos():
                          "cc_permission_mode": "bypassPermissions",
                          "ayuda_alcance": "codigo",
                          "archivos_alcance": "escribir",
-                         "skills_alcance": "completo"}[clave]
+                         "skills_alcance": "completo",
+                         "comandos_aprobados": "prende el server:deadbeef"}[clave]
                 salida = integrations.ajustar(clave, nuevo)
                 assert store.load_config().get(clave) == antes, f"{clave} se escribio"
                 assert "frenan" in salida, salida
@@ -5611,6 +5612,124 @@ def test_asignar_tecla_la_toma_del_mismo_hook_que_la_escucha():
             store.CONFIG_PATH = previo
 
 
+def test_un_comando_tuyo_no_llega_al_modelo():
+    """Una frase de Comandos.md se resuelve sin pagar una llamada.
+
+    Hoy toda frase transcrita va derecho a `motor.ask`. Para "prende el
+    server" eso es esperar uno o dos segundos y pagar una llamada por algo que
+    no tiene ninguna ambiguedad.
+
+    Lo que este test fija --y es la mitad que importa-- son las DOS
+    direcciones: que un comando NO llegue al motor, y que lo que no es un
+    comando llegue igual que siempre. Con solo la primera, un bug de
+    coincidencia demasiado ancha se comeria las frases normales y el test
+    seguiria verde.
+    """
+    import numpy as np
+
+    from eve import comandos, store, voice as voz
+    from eve.listener import Listener
+
+    with tempfile.TemporaryDirectory() as raiz:
+        previos = (store.CONFIG_PATH, store.DB_PATH, comandos.RUTA)
+        store.CONFIG_PATH = os.path.join(raiz, "config.json")
+        store.DB_PATH = os.path.join(raiz, "eve.db")
+        comandos.RUTA = os.path.join(raiz, "Comandos.md")
+        previo_motor = Listener._build_engine
+        previo_hablar, previo_transcribir = voz.speak, voz.transcribe
+        try:
+            with open(comandos.RUTA, "w", encoding="utf-8") as f:
+                f.write(
+                    "# Los mios\n\n"
+                    "## modo concentracion | modo foco\n"
+                    "accion: mostrar arranco el modo foco\n\n"
+                    "## armame el parte\n"
+                    "prompt: Resumi el dia en tres bloques.\n\n"
+                    "## prende el server\n"
+                    "sistema: echo arrancando\n\n"
+                    "## este esta a medias\n"
+                    "(sin linea de tipo, no es un comando)\n")
+
+            # 1. El archivo se lee, y el que esta a medias NO entra: un `##`
+            #    sin su linea de tipo es un titulo suelto, no un comando roto
+            #    que haya que reportar.
+            leidos = comandos.leer()
+            assert [c["tipo"] for c in leidos] == ["accion", "prompt", "sistema"], leidos
+            assert leidos[0]["frases"] == ["modo concentracion", "modo foco"]
+
+            # 2. La coincidencia perdona lo que el transcriptor hace solo:
+            #    mayusculas, acentos y un punto al final.
+            cfg = {**store.DEFAULTS, "comandos_voz": "si"}
+            for dicho in ("modo concentracion", "Modo Concentracion",
+                          "modo concentración", "modo concentracion."):
+                assert comandos.buscar(dicho), dicho
+            # Y no perdona de mas: media frase no alcanza.
+            assert not comandos.buscar("modo")
+            assert not comandos.buscar("quiero modo concentracion porfa")
+
+            # 3. `prompt` devuelve el texto que va EN LUGAR de lo dicho.
+            que, dato = comandos.resolver("armame el parte", cfg)
+            assert que == "prompt" and dato.startswith("Resumi el dia"), (que, dato)
+
+            # 4. `sistema` SIN aprobar no corre. Es el freno entero.
+            que, dato = comandos.resolver("prende el server", cfg)
+            assert que == "hecho" and "aprobado" in dato.lower(), dato
+
+            # 5. Aprobado, corre. Y la aprobacion es del TEXTO: si despues le
+            #    editas el comando, vuelve a estar frenado --que es lo que
+            #    evita que aprobar un `echo` deje aprobado un `rm`.
+            store.save_config(cfg)
+            cmd = [c for c in leidos if c["tipo"] == "sistema"][0]
+            comandos.aprobar(cmd)
+            cfg2 = store.load_config()
+            assert comandos.aprobado(cmd, cfg2)
+            que, dato = comandos.resolver("prende el server", cfg2)
+            assert que == "hecho" and "arrancando" in dato, dato
+
+            editado = {**cmd, "valor": "echo otra cosa"}
+            assert not comandos.aprobado(editado, cfg2), "la firma no siguio al texto"
+
+            # 6. Con el ajuste en `no`, el archivo se ignora entero.
+            apagado = {**cfg2, "comandos_voz": "no"}
+            assert comandos.resolver("armame el parte", apagado) == ("nada", "")
+
+            # --- 7. Y de punta a punta, por el listener -------------------
+            dichos = []
+
+            class MotorFalso:
+                def ask(self, texto):
+                    dichos.append(texto)
+                    return "contestado"
+
+                def reset_context(self):
+                    pass
+
+            Listener._build_engine = lambda self: MotorFalso()
+            voz.speak = lambda *a, **k: None
+            store.save_config({**cfg2, "comandos_voz": "si"})
+            lis = Listener(store.load_config())
+
+            def correr(frase):
+                dichos.clear()
+                voz.transcribe = lambda audio, cfg: frase
+                lis._process(np.array([1], dtype="float32"))
+                return list(dichos)
+
+            # Un comando NO llega al motor.
+            assert correr("modo concentracion") == [], "el comando llego al modelo"
+            # Uno de sistema tampoco.
+            assert correr("prende el server") == []
+            # El de tipo `prompt` SI llega, pero con el texto reemplazado.
+            llego = correr("armame el parte")
+            assert len(llego) == 1 and llego[0].startswith("Resumi el dia"), llego
+            # Y lo que no es un comando llega tal cual, como siempre.
+            assert correr("que hora es") == ["que hora es"]
+        finally:
+            Listener._build_engine = previo_motor
+            voz.speak, voz.transcribe = previo_hablar, previo_transcribir
+            store.CONFIG_PATH, store.DB_PATH, comandos.RUTA = previos
+
+
 def test_elegir_proveedor_escribe_las_dos_claves():
     """Un solo control para quien piensa, y el listener no cambia.
 
@@ -6105,10 +6224,11 @@ def test_la_barra_lateral_navega_igual_que_las_pestanas():
 
                 assert (panel._riel is not None) is espera_riel, nav
                 assert (panel._nb is None) is espera_riel, nav
-                # Las ocho estan por los dos caminos, y con el mismo nombre.
-                assert panel.rotulos_navegacion()[:4] == [
-                    "General", "Modelos y claves", "Cuentas", "Voz"], nav
-                assert len(panel._tabs) == 8, (nav, list(panel._tabs))
+                # Las nueve estan por los dos caminos, y con el mismo nombre.
+                assert panel.rotulos_navegacion()[:5] == [
+                    "General", "Modelos y claves", "Cuentas", "Comandos",
+                    "Voz"], nav
+                assert len(panel._tabs) == 9, (nav, list(panel._tabs))
 
                 def a_la_vista():
                     return [t for t, m in panel._tabs.items() if m.winfo_manager()]
@@ -6868,6 +6988,8 @@ def test_todo_ajuste_se_puede_tocar_desde_el_panel():
             "perfil_activo",
             # las escriben los botones de la pestaña Addons, por huella
             "addons_activos", "addons_aprobados",
+            # idem, con el boton de aprobar de la pestaña Comandos
+            "comandos_aprobados",
             # se escriben arrastrando el cartel con el mouse, que es como se
             # elige una posicion; un campo de numeros seria peor
             "hud_x", "hud_y", "overlay_mover",
@@ -6894,6 +7016,7 @@ def test_todo_ajuste_se_puede_tocar_desde_el_panel():
             "workdirs": "el cuadro de texto de la pestaña de permisos",
             "confirm_destructive": "el selector de permisos",
             "addons_aprobados": "los botones Aprobar y Revocar de la pestaña Addons",
+            "comandos_aprobados": "el boton Revisar y aprobar de la pestaña Comandos",
         }
         raiz = os.path.dirname(os.path.abspath(__file__))
         with open(os.path.join(raiz, "eve", "gui.py"), encoding="utf-8") as f:

@@ -175,18 +175,26 @@ al navegador. Abrir Chrome para leer tres renglones es salirse del programa.
 
 Los frenos no son configurables desde adentro. Eso es a propósito.
 
-**Nueve claves que Eve nunca puede escribir**, ni con `E ajustar` ni pidiéndolo
+**Diez claves que Eve nunca puede escribir**, ni con `E ajustar` ni pidiéndolo
 amablemente:
 
 ```
 confirm_destructive · workdirs · addons_aprobados · autoridad
 claves_del_usuario · cc_permission_mode · ayuda_alcance · archivos_alcance
-skills_alcance
+skills_alcance · comandos_aprobados
 ```
 
 Son exactamente las que le sueltan las manos. Se encontró que `E ajustar` podía
 escribir las seis primeras —incluida la de aprobar addons, o sea que todo el
 trabajo de meter los addons bajo el freno era decorativo.
+
+**`comandos_aprobados` es la décima, y entró por la misma razón exacta que
+`addons_aprobados`.** Un comando `sistema` de `Comandos.md` corre lo que diga
+el archivo, y la aprobación —el hash del texto que vos leíste— es lo único que
+separa "escrito" de "corriendo". Si Eve pudiera escribir esa clave se aprobaría
+sola lo que ella misma dejó escrito, y **puede escribir archivos** cuando
+`archivos_alcance` está en `escribir`. Las dos mitades juntas serían ejecución
+arbitraria sin que nadie mire; separadas, no.
 
 **`skills_alcance` es la novena, y la atrapó el mismo test el día que se
 agregó.** Parece de la familia de `ayuda_vocabulario` —las dos deciden cuánto

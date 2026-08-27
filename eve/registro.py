@@ -840,6 +840,22 @@ CARTEL = (
 # cada seccion se sigue leyendo donde un lector la busca --lo del habla, junto
 # a lo del habla-- y el diff no es mover doscientas lineas de un lado a otro,
 # que es donde se pierde una fila sin que nadie lo note.
+COMANDOS = (
+    Seccion(
+        "Frases que hacen algo fijo",
+        (
+            Propio("_comandos_lista", ()),
+            Campo("comandos_voz", "Comandos por voz", ["si", "no"]),
+            Ayuda("Con 'si', una frase que coincida con las de Comandos.md se\n"
+                  "resuelve sin llamar al modelo. Con 'no', todo va al modelo\n"
+                  "como antes, y el archivo se ignora.\n"
+                  "La coincidencia es EXACTA --sin mayusculas ni acentos-- y no\n"
+                  "difusa a proposito: un comando que a veces agarra es peor que\n"
+                  "uno que no existe."),
+        ),
+    ),
+)
+
 _A_MODELOS = (
     "Quien piensa por ella", "Otros motores", "Ajuste fino del modelo",
     "Como te escucha", "Ajuste fino del reconocimiento",
@@ -866,7 +882,7 @@ MODELOS = _de_general + _de_voz
 _perdidos = set(_A_MODELOS) - {s.titulo for s in MODELOS}
 assert not _perdidos, f"secciones que _A_MODELOS nombra y no existen: {_perdidos}"
 
-TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA, GENERAL, CARTEL, MODELOS)
+TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA, GENERAL, CARTEL, MODELOS, COMANDOS)
 
 
 # Las siete piezas de un bloque de fondo, con el sufijo REAL de su clave. Los

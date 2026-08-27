@@ -164,13 +164,14 @@ class Panel(tk.Tk):
         self.vars: dict[str, tk.Variable] = {}
         self._barra_superior(self)
 
-        # Ocho pestañas agrupadas por lo que uno viene a hacer, no por
+        # Nueve pestañas agrupadas por lo que uno viene a hacer, no por
         # modulo. El rotulo traducido va aca, con el texto LITERAL adentro de
         # `tr(...)`: con una variable el chequeo de traduccion no lo ve.
         pestanas = (
             ("General", tr("General"), self._tab_general),
             ("Modelos", tr("Modelos y claves"), self._tab_modelos),
             ("Cuentas", tr("Cuentas"), self._tab_cuentas),
+            ("Comandos", tr("Comandos"), self._tab_comandos),
             ("Voz", tr("Voz"), self._tab_voz),
             ("Contactos", tr("Contactos"), self._tab_contactos),
             ("Addons", tr("Addons"), self._tab_addons),
@@ -1396,6 +1397,134 @@ class Panel(tk.Tk):
         t = ttk.Frame(nb)
         self._pintar_registro(t, registro.MODELOS)
         return t
+
+    def _tab_comandos(self, nb):
+        return self._componer(
+            nb, tr("Comandos"),
+            tr("Frases tuyas que hacen algo fijo, sin pasar por el modelo."),
+            [self._bloque_comandos],
+        )
+
+    def _bloque_comandos(self, nb):
+        """Generado desde `registro.COMANDOS`."""
+        t = ttk.Frame(nb)
+        self._pintar_registro(t, registro.COMANDOS)
+        return t
+
+    def _comandos_lista(self, padre) -> None:
+        """Lo que dice Comandos.md, y el freno de los que corren algo.
+
+        La lista se lee del archivo cada vez que se refresca en vez de
+        guardarse en la config: el archivo es la fuente, y tener una copia al
+        lado es garantizar que un dia digan cosas distintas.
+        """
+        from . import comandos as mod
+
+        # Los rotulos con el texto LITERAL adentro de `tr(...)`: escribirlos
+        # como `tr(c.capitalize())` los deja invisibles para el chequeo de
+        # traduccion, que es como este panel ya mostro tres textos en español
+        # estando en ingles.
+        columnas = (("frase", tr("Frase"), 200), ("tipo", tr("Tipo"), 70),
+                    ("hace", tr("Hace"), 300), ("estado", tr("Estado"), 110))
+        cols = tuple(c for c, _r, _a in columnas)
+        self.cmd_tree = ttk.Treeview(padre, columns=cols, show="headings",
+                                     height=7)
+        for c, rotulo, ancho in columnas:
+            self.cmd_tree.heading(c, text=rotulo)
+            self.cmd_tree.column(c, width=ancho, anchor="w")
+        self.cmd_tree.pack(fill="x", padx=12, pady=(6, 4))
+
+        barra = ttk.Frame(padre)
+        barra.pack(fill="x", padx=12, pady=(0, 4))
+        ttk.Button(barra, text=tr("Abrir Comandos.md"),
+                   command=self.comando_abrir_archivo).pack(side="left")
+        ttk.Button(barra, text=tr("Recargar"),
+                   command=lambda: self._comandos_refrescar()).pack(side="left", padx=6)
+        ttk.Button(barra, text=tr("Revisar y aprobar"),
+                   command=self.comando_aprobar).pack(side="left")
+        ttk.Button(barra, text=tr("Probar"),
+                   command=self.comando_probar).pack(side="left", padx=6)
+        self.cmd_estado = ttk.Label(padre, text="", style="Ayuda.TLabel",
+                                    justify="left")
+        self.cmd_estado.pack(anchor="w", padx=12, pady=(2, 6))
+
+        def refrescar():
+            self.cmd_tree.delete(*self.cmd_tree.get_children())
+            self._cmd_filas = mod.leer()
+            for c in self._cmd_filas:
+                if c["tipo"] == "sistema":
+                    estado = (tr("aprobado") if mod.aprobado(c, self.cfg)
+                              else tr("SIN APROBAR"))
+                else:
+                    estado = tr("sin riesgo")
+                self.cmd_tree.insert("", "end", values=(
+                    " | ".join(c["frases"]), c["tipo"], c["valor"][:80], estado))
+            faltan = len([c for c in self._cmd_filas
+                          if c["tipo"] == "sistema" and not mod.aprobado(c, self.cfg)])
+            if not self._cmd_filas:
+                self.cmd_estado.config(text=tr("Todavia no hay comandos. Abri el archivo y escribi uno."))
+            elif faltan:
+                self.cmd_estado.config(
+                    text=f"{faltan} {tr('sin aprobar: esas frases no hacen nada todavia.')}")
+            else:
+                self.cmd_estado.config(text=tr("Todos listos."))
+
+        self._comandos_refrescar = refrescar
+        refrescar()
+
+    def _comando_elegido(self):
+        sel = self.cmd_tree.selection()
+        if not sel:
+            return None
+        i = self.cmd_tree.index(sel[0])
+        filas = getattr(self, "_cmd_filas", [])
+        return filas[i] if i < len(filas) else None
+
+    def comando_abrir_archivo(self) -> None:
+        from . import comandos as mod, plataforma
+
+        plataforma.abrir(mod.asegurar_archivo())
+
+    def comando_aprobar(self) -> None:
+        """Aprueba el comando elegido, mostrandolo entero primero.
+
+        Se muestra ANTES de aprobar y no despues: aprobar a ciegas seria el
+        mismo agujero que aprobar un addon sin leerlo. Y la aprobacion es del
+        TEXTO --por hash-- asi que editarlo despues lo vuelve a frenar.
+        """
+        from . import comandos as mod
+
+        cmd = self._comando_elegido()
+        if cmd is None:
+            messagebox.showinfo(tr("Comandos"), tr("Elegi uno de la lista."))
+            return
+        if cmd["tipo"] != "sistema":
+            messagebox.showinfo(tr("Comandos"),
+                                tr("Ese no corre nada: no hace falta aprobarlo."))
+            return
+        ok = messagebox.askyesno(
+            tr("Comandos"),
+            f"{tr('Al decir')} \"{cmd['frases'][0]}\" {tr('se va a correr')}:\n\n"
+            f"{cmd['valor']}\n\n{tr('Lo apruebo?')}")
+        if not ok:
+            store.log_action("comandos", "aprobar", f"DENEGADO {cmd['frases'][0]}")
+            return
+        mod.aprobar(cmd)
+        self.cfg = store.load_config()
+        self._comandos_refrescar()
+
+    def comando_probar(self) -> None:
+        """Lo corre ahora, sin tener que decirlo en voz alta."""
+        from . import comandos as mod
+
+        cmd = self._comando_elegido()
+        if cmd is None:
+            messagebox.showinfo(tr("Comandos"), tr("Elegi uno de la lista."))
+            return
+        que, dato = mod.ejecutar(cmd, self.cfg)
+        if que == "prompt":
+            dato = f"{tr('le mandaria al modelo')}: {dato}"
+        self.cmd_estado.config(text=str(dato)[:300])
 
     def _tab_cuentas(self, nb):
         return self._componer(

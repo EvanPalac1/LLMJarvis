@@ -345,6 +345,8 @@ DEFAULTS = {
     # hacer adentro de lo permitido, nunca cuanto alcanza.
     "archivos_alcance": "exacto",
     "skills_alcance": "consultar",
+    "comandos_voz": "si",
+    "comandos_aprobados": "",
     # Cuando se abre la ventana de actividad.
     #   nunca      solo si la abris a mano desde la bandeja
     #   con_eve    se abre junto con Eve y queda ahi
@@ -1240,6 +1242,12 @@ NUNCA_POR_EVE = (
     # sea que le da acceso a archivos del usuario que antes no podia leer.
     # Cuanto viaja no compra permisos; que el comando exista, si.
     "skills_alcance",
+    # La decima, por la misma razon exacta que `addons_aprobados`: un comando
+    # `sistema` corre lo que diga el archivo, y la aprobacion es lo unico que
+    # separa "escrito" de "corriendo". Si Eve pudiera escribir esta clave, se
+    # aprobaria sola lo que ella misma dejo escrito en Comandos.md --y puede
+    # escribir archivos si `archivos_alcance` esta en `escribir`.
+    "comandos_aprobados",
 )
 
 

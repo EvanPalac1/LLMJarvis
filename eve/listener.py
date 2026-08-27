@@ -263,6 +263,27 @@ class Listener:
                 sin = despertar.separar(text, str(self.cfg.get("wake_palabra", "eve")))
                 text = sin if sin else text
             print(f"[usuario] {text}")
+
+            # Un comando tuyo se resuelve ACA, sin llamar al modelo. Va antes
+            # de `mostrar(estado="pensando")` porque no hay nada que pensar:
+            # decir "pensando" para algo que ya esta resuelto es mentirle al
+            # cartel. Si lo dicho no es un comando, `resolver` devuelve 'nada'
+            # y sigue el camino de siempre.
+            from . import comandos
+
+            que, dato = comandos.resolver(text, self.cfg)
+            if que == "hecho":
+                print(f"[comando] {dato}")
+                self.mostrar(estado="hablando", detalle=self._con_cola("COMANDO"),
+                             usuario=text, eve=dato)
+                voice.speak(dato, self.cfg)
+                self.mostrar(eve=dato, nivel=0.0)
+                return
+            if que == "prompt":
+                # La frase corta se reemplaza por el texto largo y ESE va al
+                # modelo. Es el unico de los tres tipos que paga una llamada.
+                text = dato
+
             self.mostrar(estado="pensando", detalle=self._con_cola("PENSANDO"),
                          usuario=text, eve="")
             motor = self._motor()
