@@ -54,6 +54,9 @@ class Consola:
         self.cuadro = 0
         self.mtime = self._mtime()
         self._arrastre = None
+        # El ultimo cursor que se le pidio a Tk. Ver `_poner_cursor`: sin
+        # esto, cada `<Motion>` reclamaba uno nuevo y la ventana parpadeaba.
+        self._cursor_actual = ""
         # Redimensionar o rotar en curso. Estado aparte del arrastre porque
         # son cosas distintas: arrastrar mueve, esto cambia la forma, y
         # mezclarlos en una bandera obliga a preguntar cual era en cada rama.
@@ -529,19 +532,34 @@ class Consola:
     def _cursor(self, evento) -> None:
         """El puntero que corresponda a lo que hay debajo.
 
-        Se hace en cada `<Motion>` y es barato: es aritmetica sobre nueve
-        puntos. Sin esto los tiradores son invisibles hasta que uno acierta.
+        La CUENTA se hace en cada `<Motion>` y es barata: aritmetica sobre
+        nueve puntos. Lo que NO es barato es `config(cursor=...)`: cada
+        llamada le pide a Tk que rehaga el cursor de la ventana, y hacerlo
+        cientos de veces por segundo mientras se mueve el mouse es lo que
+        hacia parpadear la ventana entera. En modo Work el valor ni siquiera
+        cambia nunca --es "" siempre-- asi que eran repintados por nada.
+        Se guarda el ultimo y solo se toca a Tk cuando el cursor CAMBIA.
         """
         if self.modo.get() != "edit":
-            self.lienzo.config(cursor="")
+            self._poner_cursor("")
             return
         nombre = self._tirador_en(evento.x, evento.y)
         if not nombre and self._en(evento.x, evento.y):
             nombre = "mover"
+        self._poner_cursor(self.CURSORES.get(nombre, ""))
+
+    def _poner_cursor(self, cursor: str) -> None:
+        """Le pide el cursor a Tk solo si es distinto del que ya tiene."""
+        if cursor == self._cursor_actual:
+            return
         try:
-            self.lienzo.config(cursor=self.CURSORES.get(nombre, ""))
+            self.lienzo.config(cursor=cursor)
         except tk.TclError:
             pass   # un cursor que este sistema no tenga no puede tumbar nada
+        else:
+            # Solo si Tk lo acepto: si fallo, el cursor sigue siendo el de
+            # antes y anotar el nuevo dejaria la guarda mintiendo.
+            self._cursor_actual = cursor
 
     def _clic(self, evento) -> None:
         if self.modo.get() != "edit":

@@ -2669,6 +2669,166 @@ def test_motor_compat():
     assert o.host == "http://localhost:11434" and o.modelo == "qwen3:8b"
 
 
+def test_mover_el_mouse_no_repinta_el_cursor_en_cada_pixel():
+    """La ventana de actividad parpadeaba fuerte al mover el mouse.
+
+    `_cursor` esta atado a `<Motion>`, que llega decenas de veces por segundo,
+    y llamaba `lienzo.config(cursor=...)` SIEMPRE. Cada una de esas le pide a
+    Tk que rehaga el cursor de la ventana; encadenadas, la ventana parpadea.
+    En modo Work era gratis del todo: el valor es "" siempre y no cambia nunca.
+
+    Se mide como se veia: se mueve el mouse muchas veces y se cuentan las
+    llamadas que llegaron a Tk. Con la guarda, un recorrido entero por el
+    mismo modo son cero o una.
+    """
+    from eve import consola
+
+    class Lienzo:
+        def __init__(self):
+            self.llamadas = 0
+
+        def config(self, **kw):
+            if "cursor" in kw:
+                self.llamadas += 1
+
+    class Evento:
+        def __init__(self, x, y):
+            self.x, self.y = x, y
+
+    class Modo:
+        def __init__(self, v):
+            self.v = v
+
+        def get(self):
+            return self.v
+
+    c = consola.Consola.__new__(consola.Consola)
+    c.lienzo = Lienzo()
+    c._cursor_actual = ""
+    c.modo = Modo("work")
+
+    # 200 pixeles de recorrido en modo Work: el cursor no cambia ni una vez.
+    for x in range(200):
+        c._cursor(Evento(x, 100))
+    assert c.lienzo.llamadas == 0, (
+        f"{c.lienzo.llamadas} repintados moviendo el mouse sin que cambie nada")
+
+    # En edicion tampoco: sobre la nada el cursor es el mismo en todo el
+    # recorrido. Lo que se cuenta son los CAMBIOS, no los movimientos.
+    c.modo = Modo("edit")
+    c.seleccion = []
+    c._modulos = lambda: []
+    c._en = lambda _x, _y, solo_interactivos=False: None
+    for x in range(200):
+        c._cursor(Evento(x, 100))
+    assert c.lienzo.llamadas == 0, f"{c.lienzo.llamadas} repintados sobre la nada"
+
+    # Y cuando SI cambia, se pinta: la guarda no puede dejar el cursor pegado.
+    c._en = lambda _x, _y, solo_interactivos=False: {"id": "algo"}
+    c._cursor(Evento(10, 10))
+    assert c.lienzo.llamadas == 1, "el cursor quedo pegado al entrar a un modulo"
+    for x in range(50):
+        c._cursor(Evento(x, 10))   # sigue adentro: no se vuelve a pintar
+    assert c.lienzo.llamadas == 1, f"{c.lienzo.llamadas}: repinta estando adentro"
+
+
+def test_ningun_proveedor_conocido_arranca_sin_modelo():
+    """Elegir un proveedor de la lista no puede tirar un error al abrir.
+
+    OmniRoute venia con el modelo VACIO en su preset, con el argumento de que
+    enruta a cientos y elegir uno seria adivinar. El resultado era que
+    instalarlo y abrir el programa tiraba `RuntimeError: Falta el nombre del
+    modelo`, sin haber hecho nada mal.
+
+    Y dejar pasar el modelo vacio tampoco era la salida. Preguntado contra el
+    servicio corriendo, OmniRoute con `"model": ""` contesta
+    `{"error": {"message": "Missing model"}}`: la falla se mudaba del arranque
+    a la primera orden hablada, que es peor porque ahi el usuario ya hablo.
+
+    Esto vale para TODOS los presets, no solo para OmniRoute: un preset sin
+    modelo es un error garantizado en la cara de quien lo elija.
+    """
+    from eve import compat_engine
+
+    for proveedor, (url, _clave, modelo) in compat_engine.PROVEEDORES.items():
+        if proveedor == "propio":
+            continue   # es el hueco para escribir lo tuyo: vacio es su sentido
+        assert url, f"{proveedor} no tiene URL"
+        assert modelo, (
+            f"{proveedor} viene sin modelo: elegirlo tira RuntimeError al abrir")
+
+        m = compat_engine.CompatEve.__new__(compat_engine.CompatEve)
+        m._destino({"compat_proveedor": proveedor, "compat_url": "",
+                    "compat_modelo": ""})
+        # Con la clave cargada o sin ella, lo que NO puede fallar es el modelo.
+        m.clave = "x"
+        ok, motivo = m.comprobar()
+        assert ok, f"{proveedor} no arranca de fabrica: {motivo}"
+
+    # Y si de verdad falta el modelo, el mensaje tiene que mandar a donde
+    # esta el campo. Decia "Panel > Cuentas", que es de donde se MUDO.
+    m = compat_engine.CompatEve.__new__(compat_engine.CompatEve)
+    m._destino({"compat_proveedor": "propio", "compat_url": "http://x/v1",
+                "compat_modelo": ""})
+    m.clave = "x"
+    ok, motivo = m.comprobar()
+    assert not ok and "modelo" in motivo
+    assert "Modelos" in motivo, f"manda a la pestaña equivocada: {motivo}"
+    assert "Buscar modelos" in motivo, (
+        f"no nombra el boton que lo resuelve: {motivo}")
+
+
+def test_la_respuesta_se_pide_entera_y_no_en_trozos():
+    """Sin `stream: False` explicito, OmniRoute contesta en trozos y no se lee.
+
+    El protocolo de OpenAI tiene `stream` en false por defecto, asi que el
+    campo parecia de mas. Medido contra OmniRoute corriendo: sin el campo
+    devuelve `data: {...}` linea por linea, y `_pedir` hace `r.json()` sobre
+    eso, que revienta. O sea que el motor no andaba con NINGUN modelo suyo.
+
+    Se comprueba con un servidor de mentira que hace lo mismo: si el pedido no
+    trae `stream` en false, contesta en trozos.
+    """
+    from eve import compat_engine
+
+    class Trozos:
+        status_code = 200
+
+        def json(self):
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+    class Entera:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"role": "assistant",
+                                             "content": "listo"}}]}
+
+    pedidos = []
+
+    def post(url, headers=None, json=None, timeout=None):  # noqa: A002
+        pedidos.append(json)
+        return Entera() if json.get("stream") is False else Trozos()
+
+    motor = compat_engine.CompatEve.__new__(compat_engine.CompatEve)
+    motor._destino({"compat_proveedor": "omniroute", "compat_url": "",
+                    "compat_modelo": ""})
+    motor.cfg = {"max_tokens": 100}
+    motor.on_status = lambda _t: None
+    motor._tools = lambda: []
+    motor.uso = {}
+
+    real_post = compat_engine.requests.post
+    compat_engine.requests.post = post
+    try:
+        salida = motor._pedir([{"role": "user", "content": "hola"}])
+    finally:
+        compat_engine.requests.post = real_post
+
+    assert salida.get("content") == "listo", salida
+    assert pedidos and pedidos[0].get("stream") is False, pedidos
+
+
 def test_compat_reintenta():
     """Un 503 pasajero no puede terminar la orden que el usuario acaba de decir.
 

@@ -40,10 +40,21 @@ PROVEEDORES = {
     "lmstudio": ("http://localhost:1234/v1", "", "local"),
     # OmniRoute es una pasarela: corre en TU maquina y por detras habla con
     # decenas de proveedores. Emite su propia clave, pero NO la exige: su
-    # `REQUIRE_API_KEY` viene en `false`. El modelo viene vacio porque enruta a
-    # cientos y elegir uno por vos seria adivinar; el boton de buscar modelos
-    # se los pregunta.
-    "omniroute": ("http://localhost:20128/v1", "omniroute", ""),
+    # `REQUIRE_API_KEY` viene en `false`. Medido contra el servicio corriendo:
+    # `/v1/models` y `/v1/chat/completions` contestan sin ninguna clave.
+    #
+    # El modelo venia VACIO, con el argumento de que enruta a cientos y elegir
+    # uno seria adivinar. Eso hacia que instalarlo tirara `RuntimeError: Falta
+    # el nombre del modelo` con solo abrir el programa. Y dejarlo pasar tampoco
+    # servia: preguntado con el modelo vacio, OmniRoute contesta
+    # `{"error": "Missing model"}`, o sea que solo se mudaba la falla del
+    # arranque a la primera orden hablada, que es peor.
+    #
+    # `auto/best-chat` no es adivinar: es un modelo que la pasarela publica en
+    # su propia lista para que ELLA elija. Comprobado: contesta, y por detras
+    # resolvio a mistral. El boton de buscar modelos sigue estando para
+    # cambiarlo por uno concreto.
+    "omniroute": ("http://localhost:20128/v1", "omniroute", "auto/best-chat"),
     # "propio" usa lo que el usuario haya escrito en compat_url / compat_modelo.
     "propio": ("", "compat", ""),
 }
@@ -156,7 +167,12 @@ class CompatEve(OllamaEve):
             return False, ("Falta la URL del servicio. Panel > Cuentas, o elegi un "
                            "proveedor conocido en vez de 'propio'.")
         if not self.modelo:
-            return False, "Falta el nombre del modelo. Panel > Cuentas."
+            # A "Modelos y claves", no a "Cuentas": el modelo se mudo de
+            # pestaña y el mensaje se quedo apuntando a la vieja. Y se nombra
+            # el boton que lo resuelve, porque el campo es un identificador
+            # exacto que nadie sabe de memoria.
+            return False, ("Falta el nombre del modelo. Panel > Modelos y "
+                           "claves, y usa el boton Buscar modelos.")
         # Lo que corre en tu maquina no pide clave; lo de la nube si.
         #
         # Esto estuvo escrito al reves durante unas horas. Se cambio a "lo
@@ -182,6 +198,13 @@ class CompatEve(OllamaEve):
         cuerpo = {
             "model": self.modelo,
             "messages": mensajes,
+            # Explicito aunque el protocolo de OpenAI ya lo tenga por defecto:
+            # OmniRoute contesta EN TROZOS (`data: ...`) si no se lo dice, y
+            # `r.json()` mas abajo no puede leer eso. Comprobado contra el
+            # servicio: sin esta linea falla con cualquier modelo suyo; con
+            # ella devuelve un `chat.completion` entero. Para los demas
+            # proveedores no cambia nada, es el valor que ya asumian.
+            "stream": False,
             "tools": self._tools(),
             "max_tokens": int(self.cfg.get("max_tokens", 8000)),
             "temperature": 0.4,
