@@ -400,7 +400,7 @@ def test_integrations_anti_inyeccion():
 
 def test_brief_y_catalogo():
     """EVE.md llega al prompt, y el catalogo no repite la raiz del menu inicio."""
-    from eve import apps
+    from eve import apps, plataforma
 
     brief = store.load_brief()
     assert brief.startswith("## "), "el titulo y la nota de edicion no van al modelo"
@@ -408,8 +408,15 @@ def test_brief_y_catalogo():
 
     cat, head = apps.catalog(), apps.catalog_header()
     # El prefijo abreviado tiene que estar definido si se usa, y viceversa.
+    #
+    # Solo cuando la cabecera es la de Windows, que es la unica que los define:
+    # los prefijos abrevian rutas del menu inicio. Con el flag forzado a Linux
+    # sobre una maquina Windows, el catalogo sale del disco real --y trae esas
+    # rutas-- mientras la cabecera sigue al flag y ya no las define. Ahi el
+    # assert marcaba una contradiccion que no existe en ninguna maquina de
+    # verdad, y tapaba las corridas con plataforma forzada.
     for marca in ("SMU", "SMP"):
-        if marca + "\\" in cat:
+        if plataforma.WINDOWS and marca + "\\" in cat:
             assert f"{marca} = $env:" in head, f"{marca} usado pero no definido"
     assert "Start Menu\\Programs\\" not in cat, "la raiz larga no debe repetirse por linea"
 
@@ -3083,8 +3090,22 @@ def test_proceso_vivo_ve_un_proceso_SIN_CONSOLA():
 
     Aca el hijo se lanza DESPEGADO de la consola a proposito. Sin eso, este test
     pasa con la implementacion rota.
+
+    Solo Windows: lo que mira es el camino de Windows de `_proceso_vivo` --el
+    que usa la API del sistema en vez de `os.kill(pid, 0)`--. Con el flag
+    forzado a otra plataforma sobre una maquina Windows se mezclan los dos
+    mundos: el codigo toma el camino POSIX y el sistema abajo sigue siendo
+    Windows, asi que el resultado no dice nada de ninguno de los dos. Se
+    descubrio corriendo la suite con `plataforma.MACOS` forzado antes de sacar
+    una release, que es justamente para lo que se hace esa corrida.
     """
     import subprocess
+
+    from eve import plataforma
+
+    if not plataforma.WINDOWS:
+        print("    (mira el camino de Windows de _proceso_vivo, se saltea)")
+        return
 
     banderas = 0
     if sys.platform == "win32":
