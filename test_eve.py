@@ -137,6 +137,22 @@ def test_dos_workdirs_en_unidades_distintas():
     importar que la maquina las tenga: `path_allowed` es aritmetica de strings
     sobre rutas absolutas y no toca el disco para decidir.
     """
+    # Solo Windows, y no por comodidad: el bug ES de Windows.
+    # `commonpath` tira `ValueError` porque alli existen las UNIDADES. En
+    # POSIX no hay equivalente --la barra invertida ni siquiera separa
+    # directorios, asi que "C:\\Users\\x" es un nombre de archivo comun,
+    # `commonpath` devuelve el cwd y nunca tira-- y estas mismas lineas
+    # estarian comprobando una cosa distinta de la que dicen.
+    #
+    # Se escribio sin esta guarda y puso en rojo los dos Linux de la
+    # release: escribir el caso real de una plataforma no exime de decir
+    # en cual corre.
+    from eve import plataforma
+
+    if not plataforma.WINDOWS:
+        print("    (el bug es de unidades de Windows, se saltea)")
+        return
+
     dos = ["C:\\Users\\alguien\\Documents", "D:\\Server"]
 
     # Lo permitido en la SEGUNDA unidad tiene que pasar. Este es el caso que
