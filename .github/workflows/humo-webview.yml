@@ -1,0 +1,86 @@
+name: Humo pywebview
+
+# Prueba de humo, no de release: responde tres incognitas del handshake
+# (pregunta de investigacion 1) antes de que pywebview entre a requirements.txt.
+# pywebview no esta instalado hoy en ningun objetivo de release.yml, asi que
+# esto vive aparte y no toca ese archivo.
+#
+# Cada job es independiente (misma logica que release.yml: PyInstaller no
+# cross-compila, y aca tampoco hay nada que dependa del objetivo de al lado).
+# Solo se dispara a mano: no hay que gastar minutos de los 5 objetivos en
+# cada push mientras esto sigue siendo una medida.
+on:
+  workflow_dispatch:
+
+jobs:
+  humo:
+    name: ${{ matrix.nombre }}
+    runs-on: ${{ matrix.runner }}
+    # Corto y duro: si macOS cuelga como paso con tk.Tk().update()
+    # (test_eve.py:6452-6474, 21 minutos por job), esto tiene que morir rapido
+    # y decir por que, no comerse el minutaje de los cinco objetivos. El
+    # vigia de medidas/pywebview/wv_panel.py ya mata el proceso a los 90s;
+    # este timeout es el respaldo si ni eso alcanza.
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nombre: Windows x64
+            runner: windows-latest
+          - nombre: macOS Intel
+            runner: macos-15-intel
+          - nombre: macOS Apple Silicon
+            runner: macos-14
+          - nombre: Linux x64
+            runner: ubuntu-latest
+          - nombre: Linux ARM64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # gir1.2-webkit2-4.1 y python3-gi: el backend gtk de pywebview los
+      # necesita y release.yml no los instala (solo trae libgirepository1.0-dev,
+      # que es la lib de compilacion, no el binding de Python ni el webkit).
+      # xvfb: no hay pantalla en el runner y nadie levanta una hoy.
+      - name: Dependencias del sistema (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1 xvfb
+
+      # En Windows y macOS pywebview trae pythonnet/pyobjc solo, por marcador
+      # de plataforma (confirmado corriendo esto: pip list muestra pythonnet,
+      # clr_loader, cffi, bottle instalados junto con pywebview 6.2.1 sin
+      # pedirlos aparte). En Linux hace falta el extra [gtk]: sin el, pywebview
+      # no trae PyGObject.
+      - name: Instalar pywebview (Windows, macOS)
+        if: runner.os != 'Linux'
+        run: python -m pip install pywebview
+
+      - name: Instalar pywebview (Linux)
+        if: runner.os == 'Linux'
+        run: python -m pip install "pywebview[gtk]"
+
+      # xvfb-run arranca y apaga el X virtual solo: mas simple que levantar
+      # Xvfb a mano y exportar DISPLAY en un paso aparte.
+      - name: Probar (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a python medidas/pywebview/wv_panel.py; codigo=$?
+          echo "codigo de salida: $codigo"
+          exit $codigo
+
+      - name: Probar (Windows, macOS)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          python medidas/pywebview/wv_panel.py; codigo=$?
+          echo "codigo de salida: $codigo"
+          exit $codigo
