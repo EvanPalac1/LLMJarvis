@@ -7,9 +7,22 @@ name: Humo pywebview
 #
 # Cada job es independiente (misma logica que release.yml: PyInstaller no
 # cross-compila, y aca tampoco hay nada que dependa del objetivo de al lado).
-# Solo se dispara a mano: no hay que gastar minutos de los 5 objetivos en
-# cada push mientras esto sigue siendo una medida.
+# El disparo tiene que ser por PUSH a las ramas `medida/**`, y no solo a mano.
+# No es una preferencia: GitHub resuelve `workflow_dispatch` por nombre contra
+# la RAMA POR DEFECTO, asi que un workflow que solo vive en una rama contesta
+# `HTTP 404: not found on the default branch` y no hay forma de correrlo a
+# mano. Comprobado intentandolo.
+#
+# Y este workflow no puede ir a main: main saca releases, y esto es una medida
+# descartable. Asi que se dispara al empujar la rama.
+#
+# El filtro `medida/**` es el que evita el costo: no corre en main ni en
+# ninguna rama de trabajo, solo en las ramas de medicion, que existen para
+# esto y se borran despues.
 on:
+  push:
+    branches:
+      - "medida/**"
   workflow_dispatch:
 
 jobs:
