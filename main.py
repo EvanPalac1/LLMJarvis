@@ -113,15 +113,38 @@ if sys.platform == "win32":
 # runner sin pantalla eso revienta, y no dice nada sobre si el modulo viajo.
 NECESITAN_PANTALLA = ("pystray", "pynput")
 
-SIN_PANTALLA = ("display", "DisplayName", "X connection", "_xorg", "$DISPLAY")
+# Marcas de que el import fallo por el ENTORNO y no por faltar en el paquete.
+#
+# Las cinco primeras son la falta de un servidor de ventanas. La sexta es otra
+# cosa que se ve igual desde aca: en Linux, `pystray` elige backend segun lo
+# que encuentre, y si resuelve al de indicadores pide la typelib
+# `AyatanaAppIndicator3`, que es un paquete del sistema. Sin ella tira
+# `ValueError: Namespace ... not available`, que no dice nada de si el modulo
+# viaja --viaja-- sino de que la maquina no tiene el paquete.
+#
+# Aparecio al agregar `gir1.2-webkit2-4.1` al runner para pywebview: con
+# gobject-introspection instalado, pystray dejo de morir por falta de pantalla
+# --que ya estaba contemplado-- y paso a morir por la typelib, que no lo
+# estaba. O sea que el chequeo dependia de que el runner NO tuviera algo.
+#
+# Lo que este chequeo tiene que contestar es una sola pregunta: el modulo,
+# ¿esta adentro del paquete? Lo que le falte a la maquina donde corre el build
+# lo declaran el .deb y el .rpm, que es donde corresponde.
+SIN_PANTALLA = ("display", "DisplayName", "X connection", "_xorg", "$DISPLAY",
+                "Namespace")
 
 
 def _es_falta_de_pantalla(exc: BaseException) -> bool:
     """Si el import fallo por no haber servidor de ventanas, no por faltar.
 
     Se mira el texto del error y no el tipo porque cada libreria elige el suyo:
-    pystray tira `Xlib.error.DisplayNameError` y pynput un `ImportError` con el
-    motivo adentro del mensaje.
+    pystray tira `Xlib.error.DisplayNameError`, pynput un `ImportError` con el
+    motivo adentro del mensaje, y pystray otra vez un `ValueError` cuando le
+    falta la typelib del indicador.
+
+    En los tres casos el modulo SI viaja, y eso es lo unico que este chequeo
+    tiene que decidir. Lo verifica despues con `find_spec`, que contesta la
+    pregunta de verdad y no necesita ni pantalla ni typelibs.
     """
     texto = f"{type(exc).__name__}: {exc}"
     return any(marca in texto for marca in SIN_PANTALLA)
