@@ -10144,6 +10144,73 @@ def test_el_panel_no_tiene_ni_una_medida_escrita_a_mano():
     assert not fantasmas, f"SIN_DIBUJO nombra selectores que ya no existen: {fantasmas}"
 
 
+def test_abrir_el_panel_no_arrastra_el_motor_ni_el_llavero():
+    """Dibujar el panel no puede depender de lo que tarda otra cosa.
+
+    Medido sobre el panel de verdad, abierto con pywebview: tardaba **10.1
+    segundos** en dibujar. No era el dibujo, eran dos cosas que se pedian antes
+    de dibujar nada:
+
+    * `_modelos_del_proveedor` leia `compat_engine.PROVEEDORES`, que es un
+      diccionario de presets, y para eso importaba el motor entero --que
+      arrastra `ollama_engine` y `brain`, y con ellos los SDK--. **5.1
+      segundos** para llenar un desplegable. Los presets se mudaron a
+      `eve/proveedores.py`, que no importa nada.
+    * el estado de las claves eran **doce consultas al gestor de credenciales
+      de Windows**, medio segundo cada una, para pintar un rotulo de una
+      pestana que ni siquiera es la que abre. Ahora llegan despues, por
+      `claves_estado`.
+
+    Este test cuida las dos: que el esquema se arme sin importar el motor, y
+    que no pregunte por ninguna clave de proveedor. El tiempo en si no se mide
+    --depende de la maquina y seria un test que falla los martes-- pero SI se
+    mide lo que lo causaba, que no depende de nadie.
+    """
+    import subprocess
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+
+    # En un proceso aparte: aca el motor ya puede estar importado por otro test,
+    # y entonces esto pasaria siempre sin comprobar nada.
+    guion = (
+        "import sys; sys.path.insert(0, %r)\n"
+        "from eve import panel_api, store\n"
+        "consultas = []\n"
+        "real = panel_api._tiene_clave\n"
+        "panel_api._tiene_clave = lambda c: consultas.append(c) or real(c)\n"
+        "panel_api.esquema(dict(store.DEFAULTS))\n"
+        "pesados = [m for m in ('eve.brain', 'eve.ollama_engine', 'eve.cc_engine',\n"
+        "                       'eve.compat_engine', 'eve.listener')\n"
+        "           if m in sys.modules]\n"
+        "print('PESADOS', pesados)\n"
+        "print('CLAVES', consultas)\n"
+    ) % raiz
+    r = subprocess.run([sys.executable, "-c", guion], capture_output=True,
+                       text=True, cwd=raiz, timeout=180)
+    assert r.returncode == 0, f"el esquema no se pudo armar:\n{r.stderr[-800:]}"
+
+    pesados = r.stdout[r.stdout.index("PESADOS"):].splitlines()[0]
+    assert pesados == "PESADOS []", (
+        "armar el esquema importa el motor, y eso son cinco segundos de ventana "
+        f"en blanco: {pesados}")
+
+    claves = r.stdout[r.stdout.index("CLAVES"):].splitlines()[0]
+    # Los addons declaran las suyas y son pocas; los DOCE proveedores no.
+    de_proveedor = [c for c in ("anthropic", "gemini", "groq", "openai", "xai",
+                                "deepseek", "openrouter", "omniroute")
+                    if c in claves]
+    assert not de_proveedor, (
+        "el esquema pregunta por las claves de los proveedores; son doce "
+        f"consultas al llavero antes de dibujar: {de_proveedor}")
+
+    # Y la accion que las averigua sigue existiendo, o el panel se queda
+    # diciendo "comprobando..." para siempre.
+    from eve import panel_api
+
+    assert "claves_estado" in panel_api.ACCIONES
+    assert "claves_estado" in panel_api.AL_ABRIR
+
+
 def test_registro_esquema_serializa_el_arbol_entero_sin_perder_nada():
     """`json.dumps` sobre el arbol crudo lo saca como array y pierde el tipo:
     un `Interruptor` y un `Boton`, los dos de dos campos, salen indistinguibles

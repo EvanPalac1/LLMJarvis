@@ -49,6 +49,11 @@ IMPORTS_CRITICOS = [
     "onnxruntime",
     "onnx_asr",      # el reconocedor opcional de NVIDIA; rueda pura, sin deps nuevas
     "rlottie_python",  # las animaciones vectoriales; import diferido en lienzo
+    # La ventana del panel nuevo. Sin esto, `--panel-web` muere con
+    # ModuleNotFoundError en la version instalada y en desarrollo anda perfecto,
+    # que es la peor clase de falla. El build salio verde sin el: compilar no
+    # prueba que la dependencia viaje.
+    "webview",
     # El icono de bandeja. Sin el no hay forma de llegar al panel ni de salir:
     # el proceso queda corriendo sin nada en pantalla, que es indistinguible de
     # que Eve no arranco.
@@ -111,7 +116,9 @@ if sys.platform == "win32":
 
 # Estos abren una conexion con el servidor de ventanas al importarse. En un
 # runner sin pantalla eso revienta, y no dice nada sobre si el modulo viajo.
-NECESITAN_PANTALLA = ("pystray", "pynput")
+# `webview` entra aca por lo mismo que los otros dos: en Linux abre una conexion
+# con el servidor de ventanas al importarse, y en el runner no hay ninguna.
+NECESITAN_PANTALLA = ("pystray", "pynput", "webview")
 
 # Marcas de que el import fallo por el ENTORNO y no por faltar en el paquete.
 #

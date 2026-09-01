@@ -94,10 +94,10 @@ def _modelos_del_proveedor(cfg):
     tiene tipeado ahora, aunque no haya guardado--. Aca lee la config que se le
     pasa, y el frontend le pasa la editada: mismo comportamiento, sin widget.
     """
-    from . import compat_engine
+    from . import proveedores as pv
 
     prov = str(cfg.get("compat_proveedor", "")).strip()
-    preset = compat_engine.PROVEEDORES.get(prov)
+    preset = pv.PROVEEDORES.get(prov)
     salida = [preset[2]] if preset and preset[2] else []
     for nombre in store.modelos_vistos(prov):
         if nombre not in salida:
@@ -292,12 +292,14 @@ def esquema(cfg: dict = None) -> dict:
         **propios(cfg),
         "salida_de": dict(SALIDA_DE),
         "salidas_al_abrir": list(SALIDAS_AL_ABRIR),
+        "al_abrir": list(AL_ABRIR),
         # Que proveedores YA tienen clave guardada. Solo eso: el valor vive en
         # el llavero y no tiene por que pasar por el HTML para que se dibuje un
         # rotulo. Una clave que viaja al frontend se puede leer desde la
         # consola del navegador.
-        "con_clave": sorted(prov for prov in _proveedores_con_clave()
-                            if _tiene_clave(prov)),
+        # Vacio a proposito: lo llena `claves_estado` cuando el panel ya se
+        # dibujo. Ver el comentario de `_propio_selector_proveedor`.
+        "con_clave": [],
         "paleta": tema.resolver(cfg, "ui"),
         "escala": {nombre: tema.pt(nombre, cuerpo) for nombre in tema.ESCALA},
         "espacio": list(tema.ESPACIO),
@@ -400,7 +402,7 @@ NOMBRE_PROVEEDOR = {
 
 def catalogo_proveedores() -> list:
     """(id, rotulo, engine, clave, donde) de todo lo que puede pensar."""
-    from . import compat_engine as ce
+    from . import proveedores as ce
 
     salida = list(MOTORES_PROPIOS)
     for nombre, (url, clave, _modelo) in ce.PROVEEDORES.items():
@@ -421,7 +423,7 @@ def _tiene_clave(clave: str) -> bool:
         return False
 
 
-def proveedores(cfg: dict) -> dict:
+def proveedores(cfg: dict, con_llavero: bool = True) -> dict:
     """El selector entero: quien esta elegido, y como esta cada uno.
 
     Es el pedido que motivo la mudanza: **cada proveedor con su modelo y su
@@ -437,7 +439,7 @@ def proveedores(cfg: dict) -> dict:
     Nunca viaja una clave, solo si HAY una: el valor vive en el llavero del
     sistema y no tiene por que pasar por el HTML para que se muestre un rotulo.
     """
-    from . import compat_engine as ce
+    from . import proveedores as ce
 
     motor = str(cfg.get("engine", "api"))
     prov = str(cfg.get("compat_proveedor", "")).strip()
@@ -450,7 +452,11 @@ def proveedores(cfg: dict) -> dict:
             "id": ident, "rotulo": rotulo, "engine": engine,
             "clave": clave, "donde": tr(donde),
             "necesita_clave": bool(clave),
-            "tiene_clave": _tiene_clave(clave) if clave else False,
+            # `None` = todavia no se pregunto. Distinto de `False`, que es "no
+            # hay clave": el panel dibuja "comprobando..." en vez de decir que
+            # falta una clave que a lo mejor esta.
+            "tiene_clave": (_tiene_clave(clave) if clave else False)
+                           if con_llavero else None,
             "modelo_sugerido": preset[2] if preset else "",
             "url": preset[0] if preset else "",
         })
@@ -878,6 +884,25 @@ def _elegir_proveedor(cfg, args):
     return elegir_proveedor(cfg, str((args or {}).get("id", "")))
 
 
+def _claves_estado(cfg, _args):
+    """Que proveedores tienen clave guardada. Se pide DESPUES de dibujar.
+
+    Doce consultas al gestor de credenciales de Windows cuestan medio segundo
+    cada una: seis segundos y medio de ventana en blanco por un rotulo. Va
+    aparte, por el mismo camino que Outlook y la sesion de Claude Code, que
+    tardan por la misma clase de motivo --hablarle a otro programa--.
+
+    Nunca viaja una clave: solo si hay una.
+    """
+    estado = {}
+    for _i, _r, _m, clave, _d in catalogo_proveedores():
+        if clave:
+            estado[clave] = _tiene_clave(clave)
+    for prov in _proveedores_con_clave():
+        estado[prov] = _tiene_clave(prov)
+    return {"salida": "", "claves": estado}
+
+
 def _guardar_clave(_cfg, args):
     """La clave del proveedor, al llavero del sistema. Nunca al config.json.
 
@@ -931,6 +956,7 @@ ACCIONES = {
     "turno_bajar": _turno_bajar,
     "elegir_proveedor": _elegir_proveedor,
     "guardar_clave": _guardar_clave,
+    "claves_estado": _claves_estado,
 }
 
 
@@ -1000,7 +1026,11 @@ def _propio_selector_de_permisos(cfg):
 
 def _propio_selector_proveedor(cfg):
     """Quien piensa por ella: uno solo, con su modelo y su clave al lado."""
-    return {"componente": "proveedores", **proveedores(cfg)}
+    # Sin llavero: el estado de las claves llega despues, por `claves_estado`.
+    # Preguntarlo aca costaba 6.5 SEGUNDOS del primer dibujo --doce consultas
+    # al gestor de credenciales de Windows, media segundo cada una-- para
+    # pintar un rotulo de una pestana que ni siquiera es la que abre.
+    return {"componente": "proveedores", **proveedores(cfg, con_llavero=False)}
 
 
 def _propio_ayuda_compat(_cfg):
@@ -1010,7 +1040,7 @@ def _propio_ayuda_compat(_cfg):
     tienen capa gratuita, y eso no es un literal: por eso es un `Propio` y no
     una `Ayuda`.
     """
-    from .compat_engine import GRATIS
+    from .proveedores import GRATIS
 
     return {"componente": "ayuda", "texto":
             tr("Los dos vacios = el modelo sugerido y la URL del proveedor.")
@@ -2198,6 +2228,11 @@ SALIDA_DE.update({
 # nuevas salen a preguntarle a otro programa --Outlook por COM, el CLI de
 # Claude-- asi que tardan; el frontend las pide aparte, despues de dibujar.
 SALIDAS_AL_ABRIR = ("refresh_outlook", "refresh_auth")
+
+# Lo que se pide solo apenas el panel dibujo, sin bloquearlo. `claves_estado`
+# entra aca y no en `SALIDAS_AL_ABRIR` porque no llena un rotulo: reparte su
+# respuesta por toda la lista de proveedores.
+AL_ABRIR = ("claves_estado",)
 
 
 def textos_de_pantalla() -> list:

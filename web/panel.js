@@ -296,6 +296,32 @@ async function correr(nombre, args, boton) {
   return r;
 }
 
+// Lo que se pide despues de dibujar y no llena un solo rotulo, sino que se
+// reparte. Hoy es uno: el estado de las claves, que son doce consultas al
+// llavero y medio segundo cada una.
+async function pedirYRepartir(nombre) {
+  let r;
+  try {
+    r = await api("accion", nombre, cfgDePantalla(), {});
+  } catch (exc) {
+    return;
+  }
+  if (!r.claves) return;
+  ESQ.claves = r.claves;
+  // Se guarda en el esquema Y se pinta lo que ya esta en pantalla: guardar
+  // solo alcanzaria hasta el proximo `pintar()`, y la lista de proveedores
+  // suele estar a la vista justo cuando llega la respuesta.
+  for (const e of document.querySelectorAll(".prov-clave[data-clave]")) {
+    const tiene = r.claves[e.dataset.clave];
+    if (tiene === undefined) continue;
+    e.textContent = tiene ? "clave cargada" : "sin clave";
+    e.className = "prov-clave " + (tiene ? "" : "falta");
+  }
+  for (const e of document.querySelectorAll('input[type="password"][data-clave]')) {
+    if (r.claves[e.dataset.clave] && !e.value) e.value = "************";
+  }
+}
+
 async function recargar() {
   const pendientes = new Map(PENDIENTES);
   ESQ = await api("esquema");
@@ -386,15 +412,19 @@ function compProveedores(d) {
       const r = await correr("elegir_proveedor", { id: p.id });
       if (r.ok) { avisar(r.salida, "hecho"); pintar(); }
     });
-    const estado = p.necesita_clave
-      ? (p.tiene_clave ? "clave cargada" : "sin clave")
-      : "no necesita clave";
+    // `null` es "todavia no se pregunto", que no es lo mismo que "no hay".
+    // El llavero de Windows tarda medio segundo por consulta y son doce: se
+    // dibuja primero y la respuesta llega despues, por `claves_estado`.
+    const estado = !p.necesita_clave ? "no necesita clave"
+      : p.tiene_clave === null ? "comprobando..."
+      : p.tiene_clave ? "clave cargada" : "sin clave";
     return el("label", { class: "prov " + (p.id === elegido ? "activo" : "") }, [
       radio,
       el("span", { class: "prov-nombre", text: p.rotulo }),
       el("span", { class: "prov-donde", text: p.donde }),
-      el("span", { class: "prov-clave " + (p.necesita_clave && !p.tiene_clave ? "falta" : ""),
-                   text: estado }),
+      el("span", { class: "prov-clave "
+                     + (p.necesita_clave && p.tiene_clave === false ? "falta" : ""),
+                   "data-clave": p.clave || null, text: estado }),
     ]);
   });
   return el("div", { class: "proveedores" },
@@ -413,6 +443,7 @@ function campoDeClave(p) {
   const id = "clave-" + p.id;
   const control = el("input", { type: "password", id, autocomplete: "off" });
   control.value = p.tiene_clave ? "************" : "";
+  control.dataset.clave = p.clave || "";
   const guardar = el("button", { class: "boton", type: "button", text: "Guardar clave" });
   const eco = el("span", { class: "salida" });
   guardar.addEventListener("click", async () => {
@@ -1359,6 +1390,7 @@ async function arrancar() {
   // Claude-- y tardan segundos. Van DESPUES de dibujar: esperarlas antes
   // dejaria la ventana en blanco mientras tanto.
   for (const nombre of ESQ.salidas_al_abrir || []) correr(nombre, {});
+  for (const nombre of ESQ.al_abrir || []) pedirYRepartir(nombre);
 }
 
 $(".pie .boton.primario").addEventListener("click", guardar);
