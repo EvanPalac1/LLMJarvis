@@ -43,7 +43,8 @@ Priority: optional
 Architecture: $DEB_ARCH
 Maintainer: EvanPalac1 <evanpalaciosa@outlook.com>
 Installed-Size: $TAM
-Depends: libc6, libasound2 | libasound2t64, libx11-6, libportaudio2
+Depends: libc6, libasound2 | libasound2t64, libx11-6, libportaudio2,
+ libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0
 Recommends: xclip, libayatana-appindicator3-1
 Homepage: https://github.com/EvanPalac1/LLMJarvis
 Description: Asistente de voz local con IA

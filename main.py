@@ -70,6 +70,12 @@ PROPIOS_DIFERIDOS = [
     "eve.gui", "eve.consola", "eve.overlay", "eve.integrations", "eve.hook_gate",
     "eve.voices", "eve.modulos", "eve.lienzo", "eve.prompt",
     "eve.lector", "eve.grafo", "eve.memoria", "eve.despertar", "eve.retrato",
+    # El panel nuevo y el detector de fin de turno. Los tres entran por un
+    # `from . import` adentro de una funcion, igual que los dos de abajo, y por
+    # el mismo motivo estan aca: que PyInstaller los levante solo esta
+    # comprobado pero no garantizado, y un modulo que no viajo falla recien en
+    # la version instalada.
+    "eve.panel_api", "eve.panel_web", "eve.turno",
     # Los textos de la interfaz. Lo importan gui, tray y consola a nivel de
     # modulo, asi que PyInstaller deberia verlo solo --pero sin el no arranca
     # NINGUNA de las tres ventanas, y ese es exactamente el tipo de cosa que se

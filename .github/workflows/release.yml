@@ -51,7 +51,13 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             python3-tk libasound2-dev portaudio19-dev \
-            libgirepository1.0-dev libcairo2-dev rpm
+            libgirepository1.0-dev libcairo2-dev rpm \
+            pkg-config python3-dev gir1.2-webkit2-4.1
+          # Los tres ultimos son de `pywebview[gtk]`: PyGObject no publica
+          # rueda para ningun sistema, asi que pip lo compila desde el sdist
+          # junto con pycairo. Sin `pkg-config` y `python3-dev` el build de los
+          # dos Linux muere en pip, no en la ventana, con un error que habla de
+          # cairo y no de pywebview. Ya paso una vez; esta medido.
 
       - name: Inno Setup (Windows)
         if: runner.os == 'Windows'

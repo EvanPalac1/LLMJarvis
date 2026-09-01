@@ -108,3 +108,17 @@ onnx-asr[hub]>=0.12
 # Addon de OBS: obs-websocket v5 viene dentro de OBS 28+, no hace falta plugin.
 # Solo el cliente, que son ~200 KB.
 websocket-client>=1.6
+
+# La ventana del panel nuevo (`--panel-web`). Paso la puerta de los cinco
+# objetivos midiendo, que es la regla de este archivo: se armo un binario con
+# PyInstaller en cada uno y los cinco dibujaron el HTML, corrieron el JS y
+# devolvieron el resultado por el puente JS->Python. Congelado en Windows pesa
+# +9.7 MiB, contra los +92 MB que costaba Qt.
+#
+# En Linux hace falta el extra `gtk`, que arrastra PyGObject. PyGObject no
+# publica rueda para NINGUN sistema, asi que pip lo compila desde el sdist
+# junto con pycairo y por eso el runner necesita los headers --estan en
+# release.yml--. En Windows usa el WebView2 que ya viene con el sistema desde
+# Windows 10, y en macOS el WKWebView del sistema: ahi no hace falta nada.
+pywebview>=5.0; sys_platform != "linux"
+pywebview[gtk]>=5.0; sys_platform == "linux"
