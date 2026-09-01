@@ -16,7 +16,7 @@ import traceback
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from . import mcp, modulos, plataforma, registro, store, textos, voice
+from . import mcp, modulos, panel_api, plataforma, registro, store, textos, voice
 from .textos import t as tr
 
 CREATE_NEW_CONSOLE = 0x00000010
@@ -76,10 +76,12 @@ def _auth_status() -> str:
 # podia desfasar de la otra sin que nada lo dijera.
 ROLES_ETIQUETA = registro.ROLES_ETIQUETA
 
-MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
-CC_MODELS = ["opus", "sonnet", "haiku"]
-CC_MODES = ["acceptEdits", "auto", "manual"]
-EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+# Igual que los roles: viven en el registro para que se puedan leer sin
+# tkinter. Los alias quedan porque son el nombre con el que se las conoce aca.
+MODELS = registro.MODELOS_API
+CC_MODELS = registro.MODELOS_CC
+CC_MODES = registro.PERMISOS_CC
+EFFORTS = registro.ESFUERZOS
 
 
 class Panel(tk.Tk):
@@ -700,6 +702,10 @@ class Panel(tk.Tk):
                         pass           # fallar porque una etiqueta no se llene
             elif isinstance(item, registro.Interruptor):
                 self._check(padre, tr(item.etiqueta), item.clave)
+            elif isinstance(item, registro.Clave):
+                # Enmascarado, y su valor va al llavero y no a la config: por
+                # eso NO entra a `self.vars` y `save()` no lo toca.
+                self._campo_clave(padre, item.proveedor, tr(item.etiqueta))
             elif isinstance(item, registro.Ayuda):
                 if en_fila:
                     ttk.Label(padre, text=tr(item.texto), style="Ayuda.TLabel",
@@ -779,8 +785,8 @@ class Panel(tk.Tk):
             padre,
             tr("Los dos vacios = el modelo sugerido y la URL del proveedor.")
             + "\n" + tr("Con capa gratuita: ") + ", ".join(GRATIS) + ".\n"
-            + tr("La clave de cada uno va en la pestaña Cuentas. 'propio' sirve para\n"
-                 "cualquier servidor que hable /chat/completions."))
+            + tr("La clave de cada uno va arriba, al lado del proveedor. 'propio'\n"
+                 "sirve para cualquier servidor que hable /chat/completions."))
 
     def _skills_lista(self, padre) -> None:
         """La lista de skills con Importar y Quitar.
@@ -852,45 +858,16 @@ class Panel(tk.Tk):
         mod_skills.borrar(nombre)
         self._skills_refrescar()
 
-    # Los tres motores que no son `compat`. El resto sale de
-    # `compat_engine.PROVEEDORES`, para que agregar uno alla lo muestre aca
-    # sin tocar nada: la lista anterior habria que acordarse de actualizarla.
-    MOTORES_PROPIOS = (
-        ("api", "Anthropic", "api", "anthropic", "la nube - Messages API"),
-        ("claude-code", "Claude Code", "claude-code", "", "tu suscripcion, sin clave"),
-        ("ollama", "Ollama", "ollama", "", "tu maquina - localhost:11434"),
-    )
-
-    # Como se escribe cada uno. La clave del diccionario es un identificador
-    # --`lmstudio`, `xai`-- y mostrarlo crudo al lado de "Claude Code" queda
-    # como si faltara terminarlo. Lo que no este aca sale con su id, que es
-    # mejor que no salir.
-    NOMBRE_PROVEEDOR = {
-        "gemini": "Gemini", "openai": "OpenAI", "groq": "Groq",
-        "deepseek": "DeepSeek", "openrouter": "OpenRouter", "xai": "xAI",
-        "lmstudio": "LM Studio", "omniroute": "OmniRoute",
-        "propio": "Otro servidor",
-    }
+    # La lista y los nombres viven en `panel_api`: los dos paneles muestran el
+    # MISMO selector de proveedor, y una copia por panel es la copia que se
+    # desfasa. Los alias quedan porque este es el nombre con el que se conocen
+    # aca --y el test los recorre por aca--.
+    MOTORES_PROPIOS = panel_api.MOTORES_PROPIOS
+    NOMBRE_PROVEEDOR = panel_api.NOMBRE_PROVEEDOR
 
     def catalogo_proveedores(self) -> list:
-        """(id, rotulo, engine, clave, donde) de todo lo que puede pensar.
-
-        Publico porque el test lo recorre: lo que importa es que la lista salga
-        de `PROVEEDORES` y no de una copia escrita a mano al lado.
-        """
-        from . import compat_engine as ce
-
-        salida = list(self.MOTORES_PROPIOS)
-        for nombre, (url, clave, _modelo) in ce.PROVEEDORES.items():
-            donde = ("tu maquina" if url.startswith("http://localhost")
-                     else "la nube")
-            if nombre == "propio":
-                # No es un proveedor: es "poneme vos la URL". Se queda, pero
-                # dicho como lo que es.
-                donde = "el servidor que le pongas abajo"
-            salida.append((nombre, self.NOMBRE_PROVEEDOR.get(nombre, nombre),
-                           "compat", clave, donde))
-        return salida
+        """(id, rotulo, engine, clave, donde) de todo lo que puede pensar."""
+        return panel_api.catalogo_proveedores()
 
     def _selector_proveedor(self, padre) -> None:
         """Quien piensa por ella: uno solo, elegido de una lista.
@@ -3496,6 +3473,26 @@ class Panel(tk.Tk):
         self._pintar_registro(t, registro.VOZ)
         return t
 
+
+    def turno_bajar(self) -> None:
+        """Baja smart-turn-v3. Solo desde aca: no arranca sola en ningun camino."""
+        from . import turno
+
+        if turno.disponible():
+            self.turno_label.config(text=turno.estado())
+            return
+        self.turno_label.config(text=tr("bajando..."))
+
+        def trabajo():
+            texto = turno.descargar()
+            self._ui(lambda: self.turno_label.config(text=texto))
+
+        threading.Thread(target=trabajo, daemon=True).start()
+
+    def _texto_turno_label(self) -> str:
+        from . import turno
+
+        return turno.estado()
 
     def _texto_motor_dibujo_label(self) -> str:
         """Que motor de dibujo quedo activo, y por que.

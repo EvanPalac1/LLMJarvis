@@ -29,3 +29,8 @@ voices/
 *.dc.html
 canvas.json
 proveedor-y-comandos-por-voz.html
+
+# La salida del comparador es derivada: se regenera con
+# `python medidas/comparar.py --ver` cada vez. Lo que se versiona del diseno
+# son las capturas de al lado, que son la referencia.
+medidas/diseno/comparacion/

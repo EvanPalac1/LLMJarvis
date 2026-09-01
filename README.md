@@ -1076,6 +1076,51 @@ despues se le hace `paste`, porque reasignarla cada cuadro cuesta el doble.
 
 ---
 
+## El panel nuevo: HTML adentro de la ventana (2.0)
+
+Desde la **2.0** el panel se dibuja con HTML y CSS adentro de una ventana propia
+(`pywebview`), en vez de con tkinter. Se abre con `Eve.exe --panel-web`; el de
+tkinter sigue estando en `--panel` mientras dure la mudanza.
+
+El motivo no fue el mantenimiento: fue que **no se veia como el diseno**. tkinter
+no hace esquinas redondeadas ni sombras y no respeta las medidas que uno le
+pide. Lo que se gano de regalo se puede contar:
+
+| | tkinter | HTML |
+|---|---:|---:|
+| Controles interactivos | 68 | 300 |
+| Con nombre para un lector de pantalla | **0** | **300** |
+
+Ese cero no es un decir: se midio con el arbol de UI Automation de Windows, que
+es lo que leen NVDA y el Narrador.
+
+### Ninguna medida esta escrita a mano
+
+Los numeros del panel no se copiaron del diseno: se LEEN de el.
+`medidas/tokens.py` recorre los artboards, saca cuarenta medidas --el ancho del
+riel, el radio de las tarjetas, el relleno de cada campo-- y escribe
+`web/tokens.css`. `web/panel.css` solo usa esas variables.
+
+Es el mismo trato que ya tenian los colores, que salen de `eve/tema.py` y por
+eso el CSS no tiene ni un `#hex`. Copiarlas habria funcionado igual el primer
+dia y se habria desfasado el segundo: se corrige el dibujo, el panel sigue con
+el numero viejo, y nada lo dice.
+
+Lo encontro apenas se puso a medir. Cinco medidas que yo habia copiado a ojo
+estaban mal, incluida una de catorce pixeles en cada muestra de perfil.
+
+### Y se verifica contra el diseno, con un numero
+
+`medidas/comparar.py` dibuja el panel con un navegador headless a 980 px --el
+ancho del artboard-- y lo compara contra las capturas del diseno de dos formas:
+
+    python medidas/comparar.py             pixel por pixel, por pestana
+    python medidas/comparar.py --widgets   caja por caja: cada widget
+
+El de cajas es el que importa, y da **0 de 33 widgets fuera de lugar en las
+nueve pestanas**. El de pixeles no da cero y no puede darlo: el dibujo muestra
+texto de ejemplo y el panel muestra tus datos, que ocupan otra cosa.
+
 ## El panel: dos modos de ver lo mismo
 
 El panel tiene 124 ajustes. Mostrarlos todos de una satura a cualquiera; esconder los
@@ -1940,7 +1985,7 @@ bajan cuando el usuario elige una-- pero eso no es lo mismo que estar revisado.
 ## Desarrollo
 
 ```bash
-python test_eve.py       # 187 tests: freno, allowlist, contexto, voz, modulos,
+python test_eve.py       # 207 tests: freno, allowlist, contexto, voz, modulos,
                          # grafo, memoria, perfiles y fuga de hooks
 python diagnostico.py    # que falta en esta PC
 ```

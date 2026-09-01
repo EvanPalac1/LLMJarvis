@@ -143,6 +143,19 @@ DEFAULTS = {
     # El modelo de la puerta, aparte del de transcribir. Chico porque solo tiene
     # que reconocer una palabra que ya conoce.
     "wake_modelo": "tiny",
+    # Quien decide que terminaste de hablar. `fijo` es el cronometro de siempre
+    # --0.7s de silencio--; `modelo` le pregunta a smart-turn-v3, que hay que
+    # bajar aparte desde el panel.
+    #
+    # `fijo` de fabrica y no por precaucion generica: la medicion que falta es
+    # si ese modelo reconoce el final de turno en espanol rioplatense. Los 23
+    # idiomas son los que el modelo DECLARA, no los que se comprobaron aca, y
+    # poner de fabrica algo que corta frases a mitad seria peor que el numero
+    # fijo que ya se conoce.
+    "cierre_modo": "fijo",
+    # A partir de que probabilidad se da la frase por terminada. Mas alto =
+    # espera mas y corta menos; mas bajo = corta antes y a veces de mas.
+    "cierre_umbral": 0.6,
     # Reglas de horario, separadas por coma: `00:00-06:00=bajo, 20:00-23:59=ruido`.
     # Solo pisan al modo `auto`. Vacio = sin reglas.
     "stt_horario": "",

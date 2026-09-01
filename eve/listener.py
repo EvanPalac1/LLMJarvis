@@ -160,6 +160,13 @@ class Listener:
         """
         if self.paused or self._down:
             return
+        # Lo que entro mientras ella hablaba es ELLA. Con la palabra clave
+        # prendida el microfono queda abierto mientras contesta, silero recorta
+        # su propia voz como una frase, y una respuesta que empiece con el
+        # nombre --"Eve esta lista"-- abre la puerta sola. Peor: se realimenta,
+        # porque la respuesta a eso vuelve a pasar por aca.
+        if voice.hablando():
+            return
         try:
             from . import despertar
 
@@ -174,7 +181,15 @@ class Listener:
             # Dijo la palabra y nada mas. Se avisa y se corta: encadenar una
             # segunda ventana de captura seria una maquina de estados entera
             # para ahorrarle al usuario decir la orden en la misma respiracion.
-            voice.speak("Decime la orden junto con mi nombre.", self.cfg)
+            #
+            # Y va adentro de un try: esto corre en el HILO DE LA ESCUCHA, cuyo
+            # lazo era un `try/finally` sin `except`. Un TTS que falla --una voz
+            # borrada, el parlante tomado-- mataba el hilo, cerraba el stream y
+            # dejaba a Eve sorda hasta el proximo cambio de config, en silencio.
+            try:
+                voice.speak("Decime la orden junto con mi nombre.", self.cfg)
+            except Exception as exc:  # noqa: BLE001
+                store.log_action("listener", "wake", f"no pude contestar: {exc}")
             return
         self.cola.put((audio, True))
         if not self._trabajando:
@@ -260,7 +275,7 @@ class Listener:
                 # usa igual: quien decide es la puerta, no la ortografia.
                 from . import despertar
 
-                sin = despertar.separar(text, str(self.cfg.get("wake_palabra", "eve")))
+                sin = despertar.separar(text, despertar.palabra_de(self.cfg))
                 text = sin if sin else text
             print(f"[usuario] {text}")
 
@@ -349,8 +364,11 @@ class Listener:
             # abrio, decirlo: anunciar "escuchando" y no escuchar es peor que no
             # tener la funcion, porque el usuario deja de apretar la tecla.
             if self.escucha.arrancar(esperar=8.0):
+                # La palabra de verdad, que con `wake_palabra` vacia es el
+                # nombre del asistente. Imprimir el campo crudo anunciaba
+                # "escuchando por ''" cuando estaba vacio.
                 print(f"Escuchando por la palabra "
-                      f"'{self.cfg.get('wake_palabra', 'eve')}'. "
+                      f"'{despertar.palabra_de(self.cfg)}'. "
                       "El microfono queda abierto.")
             else:
                 motivo = self.escucha.error or "no se pudo abrir"

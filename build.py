@@ -84,7 +84,15 @@ CON_DATOS = ["faster_whisper", "piper", "onnxruntime", "onnx_asr"]
 CON_METADATA = ["onnx-asr"]
 
 # Archivos sin los cuales el paquete esta roto aunque el build "haya salido bien".
-IMPRESCINDIBLES = [os.path.join("faster_whisper", "assets", "silero_vad_v6.onnx")]
+IMPRESCINDIBLES = [
+    os.path.join("faster_whisper", "assets", "silero_vad_v6.onnx"),
+    # El panel nuevo es HTML: sin estos tres archivos `--panel-web` abre una
+    # ventana en blanco. Un build sin ellos "sale bien" y falla al abrirlo.
+    os.path.join("web", "index.html"),
+    os.path.join("web", "panel.css"),
+    os.path.join("web", "tokens.css"),
+    os.path.join("web", "panel.js"),
+]
 
 
 def _icono() -> list[str]:
@@ -161,6 +169,10 @@ def _construir(nombre: str, ventana: bool, extra: list[str]) -> None:
         # version instalada, que es justo la que los necesita: quien instala no
         # clona el repo para conseguir un tema.
         "--add-data", f"{os.path.join(RAIZ, 'perfiles')}{sep}perfiles",
+        # El panel nuevo. No son modulos de Python, asi que el analisis
+        # estatico de PyInstaller no los ve: sin esto `--panel-web` abre una
+        # ventana en blanco adentro del binario y perfecta en desarrollo.
+        "--add-data", f"{os.path.join(RAIZ, 'web')}{sep}web",
     ]
     for m in OCULTOS:
         cmd += ["--hidden-import", m]

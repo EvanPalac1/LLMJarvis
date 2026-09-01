@@ -164,8 +164,11 @@ class CompatEve(OllamaEve):
     def comprobar(self) -> tuple[bool, str]:
         """Se llama en el constructor: sin esto el error aparece recien al hablar."""
         if not self.host:
-            return False, ("Falta la URL del servicio. Panel > Cuentas, o elige un "
-                           "proveedor conocido en vez de 'propio'.")
+            # A "Modelos y claves", no a "Cuentas". `compat_url` vive en la
+            # seccion "Otros motores" de esa pestana y nunca estuvo en Cuentas:
+            # el mensaje mandaba a buscar a un lugar donde el campo no esta.
+            return False, ("Falta la URL del servicio. Panel > Modelos y claves, "
+                           "o elige un proveedor conocido en vez de 'propio'.")
         if not self.modelo:
             # A "Modelos y claves", no a "Cuentas": el modelo se mudo de
             # pestaña y el mensaje se quedo apuntando a la vieja. Y se nombra
@@ -188,8 +191,11 @@ class CompatEve(OllamaEve):
         # ajuste; lo que no se hace es exigirla. Un 401 conjeturado no vale una
         # negativa segura.
         if not self.clave and not self.host.startswith("http://localhost"):
+            # Idem: la clave de cada proveedor se mudo al lado de la eleccion
+            # del proveedor, que es donde el usuario esta mirando cuando le
+            # falta. Mandarlo a Cuentas era mandarlo a la pestana de las apps.
             return False, (f"Falta la clave de {self.proveedor}. Cargala en "
-                           f"Panel > Cuentas.")
+                           f"Panel > Modelos y claves, al lado del proveedor.")
         return True, "ok"
 
     def _pedir(self, mensajes: list[dict]) -> dict:

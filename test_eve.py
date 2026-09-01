@@ -1194,15 +1194,33 @@ def test_plataforma():
         from eve import voice
 
         voice._whisper = voice._whisper_para = None
+        voice._CACHE_WHISPER.clear()
         base = {"stt_provider": "faster-whisper", "stt_device": "cpu",
                 "language": "es", "stt_vocabulary": ""}
         audio = __import__("numpy").zeros(16000, dtype="float32")
         voice.transcribe(audio, {**base, "stt_model": "small"})
         voice.transcribe(audio, {**base, "stt_model": "small"})   # cachea
-        voice.transcribe(audio, {**base, "stt_model": "medium"})  # rearma
+        voice.transcribe(audio, {**base, "stt_model": "medium"})  # el otro
         assert construidos == ["small", "medium"], construidos
+
+        # Y volver al primero NO lo reconstruye. Es el arreglo del ida y vuelta
+        # que pagaba el despertar: la puerta corre `tiny` y transcribir corre
+        # `small`, asi que con UNA sola ranura cada despertar descargaba uno y
+        # cargaba el otro, y contestar hacia el viaje de vuelta. En CUDA eso es
+        # mover el modelo a la placa dos veces por orden.
+        voice.transcribe(audio, {**base, "stt_model": "small"})
+        assert construidos == ["small", "medium"], (
+            "volver al modelo anterior lo reconstruyo: " + str(construidos))
+
+        # El tope es dos, y se va el mas viejo. Guardar todos los que se hayan
+        # pedido dejaria memoria de video tomada por uno que no vuelve.
+        voice.transcribe(audio, {**base, "stt_model": "large"})
+        assert len(voice._CACHE_WHISPER) == voice.CACHE_WHISPER_TOPE == 2, (
+            f"la cache quedo con {len(voice._CACHE_WHISPER)}")
+        assert "medium" not in str(voice._whisper_para)
     finally:
         voice._whisper = voice._whisper_para = None
+        voice._CACHE_WHISPER.clear()
         if previo is None:
             del sys.modules["faster_whisper"]
         else:
@@ -3245,6 +3263,53 @@ def test_el_panel_no_se_queda_sordo_a_los_hilos_de_fondo():
                 panel.destroy()
             (store.BASE, store.CONFIG_PATH, store.PERFILES_PATH,
              store.DB_PATH) = previos
+
+
+def test_el_catalogo_del_fondo_dice_lo_que_el_panel_muestra():
+    """Buscar un rotulo que estas viendo en pantalla tiene que llevarte a el.
+
+    `registro._PARTES_FONDO` alimenta `catalogo()`, y `catalogo()` es lo que
+    usan DOS cosas que el usuario toca: el buscador del panel, y `E ajustar`
+    --o sea Eve cambiando una opcion porque se lo pediste hablando--.
+
+    Los siete rotulos estuvieron desfasados de los que dibuja `_bloque_fondo`.
+    El comentario de la tabla decia que salian de ahi y ya no era cierto,
+    porque alguien mejoro los rotulos en `gui.py` y la copia quedo vieja.
+    Medido antes del arreglo:
+
+        buscar("Opacidad de la imagen") -> "Opacidad (%)", "Imagen de fondo"
+        buscar("Degradado: color 1")    -> "Degradado: color de arriba"
+
+    Buscabas lo que tenias delante y te llevaba a otro ajuste. Este test
+    compara contra la fuente --los `tr(...)` de `_bloque_fondo`-- en vez de
+    contra una lista escrita a mano, que es lo que se desfasa.
+    """
+    import re
+
+    from eve import registro
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(raiz, "eve", "gui.py"), encoding="utf-8") as f:
+        fuente = f.read()
+
+    # El cuerpo de `_bloque_fondo`, hasta el metodo siguiente.
+    i = fuente.index("def _bloque_fondo")
+    j = fuente.index("\n    def ", i + 10)
+    cuerpo = fuente[i:j]
+    dibujados = re.findall(r'tr\("([^"]+)"\)', cuerpo)
+
+    faltan = [etiqueta for _sufijo, etiqueta in registro._PARTES_FONDO
+              if etiqueta not in dibujados]
+    assert not faltan, (
+        "el catalogo nombra rotulos que el panel no dibuja: " + str(faltan)
+        + "\nlo que dibuja de verdad: " + str(dibujados))
+
+    # Y al reves: que el buscador encuentre cada uno de los siete. Es la
+    # comprobacion que importa, porque es lo que hace el usuario.
+    for _sufijo, etiqueta in registro._PARTES_FONDO:
+        hallados = [e["etiqueta"] for e in registro.buscar(etiqueta, tope=3)]
+        assert etiqueta in hallados, (
+            f"buscar({etiqueta!r}) no lo encuentra; devuelve {hallados}")
 
 
 def test_los_mensajes_estan_en_espanol_neutro():
@@ -9119,6 +9184,1066 @@ def test_el_motor_de_dibujo_llega_al_panel_con_sus_tres_opciones():
         f"el panel ofrece {opciones} y gpu.MOTORES son {gpu.MOTORES}")
     assert store.DEFAULTS["motor_dibujo"] == "auto", (
         "de fabrica tiene que decidir la maquina, no el usuario")
+
+
+# --- los dos guardianes, portados al panel web -----------------------------
+#
+# `test_todo_ajuste_se_puede_tocar_desde_el_panel` y
+# `test_la_pestana_generada_cubre_lo_mismo_que_la_config` son los guardianes
+# del modo de falla que motivo `registro.py`: olvidarse de una linea deja un
+# ajuste que existe en la config y no se puede tocar. Ya paso once veces.
+#
+# Los dos arman `gui.Panel()`, o sea una ventana de tkinter, y por eso se
+# saltean solos donde no hay display --que es, entre otros lugares, las cinco
+# compilaciones--. Estos dos son los mismos, contra `panel_api`: corren sin
+# pantalla, y son los que tienen que seguir en verde mientras las pestanas se
+# van mudando al panel nuevo. Los de tkinter se quedan mientras las dos
+# versiones convivan, que es la misma regla con la que se migro al registro.
+
+
+# Lo que NO es un campo y no deberia serlo: lo escribe el programa, o tiene un
+# control propio. Es la misma lista que usa el guardian de tkinter, y tiene que
+# seguir siendolo: si se separan, una de las dos empieza a mentir.
+SIN_CAMPO_WEB = {
+    # las escribe el propio panel al guardar o aplicar un perfil
+    "perfil_activo",
+    # idem, con el boton de aprobar de la pestana Comandos
+    "comandos_aprobados",
+    # se escriben arrastrando el cartel con el mouse, que es como se elige una
+    # posicion; un campo de numeros seria peor
+    "hud_x", "hud_y", "overlay_mover",
+}
+
+# Lo que TODAVIA se dibuja a mano en `gui.py` y el registro no declara.
+#
+# **Esta vacia, y llegar ahi era el objetivo.** Tuvo nueve claves y tres
+# pestanas: Cuentas (Gmail, Steam, los dos de Discord, WhatsApp), Addons
+# (`mcp_modo`) y la barra de arriba (`ui_idioma`, `ui_modo_panel`). Se deja
+# declarada en vez de borrarla porque es la puerta que impide que vuelva a
+# crecer sin que nadie lo note: agregar un ajuste a `gui.py` sin declararlo en
+# el registro pone rojo el test de abajo, y el arreglo es declararlo, no
+# anotarlo aca.
+SIN_PORTAR_WEB = {}
+
+
+def test_todo_ajuste_se_puede_tocar_desde_el_panel_web():
+    """Cada clave de config tiene que ser alcanzable sin editar un archivo.
+
+    El espejo sin pantalla del guardian de tkinter. Cuenta contra el REGISTRO,
+    que es lo que el panel web dibuja, en vez de contra los widgets que un
+    `gui.Panel()` haya llegado a crear.
+
+    Tres listas y no una: lo que el registro declara, lo que el programa
+    escribe solo, y lo que todavia esta escrito a mano en `gui.py`. La tercera
+    es el trabajo que falta y tiene que encoger; si una clave se cae de las
+    tres, es un ajuste que quedo sin donde tocarse, que es exactamente el bug
+    que este test existe para agarrar.
+    """
+    from eve import panel_api
+
+    declaradas = panel_api.claves_declaradas()
+    huerfanas = [k for k in store.DEFAULTS
+                 if k not in declaradas
+                 and k not in SIN_CAMPO_WEB
+                 and k not in SIN_PORTAR_WEB]
+    assert not huerfanas, f"ajustes que solo se pueden cambiar a mano: {huerfanas}"
+
+    # Y al reves, las dos: una excepcion que ya consiguio campo deja de ser una
+    # excepcion, y dejarla en la lista hace que la lista no signifique nada.
+    # Para `SIN_PORTAR_WEB` es mas que higiene: es como se sabe que una pestana
+    # termino de portarse.
+    sobran = sorted(SIN_CAMPO_WEB & declaradas)
+    assert not sobran, f"ya las declara el registro, sacalas de SIN_CAMPO_WEB: {sobran}"
+    portadas = sorted(k for k in SIN_PORTAR_WEB if k in declaradas)
+    assert not portadas, (
+        "estas ya estan en el registro: sacalas de SIN_PORTAR_WEB, que es la "
+        f"lista de lo que falta: {portadas}")
+
+    # El registro no puede nombrar una clave que no existe: seria un campo que
+    # se dibuja, se guarda, y no lo lee nadie.
+    inventadas = sorted(declaradas - set(store.DEFAULTS))
+    assert not inventadas, f"el registro nombra claves que no existen: {inventadas}"
+
+    # Las claves que Eve NO puede tocar tienen que ser tocables por el usuario:
+    # el mensaje de rechazo dice "cambiala vos en el panel", y si no hubiera
+    # donde, ese mensaje seria mentira.
+    for clave in store.NUNCA_POR_EVE:
+        assert (clave in declaradas or clave in SIN_CAMPO_WEB
+                or clave in SIN_PORTAR_WEB), (
+            f"{clave} se le niega a Eve y el usuario tampoco puede cambiarla")
+
+
+def test_lo_que_sirve_el_panel_web_coincide_con_la_config():
+    """Cada clave llega al frontend con su valor y con su TIPO.
+
+    La mitad del valor la agarraria tambien el test de cobertura. La del tipo
+    no, y es la que rompe callada: un `sub_tam` que pasa de entero a texto
+    guarda igual y se rompe recien al leerlo. En el panel de tkinter el tipo
+    lo llevaba la clase de la variable --`BooleanVar` o `StringVar`--; aca
+    viaja explicito en `tipos`, asi que se puede comprobar de una.
+    """
+    from eve import panel_api
+
+    cfg = dict(store.DEFAULTS)
+    cfg.update({"assistant_name": "Probeta", "sub_tam": 21, "speak_replies": False,
+                "piper_velocidad": 1.25})
+    e = panel_api.esquema(cfg)
+
+    declaradas = panel_api.claves_declaradas()
+    faltan = sorted(declaradas - set(e["valores"]))
+    assert not faltan, f"declaradas y sin llegar al frontend: {faltan}"
+    assert set(e["tipos"]) == declaradas, "los tipos no cubren lo mismo que los valores"
+
+    esperado = {bool: "bool", int: "int", float: "float", list: "lista"}
+    for clave in sorted(declaradas):
+        defecto = store.DEFAULTS[clave]
+        quiero = esperado.get(type(defecto), "str")
+        assert e["tipos"][clave] == quiero, (
+            f"{clave}: sirve tipo {e['tipos'][clave]}, DEFAULTS dice {quiero}")
+        assert e["valores"][clave] == cfg[clave], (
+            f"{clave}: sirve {e['valores'][clave]!r} y vale {cfg[clave]!r}")
+
+    # Y la vuelta: lo que el frontend manda de vuelta tiene que volver al mismo
+    # tipo. JavaScript manda todo como texto, asi que sin esto cada guardado
+    # cambiaria el tipo de media config.
+    for clave in sorted(declaradas):
+        valor = cfg[clave]
+        if isinstance(valor, bool):
+            crudo = valor                      # una casilla manda un booleano
+        elif isinstance(valor, list):
+            crudo = "\\n".join(valor)           # un cuadro de texto, una por renglon
+        else:
+            crudo = str(valor)
+        vuelto = panel_api.castear(clave, crudo, cfg)
+        assert type(vuelto) is type(valor), (
+            f"{clave}: {crudo!r} volvio como {type(vuelto).__name__}, "
+            f"se esperaba {type(valor).__name__}")
+        assert vuelto == valor, f"{clave}: {crudo!r} volvio {vuelto!r}, valia {valor!r}"
+
+    # Un numero mal tipeado tiene que decirlo, no guardarse como texto: es el
+    # unico camino por el que un tipo se puede colar.
+    try:
+        panel_api.castear("sub_tam", "veintiuno", cfg)
+        assert False, "acepto 'veintiuno' como entero"
+    except ValueError as exc:
+        assert "sub_tam" in str(exc), f"el error no dice cual es: {exc}"
+
+    # La coma decimal se acepta: es como se escribe un decimal en espanol, y
+    # rechazarla seria rechazar lo que el usuario tipea naturalmente.
+    assert panel_api.castear("piper_velocidad", "1,25", cfg) == 1.25
+
+
+def test_el_panel_web_guarda_solo_lo_que_tocaste():
+    """Guardar una clave no puede reescribir las otras noventa y pico.
+
+    En tkinter esto se defiende comparando cada widget contra la foto que el
+    panel tomo al abrirse, porque guarda todo junto. Ese mecanismo existe por
+    un bug concreto: con el panel abierto, cambiar de perfil desde la bandeja
+    escribia el personaje en config.json y el primer Guardar lo revertia
+    entero. Aca solo viaja lo que el usuario edito, asi que la defensa sale de
+    arriba --pero eso hay que comprobarlo, no suponerlo--.
+    """
+    from eve import panel_api
+
+    real = store.CONFIG_PATH
+    carpeta = tempfile.mkdtemp(prefix="eve_panel_web_")
+    store.CONFIG_PATH = os.path.join(carpeta, "config.json")
+    try:
+        store.save_config({**store.DEFAULTS, "assistant_name": "Eve",
+                           "sub_tam": 18})
+        # Alguien mas escribe la config mientras el panel esta abierto.
+        de_afuera = store.load_config()
+        de_afuera["assistant_name"] = "Personaje"
+        store.save_config(de_afuera)
+
+        r = panel_api.guardar({"sub_tam": "21"})
+        assert r["ok"], r
+        cfg = store.load_config()
+        assert cfg["sub_tam"] == 21, f"no guardo el entero: {cfg['sub_tam']!r}"
+        assert cfg["assistant_name"] == "Personaje", (
+            "guardar sub_tam revirtio lo que otro habia escrito: "
+            f"{cfg['assistant_name']!r}")
+
+        # Lo que tocaste queda anotado: con `autoridad = usuario`, Eve no lo
+        # pisa despues. Si esto no pasara, Eve podria deshacerlo hablando.
+        assert store.trabada("sub_tam", cfg), "no quedo marcada como tocada"
+
+        # Un valor invalido no escribe NADA, ni siquiera lo que venia bien en
+        # el mismo lote: media tanda guardada es peor que ninguna.
+        r = panel_api.guardar({"assistant_name": "Otra", "sub_tam": "grande"})
+        assert not r["ok"] and r["clave"] == "sub_tam", r
+        assert store.load_config()["assistant_name"] == "Personaje", (
+            "escribio parte del lote a pesar del error")
+    finally:
+        store.CONFIG_PATH = real
+
+
+def test_todo_boton_y_todo_hueco_del_registro_tienen_quien_los_atienda():
+    """Un boton que no hace nada es peor que un boton que falta.
+
+    El registro declara 26 botones y 20 excepciones, cada uno por el NOMBRE de
+    un metodo. En el panel de tkinter ese nombre se resuelve con `getattr`
+    sobre la ventana, asi que agregar un boton al registro y olvidarse del
+    metodo explota recien al abrir la pestana. En el panel web se resuelve
+    contra dos tablas, y eso se puede contar aca sin abrir nada.
+
+    Este test es el que hace que la proxima perilla no se agregue a medias: si
+    alguien mete un `Boton` en `registro.py` y no escribe su accion, esto se
+    pone rojo antes de que nadie abra el panel.
+    """
+    from eve import panel_api, registro
+
+    def recorrer(bloque, botones, propios, salidas):
+        for item in bloque:
+            if isinstance(item, (registro.Seccion, registro.Fila)):
+                recorrer(item.hijos, botones, propios, salidas)
+            elif isinstance(item, registro.Boton):
+                botones.add(item.metodo)
+            elif isinstance(item, registro.Propio):
+                propios.add(item.metodo)
+            elif isinstance(item, registro.Salida):
+                salidas.add(item.atributo)
+
+    botones, propios, salidas = set(), set(), set()
+    for tabla in registro.TABLAS:
+        recorrer(tabla, botones, propios, salidas)
+
+    assert len(botones) >= 26, f"solo {len(botones)} botones; se perdio alguno"
+    assert len(propios) == 20, f"{len(propios)} excepciones, se esperaban 20"
+
+    faltan = sorted(botones - set(panel_api.ACCIONES))
+    assert not faltan, f"botones del registro sin accion en el panel web: {faltan}"
+
+    huerfanas = sorted(propios - set(panel_api.PROPIOS))
+    assert not huerfanas, f"excepciones del registro sin componente: {huerfanas}"
+
+    # Y al reves para las salidas: `SALIDA_DE` manda texto a un rotulo por
+    # nombre, y nombrar uno que no existe deja la respuesta del boton cayendo
+    # en el vacio --que es como no tener boton, pero peor, porque parece que
+    # anduvo--.
+    inventadas = sorted(set(panel_api.SALIDA_DE.values()) - salidas)
+    assert not inventadas, f"SALIDA_DE nombra rotulos que el registro no declara: {inventadas}"
+    de_mas = sorted(set(panel_api.SALIDA_DE) - set(panel_api.ACCIONES))
+    assert not de_mas, f"SALIDA_DE nombra acciones que no existen: {de_mas}"
+
+
+def test_los_veinte_huecos_traen_sus_datos_sin_abrir_una_ventana():
+    """Cada excepcion declarada tiene que poder dibujarse con lo que sirve.
+
+    En tkinter cada `Propio` es un metodo que dibuja a mano y por lo tanto no
+    se puede probar sin pantalla. Aca cada uno devuelve DATOS, y eso se
+    verifica: que traiga un componente que el frontend sepa dibujar, y que
+    ninguno se caiga --leen archivos, el llavero y el disco--.
+    """
+    from eve import panel_api
+
+    # Los que sabe dibujar `web/panel.js`, leidos del propio archivo en vez de
+    # escritos a mano: una lista copiada aca se desfasa el dia que se agregue
+    # un componente, y este test la daria por buena.
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(raiz, "web", "panel.js"), encoding="utf-8") as f:
+        js = f.read()
+    bloque = js[js.index("const COMPONENTES = {"):]
+    bloque = bloque[:bloque.index("};")]
+    sabe_dibujar = set(re.findall(r"^\s*(\w+):", bloque, re.M))
+    assert len(sabe_dibujar) >= 10, f"solo lei {sabe_dibujar} del panel.js"
+
+    d = panel_api.propios()
+    assert set(d["huecos"]) == set(panel_api.PROPIOS)
+    assert len(d["huecos"]) == 20, f"{len(d['huecos'])} huecos con datos"
+    for metodo, datos in d["huecos"].items():
+        assert datos.get("componente") != "error", f"{metodo} se cayo: {datos.get('texto')}"
+        assert datos["componente"] in sabe_dibujar, (
+            f"{metodo} pide un componente que panel.js no dibuja: {datos['componente']}")
+
+    # El selector de proveedores es el que motivo la mudanza: tiene que traer
+    # todos, y decir de cada uno si tiene clave, que era lo que no se veia.
+    prov = d["huecos"]["_selector_proveedor"]
+    assert len(prov["lista"]) >= 10, f"solo {len(prov['lista'])} proveedores"
+    for p in prov["lista"]:
+        assert set(p) >= {"id", "rotulo", "necesita_clave", "tiene_clave"}
+        # Y ninguna clave viaja. El panel muestra si hay una, no cual es.
+        assert "valor" not in p and "secreto" not in p
+
+
+def test_elegir_un_proveedor_no_escribe_nada_solo_lo_propone():
+    """Elegir proveedor deja el par listo para Guardar, no lo guarda.
+
+    Es la misma linea que ya respeta el panel viejo: cambiar la voz de alguien
+    porque toco otro control es la app poseida que el ajuste de autoridad
+    existe para evitar. Aca vale igual --se ofrece, no se impone-- y ademas
+    tiene que dejar el MODELO del proveedor nuevo: cambiar de Groq a Gemini
+    dejaba `llama-3.3-70b-versatile` escrito, que Gemini contesta con un 404
+    recien cuando le hablas.
+    """
+    from eve import panel_api
+
+    real = store.CONFIG_PATH
+    carpeta = tempfile.mkdtemp(prefix="eve_prov_")
+    store.CONFIG_PATH = os.path.join(carpeta, "config.json")
+    try:
+        store.save_config({**store.DEFAULTS, "engine": "api",
+                           "compat_proveedor": "groq",
+                           "compat_modelo": "llama-3.3-70b-versatile"})
+        r = panel_api.accion("elegir_proveedor", {}, {"id": "gemini"})
+        assert r["ok"], r
+        assert r["valores"]["engine"] == "compat"
+        assert r["valores"]["compat_proveedor"] == "gemini"
+        assert "llama" not in r["valores"].get("compat_modelo", ""), (
+            "dejo el modelo de Groq con Gemini elegido: " + str(r["valores"]))
+
+        # Y nada de eso llego al disco todavia.
+        cfg = store.load_config()
+        assert cfg["engine"] == "api", "lo escribio solo, sin que nadie guardara"
+        assert cfg["compat_modelo"] == "llama-3.3-70b-versatile"
+
+        # Uno que no existe se rechaza en vez de escribir un motor invalido.
+        assert not panel_api.accion("elegir_proveedor", {}, {"id": "no-existe"})["ok"]
+    finally:
+        store.CONFIG_PATH = real
+
+
+def test_probar_un_comando_sin_aprobar_no_lo_corre():
+    """Probar seria el atajo perfecto para saltear el freno, y no lo es.
+
+    El freno de los comandos `sistema` es por hash del texto: se aprueba lo que
+    se leyo, y editarlo despues lo vuelve a frenar. Si el boton Probar los
+    corriera igual, alcanzaria con apretar Probar para ejecutar cualquier cosa
+    que alguien haya escrito en Comandos.md.
+    """
+    from eve import comandos, panel_api
+
+    real_cfg, real_cmd = store.CONFIG_PATH, comandos.RUTA
+    carpeta = tempfile.mkdtemp(prefix="eve_cmd_")
+    store.CONFIG_PATH = os.path.join(carpeta, "config.json")
+    comandos.RUTA = os.path.join(carpeta, "Comandos.md")
+    try:
+        store.save_config(dict(store.DEFAULTS))
+        with open(comandos.RUTA, "w", encoding="utf-8") as f:
+            f.write("## marcar el disco\nsistema: echo NO_DEBERIA_CORRER\n")
+        cmd = comandos.leer()[0]
+        r = panel_api.accion("comandos_probar", {}, cmd)
+        assert not r["ok"], "corrio un comando sin aprobar: " + str(r)
+        assert r.get("aprobar"), "no ofrecio el camino de aprobarlo"
+        assert "cuerpo" not in r, "devolvio salida de un comando que no debia correr"
+
+        # Y aprobado, el mismo comando ya se puede probar.
+        panel_api.accion("comandos_aprobar", {}, cmd)
+        cfg = store.load_config()
+        assert comandos.aprobado(cmd, cfg), "aprobar no dejo marca"
+    finally:
+        store.CONFIG_PATH, comandos.RUTA = real_cfg, real_cmd
+
+
+def test_la_clave_de_un_proveedor_va_al_llavero_y_no_vuelve():
+    """La clave entra en un solo sentido. Nunca viaja al HTML.
+
+    El panel muestra "clave cargada" o "sin clave", no el valor: una clave que
+    viaja al frontend para dibujar asteriscos es una clave que se puede leer
+    desde la consola del navegador. Y un campo lleno de asteriscos NO es una
+    clave nueva --es que no lo reescribiste-- asi que guardarlo tal cual seria
+    pisar la buena con doce asteriscos.
+    """
+    from eve import panel_api
+
+    guardadas = {}
+    real_set, real_get = store.set_key, store.get_key
+    store.set_key = lambda prov, valor: guardadas.__setitem__(prov, valor)
+    store.get_key = lambda prov: guardadas.get(prov, "")
+    try:
+        r = panel_api.accion("guardar_clave", {},
+                             {"proveedor": "gemini", "valor": "sk-secreta-123"})
+        assert r["ok"] and guardadas["gemini"] == "sk-secreta-123"
+        assert "sk-secreta-123" not in str(r), "la clave volvio en la respuesta"
+
+        # Asteriscos = no la tocaste. No se escribe nada.
+        r = panel_api.accion("guardar_clave", {},
+                             {"proveedor": "gemini", "valor": "************"})
+        assert r["ok"] and guardadas["gemini"] == "sk-secreta-123", (
+            "los asteriscos pisaron la clave de verdad")
+
+        # Y el esquema dice que HAY una, sin decir cual.
+        prov = panel_api.proveedores({"engine": "compat", "compat_proveedor": "gemini"})
+        gemini = next(p for p in prov["lista"] if p["id"] == "gemini")
+        assert gemini["tiene_clave"] is True
+        assert "sk-secreta-123" not in str(prov)
+    finally:
+        store.set_key, store.get_key = real_set, real_get
+
+
+def test_las_nueve_pestanas_salen_del_registro_y_ninguna_queda_vacia():
+    """Las nueve tienen tabla, y todas las tablas se muestran en alguna.
+
+    Las dos mitades importan y fallan distinto. Sin la primera, una pestana se
+    dibuja con el titulo y nada abajo --paso con Cuentas, Contactos, Addons y
+    Actividad, que estuvieron escritas a mano de punta a punta--. Sin la
+    segunda, una tabla del registro existe, se mantiene, se traduce, y no la ve
+    nadie: es peor, porque parece trabajo hecho.
+
+    Y hay una trampa que ya costo caro: `gui.py` arma cada pestana con
+    `_componer(rotulo, subtitulo, [bloques])`, y un bloque que NO sale del
+    registro se ve igual que uno que si. Contar tablas no alcanzaba para saber
+    que faltaba; asi quedaron afuera la galeria de perfiles y la sesion de
+    Claude Code, que ahora son `PERFILES` y `SESION_CC`.
+    """
+    from eve import panel_api, registro
+
+    assert len(panel_api.PESTANAS) == 9, f"{len(panel_api.PESTANAS)} pestanas"
+    usadas = set()
+    for clave, rotulo, subtitulo, tablas in panel_api.PESTANAS:
+        assert tablas, f"la pestana {clave} no muestra ninguna tabla"
+        assert rotulo and subtitulo, f"{clave} sin rotulo o sin subtitulo"
+        for t in tablas:
+            assert t in registro.POR_NOMBRE, f"{clave} nombra una tabla que no existe: {t}"
+            assert registro.POR_NOMBRE[t], f"la tabla {t} esta vacia"
+        usadas.update(tablas)
+
+    # `BARRA` es la unica que no vive en una pestana: son las opciones que
+    # cambian como se ve TODO el resto, y por eso van arriba y no adentro de
+    # una. Se nombra aca para que la excepcion sea deliberada y no un olvido.
+    sin_mostrar = sorted(set(registro.POR_NOMBRE) - usadas - {"BARRA"})
+    assert not sin_mostrar, f"tablas del registro que no muestra ninguna pestana: {sin_mostrar}"
+
+    # Solo Apariencia se parte en sub-pestanas, y eso lo decide `SUBPESTANAS`.
+    # Es la misma tabla que usa el frontend para saberlo: si hubiera una lista
+    # aparte, las dos se desfasarian y una pestana se partiria sola.
+    for clave, _r, _s, tablas in panel_api.PESTANAS:
+        parte = all(t in panel_api.SUBPESTANAS for t in tablas)
+        assert parte == (clave == "Apariencia"), (
+            f"{clave} se partiria en sub-pestanas y no corresponde")
+
+
+def test_la_palabra_clave_se_puede_escribir_como_a_uno_se_le_ocurra():
+    """Escribirla con una coma no puede dejar la puerta cerrada para siempre.
+
+    La forma documentada de dar varias es con `|`. Pero cualquiera que vea una
+    lista escribe "computadora, eve", y eso no daba una lista: daba UNA
+    variante de dos palabras, que solo coincidiria si dijeras las dos seguidas.
+
+    Y fallaba EN SILENCIO, que es lo peor de este bug. Desde adentro no hay
+    diferencia entre "la palabra no coincide" y "la palabra es imposible": no
+    hay aviso, no hay renglon en Acciones, y el usuario concluye que el
+    despertar no anda. Medido antes del arreglo:
+
+        separar("Eve, abre Spotify", "eve, computadora") -> None
+        separar("Eve, abre Spotify", "Eve!")             -> None
+
+    Lo mismo con un signo pegado. Se limpiaba la puntuacion del texto OIDO
+    --porque el modelo escribe "Eve,"-- y no la de la palabra configurada, que
+    es la unica forma de que comparar dos cosas normalizadas siga fallando.
+    """
+    from eve import despertar
+
+    for escrita in ("computadora|eve", "computadora, eve", "eve, computadora",
+                    "Eve", "Eve!", "  eve  ", "¿Eve?"):
+        assert despertar.separar("Eve, abre Spotify", escrita) == "abre Spotify", (
+            f"escrita como {escrita!r} la puerta no abre")
+
+    # Y la coma no arruina lo que ya andaba: `|` sigue siendo `|`, y las
+    # variantes vacias no cuentan como una variante que coincide con todo.
+    assert despertar._variantes("computadora, eve | ebe") == ["computadora", "eve", "ebe"]
+    assert despertar._variantes(" , | , ") == []
+    assert despertar.separar("abre Spotify", "") is None, "sin palabra abre con cualquier cosa"
+
+    # La puerta sigue exigiendola AL PRINCIPIO. Aceptarla en cualquier lado
+    # convierte cualquier charla que la mencione en una orden, y esta es la
+    # frase de control que lo prueba.
+    assert despertar.separar("le dije a Eve que abriera Steam", "eve") is None
+
+
+def test_renombrar_a_eve_cambia_la_palabra_que_la_despierta():
+    """La seccion se llama "Despertarla diciendo su nombre" y leia otro campo.
+
+    `assistant_name` no se usaba NUNCA para despertar: la palabra sale de
+    `wake_palabra`, que vive en otra pestana. Renombrar la IA a "Viernes"
+    dejaba la puerta abierta en "computadora" y ninguna pantalla lo decia.
+    Eran dos ajustes que de afuera se ven como uno solo.
+
+    El vacio ahora significa "usa el nombre", que es lo que la seccion promete.
+    Escribir algo sigue mandando, porque hay una razon MEDIDA para preferir una
+    palabra larga --"Computadora" despierta 4 de 4 con el modelo mas chico y
+    "Eve" 2 de 4-- y esa eleccion es del usuario.
+    """
+    from eve import despertar, store
+
+    assert despertar.palabra_de({"wake_palabra": "", "assistant_name": "Viernes"}) == "Viernes"
+    assert despertar.palabra_de({"wake_palabra": "  ", "assistant_name": "Viernes"}) == "Viernes"
+    # Lo escrito gana sobre el nombre: es una eleccion, no un descuido.
+    assert despertar.palabra_de(
+        {"wake_palabra": "computadora", "assistant_name": "Viernes"}) == "computadora"
+    # Y sin nada de nada queda algo, no una cadena vacia que abriria con todo.
+    assert despertar.palabra_de({}) == "eve"
+
+    vacia = {"wake_palabra": "", "assistant_name": "Viernes"}
+    assert despertar.separar("Viernes, abri Spotify", despertar.palabra_de(vacia)) == "abri Spotify"
+    assert despertar.separar("computadora, abri Spotify", despertar.palabra_de(vacia)) is None
+
+    # El valor de fabrica sigue siendo la palabra medida y no el vacio: quien
+    # quiera el nombre lo borra, pero de fabrica gana la que mas despierta.
+    assert store.DEFAULTS["wake_palabra"].split("|")[0] == "computadora"
+
+
+def test_una_frase_que_falla_no_deja_a_eve_sorda():
+    """El hilo de escucha tiene que sobrevivir a lo que pase con una frase.
+
+    `Escucha._lazo` era un `try/finally` SIN `except`. Cualquier excepcion de
+    `al_terminar` --y ahi adentro corre un whisper y un `voice.speak`-- mataba
+    el hilo, cerraba el stream y dejaba a Eve sorda hasta el proximo cambio de
+    config. En silencio, que es lo que hace que se viva como "a veces deja de
+    despertar sola".
+
+    Se prueba sin microfono: el lazo es lo que se esta probando, asi que se le
+    da el stream y la cola de mentira y se mira si sigue de pie despues del
+    error. Contar `fallos` es lo unico que distingue "aguanto" de "no paso
+    nada": sin ese numero, un lazo que nunca recibio la frase pasaria igual.
+    """
+    import types
+
+    from eve import despertar
+
+    tramas = []
+
+    def explota(_frase):
+        tramas.append(len(tramas))
+        if len(tramas) == 1:
+            raise RuntimeError("el TTS se cayo")
+
+    escucha = despertar.Escucha(explota)
+
+    # Un recortador que devuelve una frase por bloque, para no depender de
+    # silero ni del contenido del audio: lo que se prueba es el lazo.
+    import numpy as np
+
+    class RecortaSiempre:
+        def __init__(self, _modelo=None, _juez=None):
+            pass
+
+        def empujar(self, bloque):
+            return np.asarray(bloque, dtype="float32")
+
+    falso_sd = types.ModuleType("sounddevice")
+
+    class Stream:
+        def __init__(self, **kw):
+            self.cb = kw.get("callback")
+            self.cerrado = False
+
+        def start(self):
+            for _ in range(3):
+                self.cb(np.zeros(512, dtype="float32"), 512, None, None)
+
+        def stop(self):
+            pass
+
+        def close(self):
+            self.cerrado = True
+
+    falso_sd.InputStream = Stream
+    falso_vad = types.ModuleType("faster_whisper.vad")
+    falso_vad.get_vad_model = lambda: None
+
+    previo_sd = sys.modules.get("sounddevice")
+    previo_vad = sys.modules.get("faster_whisper.vad")
+    previo_rec = despertar.Recortador
+    sys.modules["sounddevice"] = falso_sd
+    sys.modules["faster_whisper.vad"] = falso_vad
+    despertar.Recortador = RecortaSiempre
+    try:
+        escucha.arrancar(esperar=3.0)
+        limite = time.time() + 3
+        while len(tramas) < 3 and time.time() < limite:
+            time.sleep(0.05)
+        assert escucha.fallos == 1, f"anoto {escucha.fallos} fallos"
+        assert len(tramas) >= 3, (
+            f"la escucha murio con la primera frase: solo llegaron {len(tramas)}")
+        assert escucha.activa, "el stream quedo cerrado despues del error"
+    finally:
+        escucha.parar()
+        despertar.Recortador = previo_rec
+        for nombre, previo in (("sounddevice", previo_sd),
+                               ("faster_whisper.vad", previo_vad)):
+            if previo is None:
+                sys.modules.pop(nombre, None)
+            else:
+                sys.modules[nombre] = previo
+
+
+def test_eve_no_se_despierta_a_si_misma():
+    """Lo que entra por el microfono mientras ella habla es ella.
+
+    Con la palabra clave prendida el microfono queda abierto mientras Eve
+    contesta. Silero recorta su propia voz como una frase cualquiera, y si la
+    respuesta empieza con el nombre --"Eve esta lista"-- la puerta se abre
+    sola. Y se realimenta: la respuesta a eso vuelve a entrar por el mismo lado.
+
+    El cierre de una frase pide 0.7s de silencio, asi que la ultima frase que
+    dijo ella llega DESPUES de que `speak` volvio. Por eso la sordera tiene
+    cola, y por eso la cola se comprueba: sin ella el arreglo tapa el 90% del
+    problema y deja justo el caso que se nota.
+    """
+    from eve import voice
+
+    previo = voice._callar_hasta
+    try:
+        voice._callar_hasta = 0.0
+        assert not voice.hablando(), "empieza sorda sin que nadie hable"
+
+        # Termino de hablar recien ahora: sigue sin creerle al microfono.
+        voice._marcar_hablando()
+        assert voice.hablando(), "dejo de desconfiar apenas se callo"
+        assert voice.COLA_SORDA_S > despertar_cierre(), (
+            "la cola es mas corta que el silencio que cierra una frase: la "
+            "ultima frase que dijo ella entra igual")
+
+        voice._callar_hasta = 0.0
+        assert not voice.hablando()
+    finally:
+        voice._callar_hasta = previo
+
+
+def despertar_cierre() -> float:
+    """El silencio que da por terminada una frase, para no copiar el numero."""
+    from eve import despertar
+
+    return despertar.CIERRE_S
+
+
+def test_ningun_mensaje_manda_a_una_pestana_que_no_existe():
+    """"Panel > X" tiene que llevar a una pestana de verdad.
+
+    Es el error mas barato de cometer y el mas caro de sufrir: el mensaje
+    aparece justo cuando algo no anda, el usuario va a buscar donde le dicen, y
+    no encuentra nada. Se cometio de las dos formas posibles:
+
+    * mandando a una pestana **que ya no tiene el ajuste**. "Falta la URL del
+      servicio. Panel > Cuentas" cuando `compat_url` vive en Modelos y claves,
+      y "Falta la clave de X. Panel > Cuentas" cuando la clave de cada
+      proveedor se mudo al lado de la eleccion del proveedor.
+    * mandando a una pestana **que nunca existio**: "Panel > Voces", cuando las
+      voces viven adentro de Voz.
+
+    Los tres estaban escritos como literales sueltos, asi que nada los ataba a
+    la lista de pestanas. Esto los ata: la lista sale de `PESTANAS`, que es la
+    misma que dibuja el panel.
+    """
+    import re
+
+    from eve import panel_api
+
+    validas = {rotulo for _c, rotulo, _s, _t in panel_api.PESTANAS}
+    # El nombre corto tambien vale: la pestana se llama "Modelos y claves" y
+    # nadie escribe eso entero en medio de una frase.
+    validas |= {clave for clave, _r, _s, _t in panel_api.PESTANAS}
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    malos = []
+    for nombre in sorted(os.listdir(os.path.join(raiz, "eve"))):
+        if not nombre.endswith(".py"):
+            continue
+        # `textos.py` es el diccionario de traducciones: sus claves son copias
+        # de los mensajes de los otros archivos, y arreglarlas alla las arregla
+        # aca. Contarlas dos veces solo duplicaria cada hallazgo.
+        if nombre == "textos.py":
+            continue
+        ruta = os.path.join(raiz, "eve", nombre)
+        with open(ruta, encoding="utf-8") as f:
+            fuente = f.read()
+        for n in ast.walk(ast.parse(fuente)):
+            if not (isinstance(n, ast.Constant) and isinstance(n.value, str)):
+                continue
+            for hallado in re.findall(r"Panel > ([A-Za-zÀ-ÿ ]+?)(?=[.,:\n]|$)", n.value):
+                pestana = hallado.strip()
+                # "Modelos y claves" puede venir cortado por un salto de linea
+                # en medio del literal; se acepta cualquier prefijo de una real.
+                if any(v.startswith(pestana) or pestana.startswith(v) for v in validas):
+                    continue
+                malos.append(f"{nombre}: 'Panel > {pestana}'")
+
+    assert not malos, ("mensajes que mandan a una pestana que no existe:\n  "
+                       + "\n  ".join(malos))
+
+
+def test_sin_juez_el_recortador_corta_exactamente_como_antes():
+    """El enganche no puede cambiar el comportamiento de hoy.
+
+    Es la unica forma honesta de dejar preparado algo que todavia no se puede
+    medir: que con el modelo apagado --que es como viene de fabrica, y como va
+    a venir hasta que alguien lo mida en espanol rioplatense-- el recorte de
+    frases sea byte por byte el de antes.
+
+    Se prueba sin microfono y sin silero: el Recortador recibe su detector por
+    parametro justamente para poder darle uno de tres lineas.
+    """
+    import numpy as np
+
+    from eve import despertar
+
+    class Silero:
+        """Voz mientras se le pidan bloques con algo, silencio cuando son ceros."""
+
+        def __call__(self, plano):
+            return np.array([1.0 if np.abs(plano).max() > 0 else 0.0])
+
+    def correr(juez):
+        r = despertar.Recortador(Silero(), juez)
+        voz = np.full(despertar.BLOQUE, 0.5, dtype="float32")
+        callado = np.zeros(despertar.BLOQUE, dtype="float32")
+        # Voz suficiente para pasar el minimo, y despues silencio hasta que
+        # alguien decida que termino.
+        bloques = 0
+        for _ in range(4):
+            assert r.empujar(voz) is None
+            bloques += 1
+        for i in range(20):
+            bloques += 1
+            frase = r.empujar(callado)
+            if frase is not None:
+                return bloques, frase
+        return bloques, None
+
+    sin, frase = correr(None)
+    assert frase is not None, "sin juez no cerro nunca"
+    # El cronometro: CIERRE_S de silencio a BLOQUE muestras por vuelta.
+    esperados = 4 + int(despertar.CIERRE_S * despertar.MUESTREO / despertar.BLOQUE) + 1
+    assert abs(sin - esperados) <= 1, f"cerro en {sin} bloques y el cronometro da {esperados}"
+
+    # Un juez que dice "todavia no" no puede alargar la frase: `CIERRE_S` es el
+    # TOPE. Un modelo que se equivoca hacia el otro lado te dejaria hablando
+    # solo, y eso es peor que cortar de mas.
+    quieto, _ = correr(lambda _audio: False)
+    assert quieto == sin, f"el juez negativo alargo la frase: {quieto} contra {sin}"
+
+    # Y uno que dice que si corta ANTES, pero no en medio de la palabra: se le
+    # pregunta recien despues de `SILENCIO_MIN_S`.
+    from eve import turno
+
+    rapido, _ = correr(lambda _audio: True)
+    piso = 4 + int(turno.SILENCIO_MIN_S * despertar.MUESTREO / despertar.BLOQUE)
+    assert piso <= rapido < sin, (
+        f"con juez positivo cerro en {rapido}; el piso es {piso} y el tope {sin}")
+
+
+def test_un_juez_que_revienta_no_se_lleva_la_escucha():
+    """Un detector de fin de turno roto vuelve al cronometro, no rompe nada.
+
+    Es la regla de todo lo que se agrega alrededor de la escucha: si falla, se
+    apaga solo y Eve sigue andando como antes. Aca importa el doble porque el
+    modelo lo baja el usuario de un tercero: un archivo truncado, una version
+    con otra forma de entrada, o un onnxruntime que no lo acepta tienen que
+    terminar en "sigue el cronometro" y no en "Eve dejo de escuchar".
+    """
+    import numpy as np
+
+    from eve import despertar
+
+    llamadas = []
+
+    def explota(_audio):
+        llamadas.append(1)
+        raise RuntimeError("el modelo se cayo")
+
+    class Silero:
+        def __call__(self, plano):
+            return np.array([1.0 if np.abs(plano).max() > 0 else 0.0])
+
+    r = despertar.Recortador(Silero(), explota)
+    voz = np.full(despertar.BLOQUE, 0.5, dtype="float32")
+    callado = np.zeros(despertar.BLOQUE, dtype="float32")
+    for _ in range(4):
+        r.empujar(voz)
+    frase = None
+    for _ in range(20):
+        frase = r.empujar(callado)
+        if frase is not None:
+            break
+    assert frase is not None, "el juez roto se llevo el recorte"
+    assert len(llamadas) == 1, (
+        f"lo siguio llamando despues de reventar: {len(llamadas)} veces")
+    assert r.juez is None, "no se apago solo, va a reventar en cada frase"
+
+
+def test_el_modelo_de_fin_de_turno_no_se_baja_solo():
+    """Ningun camino descarga los 8 MB sin que el usuario apriete el boton.
+
+    Es una regla, no un detalle: un programa que corre todo el dia y se
+    descarga cosas de terceros cuando le parece es exactamente lo que no se
+    quiere. La descarga tiene UN solo llamador --la accion del boton-- y esto
+    lo cuenta leyendo el fuente, porque probarlo de verdad seria bajarlo.
+    """
+    import re
+
+    from eve import panel_api, turno
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+    llamadores = []
+    for nombre in sorted(os.listdir(os.path.join(raiz, "eve"))):
+        if not nombre.endswith(".py") or nombre == "turno.py":
+            continue
+        with open(os.path.join(raiz, "eve", nombre), encoding="utf-8") as f:
+            fuente = f.read()
+        for m in re.finditer(r"turno\.descargar\s*\(", fuente):
+            linea = fuente[:m.start()].count("\n") + 1
+            llamadores.append(f"{nombre}:{linea}")
+    assert len(llamadores) == 2, (
+        "la descarga tiene que salir solo del boton de los dos paneles, "
+        f"y la llaman desde: {llamadores}")
+
+    # Y mientras no este, todo lo demas contesta que no hay modelo en vez de
+    # salir a buscarlo.
+    if not turno.disponible():
+        assert turno.juez({"cierre_modo": "modelo"}) is None
+        assert turno.completo(__import__("numpy").zeros(16000, dtype="float32")) is None
+        assert "No esta bajado" in turno.estado()
+
+    # El modo de fabrica es el cronometro, y eso es deliberado: la medicion en
+    # espanol rioplatense todavia no se hizo.
+    assert store.DEFAULTS["cierre_modo"] == "fijo"
+    assert panel_api.ACCIONES["turno_bajar"], "el boton no tiene accion"
+
+
+# Los selectores del panel que NO tienen contraparte en el dibujo, con el
+# motivo de cada uno. Es el techo real de "pixel perfect": contra un dibujo que
+# no muestra algo no se puede comparar nada.
+#
+# La lista existe para que ese techo este A LA VISTA y se pueda discutir, en
+# vez de repartido como numeros sueltos en el CSS. Un selector que no este aca
+# y traiga una medida a mano pone rojo el test; y uno que este y ya no traiga
+# ninguna, tambien --si no, la lista solo crece--.
+SIN_DIBUJO = {
+    # El dibujo muestra pantallas TERMINADAS. Esto es el hueco que marca lo que
+    # todavia dibuja tkinter, asi que por definicion no esta en ningun artboard.
+    ".propio": "el hueco declarado no existe en el dibujo",
+
+    # Apariencia se parte en cinco sub-pestanas y el artboard la dibuja como una
+    # sola pantalla: la barra de sub-pestanas no esta dibujada en ningun lado.
+    ".subpestanas": "el dibujo no muestra las sub-pestanas de Apariencia",
+
+    # El selector nativo de color del navegador. El dibujo pinta un cuadradito
+    # a mano; el control real es un `input[type=color]`, que trae su propia
+    # forma y no se puede igualar pixel por pixel de todos modos.
+    '.color-fila input[type="color"]': "control nativo del navegador",
+
+    # Los cuadros modales. El dibujo tiene el panel de aprobacion --y de ahi
+    # salio como se ve-- pero no los cuadros de editar un comando, elegir un
+    # modelo entre trescientos, o ver la salida entera de una prueba.
+    "dialog.cuadro": "los cuadros modales no estan dibujados",
+    ".volcado": "idem: la ventana con la salida completa",
+    ".aprobacion": "el dibujo lo muestra desplegado, con otra estructura",
+
+    # Componentes que arme para las cuatro pestanas que estaban escritas a mano.
+    # El artboard las dibuja, pero con otra estructura --posiciones absolutas
+    # donde yo use flex-- asi que las medidas no se corresponden una a una.
+    ".lista li": "lista propia; el dibujo usa otra estructura",
+    ".proveedores": "idem",
+    ".prov": "idem",
+    ".addon": "idem",
+    ".mcp-lista": "idem",
+    ".mcp-fila": "idem",
+    ".historial": "idem",
+    '.campo.chico > label': "el formulario de la agenda, en dos columnas",
+
+    # Alineacion optica: un rotulo al lado de un cuadro de varias lineas tiene
+    # que bajar un poco para quedar a la altura de la primera linea. Eso no es
+    # una medida del diseno, es una correccion de como el navegador apila texto.
+    ".campo.alto > label": "alineacion optica, no una medida del dibujo",
+
+    # La muestra de perfil la dibuja el artboard con posiciones absolutas y yo
+    # la arme con flex: el ancho, los altos y los radios SI salen del dibujo
+    # --son tokens-- pero el relleno interno no tiene equivalente.
+    ".muestra-panel": "misma muestra, otra estructura",
+
+    # El tablero de tarjetas. El dibujo lo escribe con las cuatro propiedades
+    # sueltas (`padding-top`, `padding-left`...) y aca va en una sola linea;
+    # extraerlo daria un token que solo sirve para esto.
+    ".tablero": "el dibujo lo escribe en cuatro propiedades sueltas",
+}
+
+
+def test_el_panel_no_tiene_ni_una_medida_escrita_a_mano():
+    """El CSS no puede traer un numero que alguien copio mirando el dibujo.
+
+    El pedido fue que se parezca lo maximo posible **evitando hardcodeos**, y
+    las dos mitades tiran para lados opuestos si uno las toma de la forma
+    obvia: parecerse pide copiar cada medida del artboard al CSS, y copiar es
+    hardcodear. Peor: la copia se desfasa sola --se corrige el dibujo y el
+    panel sigue con el numero viejo, sin que nada lo diga--.
+
+    La salida fue no copiar ninguna. `medidas/tokens.py` LEE los artboards y
+    escribe `web/tokens.css`; `panel.css` solo usa esas variables. Este test
+    regenera y compara: si alguien corrige el dibujo y no regenera, o escribe
+    un numero a mano en el CSS, se pone rojo.
+
+    Es el mismo trato que ya tenian los colores desde el principio, que salen
+    de `eve/tema.py` y por eso el CSS no tiene ni un `#hex`.
+    """
+    import glob
+    import re
+    import subprocess
+
+    raiz = os.path.dirname(os.path.abspath(__file__))
+
+    # 1) El generado tiene que estar al dia con los artboards.
+    #
+    # Los artboards estan en `.gitignore` --son borradores y viven solo en el
+    # disco de quien disena-- asi que en una copia limpia del repo no estan y
+    # no hay contra que comparar. Ahi se saltea: lo que se versiona es el
+    # resultado, `tokens.css`, y ese sigue estando.
+    if not glob.glob(os.path.join(raiz, "*.dc.html")):
+        print("    (salteado: no hay artboards en esta copia)")
+    else:
+        r = subprocess.run([sys.executable, os.path.join(raiz, "medidas", "tokens.py"),
+                            "--check"], capture_output=True, text=True, cwd=raiz)
+        assert r.returncode == 0, (
+            "tokens.css no coincide con los artboards:\n"
+            + (r.stdout or "") + (r.stderr or ""))
+
+    # 2) Y `panel.css` no puede tener medidas propias. Se buscan numeros con
+    # unidad en las propiedades donde vive el diseno --radios, rellenos, anchos
+    # y tamanos de letra-- que son las que salen del dibujo.
+    #
+    # Quedan afuera a proposito: `1px` de los bordes, que es el grosor y no una
+    # medida del diseno; los `0`, que no son una medida; los porcentajes y los
+    # `ch`, que son relativos a otra cosa; y el bloque de respaldo del principio
+    # del archivo, que existe por si el puente tarda en contestar.
+    with open(os.path.join(raiz, "web", "panel.css"), encoding="utf-8") as f:
+        css = f.read()
+    # Sin comentarios: adentro se explica de donde salen los numeros, y esos
+    # textos no son declaraciones.
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    PROPS = ("border-radius", "padding", "width", "height", "font-size", "gap")
+    culpables = []
+    selector = "?"
+    for linea in css.splitlines():
+        limpia = linea.strip()
+        if limpia.endswith("{"):
+            selector = limpia[:-1].strip()
+            continue
+        if ":" not in limpia:
+            continue
+        prop, _, valor = limpia.partition(":")
+        prop = prop.strip().lstrip("-")
+        if not any(prop == p or prop.startswith(p + "-") for p in PROPS):
+            continue
+        # Lo que ya viene de una variable esta bien: esa es la forma correcta.
+        sin_vars = re.sub(r"var\(--[a-z0-9-]+\)", "", valor)
+        numeros = [n for n in re.findall(r"(\d+(?:\.\d+)?)(px|pt|rem|em)", sin_vars)
+                   if not (n[0] == "1" and n[1] == "px")]  # el 1px es grosor de borde
+        if numeros and selector not in SIN_DIBUJO:
+            culpables.append(f"{selector} -> {prop}: {valor.strip().rstrip(';')}")
+
+    assert not culpables, (
+        "medidas escritas a mano en panel.css, en selectores que NO estan en la\n"
+        "lista de excepciones. O sale de tokens.css, o se agrega a SIN_DIBUJO con\n"
+        "el motivo escrito:\n  " + "\n  ".join(sorted(set(culpables))))
+
+    # Y al reves: una excepcion que ya no tiene ninguna medida a mano deja de
+    # ser una excepcion. Sin esto la lista solo crece y deja de significar algo.
+    vivos = {ln.strip()[:-1].strip() for ln in css.splitlines() if ln.strip().endswith("{")}
+    fantasmas = sorted(set(SIN_DIBUJO) - vivos)
+    assert not fantasmas, f"SIN_DIBUJO nombra selectores que ya no existen: {fantasmas}"
+
+
+def test_registro_esquema_serializa_el_arbol_entero_sin_perder_nada():
+    """`json.dumps` sobre el arbol crudo lo saca como array y pierde el tipo:
+    un `Interruptor` y un `Boton`, los dos de dos campos, salen indistinguibles
+    sin el nombre de la clase. `esquema()` es la pieza que le falta al
+    registro para que el panel HTML use la MISMA descripcion en vez de llevar
+    su propia copia --sin esto, cada renderer necesitaria su lector a mano de
+    `NamedTuple`.
+    """
+    import collections
+    import json
+
+    from eve import registro
+
+    crudo = registro.esquema()
+    # Sin serializador propio: si esto necesitara uno, la pieza no serviria
+    # para lo que se pidio.
+    texto = json.dumps(crudo)
+    arbol = json.loads(texto)
+
+    def nodos(bloque):
+        """Todos los nodos, recursivo en `hijos`, sea cual sea el nivel."""
+        for n in bloque:
+            yield n
+            if "hijos" in n:
+                yield from nodos(n["hijos"])
+
+    todos = [n for tabla in arbol.values() for n in nodos(tabla)]
+
+    # Los mismos once tipos, con el mismo conteo que tiene HOY el registro
+    # --contado aparte, recorriendo el arbol de objetos, no el JSON-- para que
+    # este numero no se pueda copiar del propio codigo que se esta probando.
+    cuenta_json = collections.Counter(n["tipo"] for n in todos)
+
+    def contar_objetos(bloque):
+        c = collections.Counter()
+        for item in bloque:
+            c[type(item).__name__] += 1
+            if isinstance(item, (registro.Seccion, registro.Fila)):
+                c += contar_objetos(item.hijos)
+        return c
+
+    cuenta_objetos = contar_objetos(
+        [item for tabla in registro.TABLAS for item in tabla])
+    assert cuenta_json == cuenta_objetos, (
+        f"el JSON cuenta {dict(cuenta_json)} y el arbol de objetos "
+        f"{dict(cuenta_objetos)}")
+    # Los doce tipos declarados, ninguno menos: un tipo que perdiera todas sus
+    # instancias en el camino pasaria el assert de arriba sin que nadie note
+    # que desaparecio entero.
+    assert set(cuenta_json) == {
+        "Campo", "Interruptor", "Ayuda", "Boton", "Salida", "Fila", "Seccion",
+        "Propio", "Colores", "Fondo", "Vivo", "Clave"}
+
+    # Los `Propio` viajan como el hueco declarado, sin expandirse ni omitirse:
+    # el frontend los rellena con un componente propio, igual que hoy lo
+    # rellena un metodo de tkinter.
+    propios = [n for n in todos if n["tipo"] == "Propio"]
+    # Veinte: los diez de las siete tablas que ya estaban, mas los diez que
+    # trajeron Cuentas, Contactos, Addons, Actividad y los dos bloques que
+    # `gui.py` componia al lado del registro (perfiles, sesion de Claude Code).
+    assert len(propios) == 20, f"{len(propios)} excepciones declaradas"
+    for p in propios:
+        assert p["metodo"], "un Propio sin metodo es un hueco sin quien lo llene"
+
+    # `Campo.opciones` como texto es el NOMBRE de un metodo del panel (las
+    # voces de Windows, los modelos del proveedor). Tiene que marcarse de
+    # forma que el consumidor sepa que hay que PEDIRLAS, no leerlo como texto
+    # -- por eso viaja como `{"metodo": ...}` y no como el string pelado.
+    dinamicos = [n for n in todos if n["tipo"] == "Campo"
+                 and isinstance(n["opciones"], dict)]
+    assert dinamicos, "ningun campo con opciones dinamicas: el marcado se perdio"
+    for n in dinamicos:
+        assert set(n["opciones"]) == {"metodo"} and n["opciones"]["metodo"]
+
+    # Ninguna clave que hoy se puede tocar desde el panel desaparece del
+    # esquema. `claves()` ya es la fuente que usan los tests guardianes para
+    # esa misma pregunta sobre el arbol de objetos.
+    def claves_del_json(bloque):
+        salida = []
+        for n in bloque:
+            if n["tipo"] in ("Campo", "Interruptor"):
+                salida.append(n["clave"])
+            elif n["tipo"] == "Propio":
+                salida.extend(n["claves_propias"])
+            elif n["tipo"] == "Colores":
+                salida.extend(f"{n['prefijo']}_color_{rol}" for rol in registro.ROLES)
+            elif n["tipo"] == "Fondo":
+                for sufijo in ("_fondo", "_fondo_ajuste", "_fondo_opacidad",
+                               "_fondo_tinte", "_grad", "_grad_a", "_grad_b"):
+                    salida.append(f"{n['prefijo']}{sufijo}")
+            if "hijos" in n:
+                salida.extend(claves_del_json(n["hijos"]))
+        return salida
+
+    vistas = set(k for tabla in arbol.values() for k in claves_del_json(tabla))
+    esperadas = set()
+    for tabla in registro.TABLAS:
+        esperadas |= set(registro.claves(tabla))
+    faltan = esperadas - vistas
+    assert not faltan, f"el esquema perdio claves tocables desde el panel: {faltan}"
 
 
 def test_el_lienzo_de_skia_solo_dibuja_los_tipos_portados():

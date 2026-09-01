@@ -1,0 +1,876 @@
+/* El panel, con los tokens de los artboards y los colores del programa.
+ *
+ * Ni un color escrito aca. Los ocho roles llegan como variables desde Python
+ * --`tema.resolver(cfg, "ui")`, la MISMA paleta que ya usan el panel viejo, el
+ * cartel y la ventana de actividad-- asi que el tema que el usuario eligio se
+ * aplica solo, incluido "personalizado". Escribir un #hex aca seria abrir la
+ * novena copia de la paleta.
+ *
+ * Las medidas salen de los dibujos aprobados: riel de 178, rotulo de 200,
+ * tarjeta de radio 10 con 14/16 de padding, campo de radio 6 con 6/10.
+ */
+
+:root {
+  /* Los ocho roles y la escala los escribe `panel.js` sobre este mismo
+     elemento al arrancar. Los valores de aca son el piso por si el puente
+     tarda: una pantalla sin estilo es peor que una con el tema equivocado. */
+  --fondo: #16181d;
+  --panel: #2e3136;
+  --texto: #e7e9ee;
+  --texto-tenue: #a2a9b4;
+  --acento: #7aa2f7;
+  --acento2: #41598a;
+  --borde: #494e56;
+  --alerta: #f7768e;
+
+  --e1: 4px;
+  --e2: 8px;
+  --e3: 12px;
+  --e4: 16px;
+  --e5: 24px;
+  --e6: 32px;
+
+}
+
+/* Las medidas NO estan aca. Salen de `tokens.css`, que lo genera
+   `medidas/tokens.py` leyendo los artboards del diseno: el numero vive en el
+   dibujo y esto lo usa. Copiarlos aca era tener el diseno escrito dos veces, y
+   la copia se desfasa sola --se corrige el dibujo y el panel sigue igual, sin
+   que nada lo diga--.
+
+   Los colores ya funcionaban asi desde el principio, con `eve/tema.py`. Esto
+   es lo mismo para el resto. */
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  /* La del sistema, que es lo que significa la opcion "(la del sistema)" del
+     panel. No hay tipografia de internet: esto corre congelado y sin red. */
+  font-family: "Segoe UI", system-ui, -apple-system, "Ubuntu", "Cantarell", sans-serif;
+  font-size: var(--cuerpo-tam);
+  line-height: 1.45;
+  background: var(--fondo);
+  color: var(--texto);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* --- barra de arriba ----------------------------------------------------- */
+
+.barra {
+  display: flex;
+  align-items: center;
+  gap: var(--e3);
+  padding: var(--barra-padding);
+  flex-shrink: 0;
+}
+
+.barra .rotulo-ver {
+  color: var(--texto-tenue);
+  font-size: var(--rotulo-tam);
+}
+
+.modo {
+  padding: var(--modo-padding);
+  border-radius: var(--modo-radio);
+  border: 1px solid var(--borde);
+  background: transparent;
+  color: var(--texto-tenue);
+  font: inherit;
+  font-size: var(--rotulo-tam);
+  cursor: pointer;
+}
+
+.modo[aria-pressed="true"] {
+  background: var(--acento2);
+  border-color: var(--acento);
+  color: var(--texto);
+}
+
+.buscador {
+  flex-grow: 1;
+  padding: var(--buscador-padding);
+  border-radius: var(--campo-radio);
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  font: inherit;
+  font-size: var(--rotulo-tam);
+}
+
+.buscador::placeholder { color: var(--texto-tenue); }
+
+.version {
+  color: var(--texto-tenue);
+  font-size: var(--rotulo-tam);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- el cuerpo: riel + contenido ---------------------------------------- */
+
+.cuerpo {
+  display: flex;
+  gap: var(--cuerpo-gap);
+  padding: var(--cuerpo-padding);
+  flex-grow: 1;
+  min-height: 0;
+}
+
+.riel {
+  width: var(--riel-ancho);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--borde);
+  padding-right: var(--riel-pad-derecha);
+  overflow-y: auto;
+}
+
+.riel button {
+  height: var(--riel-alto);
+  display: flex;
+  align-items: center;
+  padding: var(--riel-padding);
+  border-radius: var(--riel-radio);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--texto-tenue);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.riel button:hover { background: var(--panel); color: var(--texto); }
+
+.riel button[aria-current="page"] {
+  background: var(--acento2);
+  border-color: var(--acento);
+  color: var(--texto);
+}
+
+.contenido {
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.cabecera {
+  padding: var(--cabecera-padding);
+  border-bottom: 1px solid var(--borde);
+  flex-shrink: 0;
+}
+
+.cabecera h1 {
+  margin: 0;
+  font-size: var(--titulo-tam);
+  font-weight: var(--subtitulo-peso);
+  text-wrap: balance;
+}
+
+.cabecera p {
+  margin: var(--e1) 0 0;
+  color: var(--texto-tenue);
+  text-wrap: pretty;
+}
+
+.tablero {
+  padding: var(--e3) 2px var(--e1) var(--e2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--tablero-gap);
+}
+
+/* --- sub-pestanas (Apariencia) ------------------------------------------ */
+
+.subpestanas {
+  display: flex;
+  gap: var(--e1);
+  padding: 10px 0 0 var(--e2);
+  flex-shrink: 0;
+}
+
+.subpestanas button {
+  padding: var(--boton-padding);
+  border-radius: var(--campo-radio);
+  border: 1px solid var(--borde);
+  background: transparent;
+  color: var(--texto-tenue);
+  font: inherit;
+  font-size: var(--rotulo-tam);
+  cursor: pointer;
+}
+
+.subpestanas button[aria-selected="true"] {
+  background: var(--acento2);
+  border-color: var(--acento);
+  color: var(--texto);
+}
+
+/* --- una seccion -------------------------------------------------------- */
+
+.seccion {
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: var(--tarjeta-radio);
+  padding: var(--tarjeta-padding);
+}
+
+/* La cabecera es un boton de verdad y no una etiqueta con un click encima: asi
+   entra en el recorrido del tabulador, se abre con Enter o con la barra
+   espaciadora, y el lector de pantalla la anuncia como algo que se puede
+   accionar. Es la misma razon escrita en `gui.py::_seccion`. */
+.seccion > .titulo {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--texto);
+  font: inherit;
+  font-size: var(--cuerpo-tam);
+  font-weight: var(--subtitulo-peso);
+  cursor: pointer;
+  text-align: left;
+}
+
+.seccion > .titulo .flecha {
+  color: var(--acento);
+  transition: transform .12s ease;
+  flex-shrink: 0;
+}
+
+.seccion > .titulo[aria-expanded="false"] .flecha { transform: rotate(-90deg); }
+
+.seccion > .titulo .nivel {
+  margin-left: auto;
+  font-size: var(--ayuda-tam);
+  font-weight: 400;
+  color: var(--texto-tenue);
+  border: 1px solid var(--borde);
+  border-radius: var(--pildora-radio);
+  padding: var(--pildora-padding);
+}
+
+.seccion > .cuerpo-seccion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--seccion-gap);
+  margin-top: 10px;
+}
+
+.seccion > .titulo[aria-expanded="false"] + .cuerpo-seccion { display: none; }
+
+/* --- una fila de ajuste ------------------------------------------------- */
+
+.campo {
+  display: flex;
+  align-items: center;
+  gap: var(--fila-gap);
+}
+
+.campo > label {
+  width: var(--rotulo-ancho);
+  flex-shrink: 0;
+  color: var(--texto-tenue);
+  font-size: var(--rotulo-tam);
+  text-wrap: pretty;
+}
+
+.campo input[type="text"],
+.campo input[type="number"],
+.campo select,
+.campo textarea {
+  flex-grow: 1;
+  min-width: 0;
+  padding: var(--campo-padding);
+  border-radius: var(--campo-radio);
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  font: inherit;
+  font-size: var(--cuerpo-tam);
+}
+
+.campo textarea {
+  min-height: 84px;
+  resize: vertical;
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: var(--rotulo-tam);
+}
+
+.campo input:focus-visible,
+.campo select:focus-visible,
+.campo textarea:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 1px;
+}
+
+/* Una casilla no lleva la columna de rotulo: el texto va adentro, que es
+   donde se puede clickear. */
+.interruptor {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  font-size: var(--cuerpo-tam);
+  cursor: pointer;
+}
+
+.interruptor input { accent-color: var(--acento); width: 15px; height: 15px; }
+
+.ayuda {
+  color: var(--texto-tenue);
+  font-size: var(--ayuda-tam);
+  margin: 0;
+  max-width: 700px;
+  text-wrap: pretty;
+  white-space: pre-line;
+}
+
+.botones {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  flex-wrap: wrap;
+}
+
+.boton {
+  padding: var(--boton-padding);
+  border-radius: var(--boton-radio);
+  border: 1px solid var(--borde);
+  background: transparent;
+  color: var(--texto);
+  font: inherit;
+  font-size: var(--rotulo-tam);
+  cursor: pointer;
+}
+
+.boton:hover:not(:disabled) { background: var(--fondo); border-color: var(--acento); }
+
+.boton:disabled { opacity: .45; cursor: not-allowed; }
+
+.boton.primario {
+  background: var(--acento);
+  border-color: var(--acento);
+  color: var(--fondo);
+  font-weight: 600;
+}
+
+.salida {
+  color: var(--texto-tenue);
+  font-size: var(--ayuda-tam);
+  min-height: 1em;
+  margin: 0;
+}
+
+/* --- colores ------------------------------------------------------------ */
+
+.color-fila { display: flex; align-items: center; gap: var(--e3); }
+
+.color-fila > label { width: var(--rotulo-ancho); flex-shrink: 0; color: var(--texto-tenue); font-size: var(--rotulo-tam); }
+
+.color-fila input[type="color"] {
+  width: 40px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--borde);
+  border-radius: var(--campo-radio);
+  background: var(--fondo);
+  cursor: pointer;
+}
+
+.color-fila input[type="text"] {
+  width: 11ch;
+  flex-grow: 0;
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  text-transform: lowercase;
+}
+
+/* --- el hueco declarado ------------------------------------------------- */
+
+/* Un `Propio` del registro es una excepcion DECLARADA: un control con logica
+   propia que en tkinter escribe un metodo a mano. Mientras no este portado se
+   dibuja asi, diciendo cual es y que claves toca. Un hueco visible es lo unico
+   honesto: esconderlo daria una pestana que se ve completa y no lo esta. */
+.propio {
+  border: 1px dashed var(--borde);
+  border-radius: var(--campo-radio);
+  padding: 10px var(--e3);
+  color: var(--texto-tenue);
+  font-size: var(--ayuda-tam);
+}
+
+.propio code {
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  color: var(--texto);
+}
+
+.vacia {
+  border: 1px dashed var(--borde);
+  border-radius: var(--tarjeta-radio);
+  padding: var(--e5);
+  color: var(--texto-tenue);
+  text-align: center;
+  text-wrap: pretty;
+}
+
+/* --- la barra de guardar ------------------------------------------------ */
+
+.pie {
+  display: flex;
+  align-items: center;
+  gap: var(--e3);
+  padding: var(--e2) var(--e3);
+  border-top: 1px solid var(--borde);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+/* Cuantos cambios hay sin guardar, con cuales son. El panel de tkinter tiene
+   un Guardar a ciegas: no dice que va a escribir, y el unico modo de saberlo
+   era mirar el config.json despues. */
+.pendientes { color: var(--texto-tenue); font-size: var(--rotulo-tam); }
+.pendientes b { color: var(--texto); font-variant-numeric: tabular-nums; }
+.pie .error { color: var(--alerta); font-size: var(--rotulo-tam); }
+.pie .hecho { color: var(--acento); font-size: var(--rotulo-tam); }
+.pie .relleno { flex-grow: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
+/* --- los huecos declarados, ya portados --------------------------------- */
+
+/* Un campo con un cuadro de varias lineas: el rotulo va arriba, no al lado, o
+   la columna de 200 queda con un renglon de texto y cuatro de aire. */
+.campo.alto {
+  align-items: flex-start;
+}
+
+.campo.alto > label {
+  padding-top: 7px;
+}
+
+/* Quien piensa por ella. Cada proveedor en su renglon, con donde corre y si
+   tiene clave: era lo que faltaba ver de un vistazo, y por lo que se podia
+   tener elegido uno y guardada la clave de otro. */
+.proveedores {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prov {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  padding: 5px var(--e2);
+  border-radius: var(--campo-radio);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.prov:hover { background: var(--fondo); }
+
+.prov.activo {
+  background: var(--fondo);
+  border-color: var(--acento);
+}
+
+.prov input { accent-color: var(--acento); }
+
+.prov-nombre { width: 130px; flex-shrink: 0; font-size: var(--cuerpo-tam); }
+
+.prov-donde { color: var(--texto-tenue); font-size: var(--ayuda-tam); }
+
+.prov-clave {
+  margin-left: auto;
+  color: var(--texto-tenue);
+  font-size: var(--ayuda-tam);
+}
+
+/* La unica que se pinta distinto: elegiste uno que necesita clave y no la
+   cargaste, o sea que no va a andar y todavia no te enteraste. */
+.prov-clave.falta { color: var(--alerta); }
+
+/* --- listas (skills) ---------------------------------------------------- */
+
+.lista-caja {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+}
+
+.lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--borde);
+  border-radius: var(--campo-radio);
+  background: var(--fondo);
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.lista li {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--borde);
+}
+
+.lista li:last-child { border-bottom: 0; }
+
+.lista-nombre { font-size: var(--cuerpo-tam); }
+
+.lista-resumen {
+  color: var(--texto-tenue);
+  font-size: var(--ayuda-tam);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lista li .boton { margin-left: auto; flex-shrink: 0; }
+
+.lista li.vacio { color: var(--texto-tenue); font-size: var(--rotulo-tam); }
+
+.lista.elegible li { border-bottom: 0; padding: 2px 6px; }
+.lista.elegible .boton { margin-left: 0; width: 100%; text-align: left; }
+
+.boton.chico { padding: 2px 8px; font-size: var(--ayuda-tam); }
+
+/* --- la tabla de comandos ----------------------------------------------- */
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--borde);
+  border-radius: var(--campo-radio);
+  background: var(--fondo);
+  font-size: var(--rotulo-tam);
+  table-layout: fixed;
+}
+
+.tabla th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--texto-tenue);
+  font-size: var(--ayuda-tam);
+  padding: var(--tabla-th-padding);
+  border-bottom: 1px solid var(--borde);
+}
+
+.tabla td {
+  padding: var(--tabla-td-padding);
+  border-bottom: 1px solid var(--borde);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabla tbody tr { cursor: pointer; }
+.tabla tbody tr:hover { background: var(--panel); }
+.tabla tbody tr[aria-selected="true"] { background: var(--acento2); }
+.tabla td.mono { font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace; }
+
+/* Sin aprobar: esa frase no hace nada todavia, y tiene que verse sin leer. */
+.tabla td.falta { color: var(--alerta); }
+
+/* El cartel de aprobar va DENTRO del panel: el cuadro del sistema recortaba el
+   texto largo sin decirlo, y lo que se aprueba ES el texto. */
+.aprobacion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  border: 1px solid var(--acento);
+  border-radius: var(--campo-radio);
+  padding: 10px var(--e3);
+}
+
+.aprobacion textarea {
+  width: 100%;
+  background: var(--fondo);
+  color: var(--texto);
+  border: 1px solid var(--borde);
+  border-radius: var(--campo-radio);
+  padding: var(--campo-padding);
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: var(--rotulo-tam);
+  resize: vertical;
+}
+
+.aprobacion .ayuda { margin-left: var(--e2); }
+
+/* --- cuadros ------------------------------------------------------------ */
+
+dialog.cuadro {
+  background: var(--panel);
+  color: var(--texto);
+  border: 1px solid var(--borde);
+  border-radius: var(--tarjeta-radio);
+  padding: var(--e4);
+  width: min(560px, 92vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+}
+
+dialog.cuadro.ancho { width: min(760px, 94vw); }
+
+dialog.cuadro::backdrop { background: rgba(0, 0, 0, .5); }
+
+dialog.cuadro h2 { margin: 0; font-size: 15px; font-weight: 600; }
+
+dialog.cuadro input[type="text"],
+dialog.cuadro input[type="search"],
+dialog.cuadro select,
+dialog.cuadro textarea {
+  flex-grow: 1;
+  min-width: 0;
+  padding: var(--campo-padding);
+  border-radius: var(--campo-radio);
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  font: inherit;
+  font-size: var(--cuerpo-tam);
+}
+
+/* La salida entera de un comando, seleccionable. Es el punto: recortada a 300
+   caracteres se ve el principio del error, que es la parte que no sirve. */
+.volcado {
+  margin: 0;
+  padding: 10px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: var(--campo-radio);
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: var(--rotulo-tam);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 52vh;
+  overflow-y: auto;
+  user-select: text;
+}
+
+.propio.error { border-color: var(--alerta); color: var(--alerta); }
+
+/* La clave del proveedor elegido, al lado de la eleccion. El campo va
+   enmascarado y arranca con asteriscos si ya hay una: la clave no viaja de
+   vuelta desde el llavero, solo el hecho de que exista. */
+.campo.clave {
+  margin-top: var(--e2);
+  padding-top: var(--e2);
+  border-top: 1px solid var(--borde);
+}
+
+.campo.clave input[type="password"] {
+  flex-grow: 1;
+  min-width: 0;
+  max-width: 320px;
+  padding: var(--campo-padding);
+  border-radius: var(--campo-radio);
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  color: var(--texto);
+  font: inherit;
+  font-size: var(--cuerpo-tam);
+}
+
+.salida.error { color: var(--alerta); }
+
+/* --- las cuatro ultimas pestanas ---------------------------------------- */
+
+/* Un campo mas angosto, para el formulario de la agenda: siete campos con la
+   columna de rotulo de 200 no entran en dos columnas. */
+.campo.chico > label {
+  width: 96px;
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: var(--ayuda-tam);
+}
+
+/* El formulario de contactos en dos columnas, como en el panel viejo. */
+.form-agenda {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--e1) var(--e4);
+}
+
+/* --- addons -------------------------------------------------------------- */
+
+.addon {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--borde);
+}
+
+.addon:last-of-type { border-bottom: 0; }
+
+.addon .interruptor .ayuda { margin-left: var(--e1); }
+
+.addon .campo.clave { margin-top: var(--e1); padding-top: 0; border-top: 0; }
+
+/* --- MCP ----------------------------------------------------------------- */
+
+.mcp-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--borde);
+  border-radius: var(--campo-radio);
+  background: var(--fondo);
+  padding: var(--e2);
+}
+
+.mcp-fila {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  padding: 3px 6px;
+  border-radius: var(--campo-radio);
+  cursor: pointer;
+}
+
+.mcp-fila:hover { background: var(--panel); }
+.mcp-fila input { accent-color: var(--acento); }
+
+/* --- historial ----------------------------------------------------------- */
+
+/* Lo que se dijo. Es la conversacion del usuario: se muestra y no se manda a
+   ningun lado, igual que en el panel viejo. */
+.historial {
+  border: 1px solid var(--borde);
+  border-radius: var(--campo-radio);
+  background: var(--fondo);
+  padding: var(--e2) 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+}
+
+.turno {
+  display: grid;
+  grid-template-columns: 92px 64px 1fr;
+  gap: var(--e2);
+  align-items: baseline;
+}
+
+.turno-hora {
+  color: var(--texto-tenue);
+  font-size: var(--ayuda-tam);
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.turno-quien { color: var(--acento); font-size: var(--ayuda-tam); }
+
+.turno-texto { font-size: var(--rotulo-tam); white-space: pre-wrap; word-break: break-word; }
+
+/* --- perfiles ------------------------------------------------------------ */
+
+.galeria {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--galeria-gap);
+}
+
+/* Cada muestra pinta el panel arriba y el cartel abajo, con los colores de ESE
+   perfil. Con el cartel solo, Claro y Oscuro se veian identicos: lo que cambia
+   entre esos dos es `ui_tema`, que es justo la mitad de arriba. */
+.muestra {
+  width: var(--muestra-ancho);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--campo-radio);
+  background: transparent;
+  color: var(--texto);
+  font: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.muestra:hover { filter: brightness(1.08); }
+.muestra.activa { border-color: var(--acento); }
+
+.muestra-panel {
+  height: var(--muestra-panel-alto);
+  border-radius: var(--muestra-radio-arriba);
+  background: var(--m-fondo);
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 3px;
+  overflow: hidden;
+}
+
+.muestra-riel {
+  width: var(--muestra-riel-ancho);
+  flex-shrink: 0;
+  background: var(--m-panel);
+  border-top: 3px solid var(--m-acento);
+}
+
+.muestra-tarjeta {
+  flex-grow: 1;
+  background: var(--m-panel);
+  border: 1px solid var(--m-borde);
+}
+
+.muestra-cartel {
+  height: var(--muestra-cartel-alto);
+  border-radius: var(--muestra-radio-abajo);
+  background: var(--m-hud-fondo);
+  border: 1px solid var(--m-borde);
+  border-top: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  padding: var(--muestra-cartel-padding);
+  overflow: hidden;
+}
+
+.muestra-punto {
+  width: var(--anillo-muestra);
+  height: var(--anillo-muestra);
+  border-radius: 50%;
+  border: 2px solid var(--m-hud-acento);
+  flex-shrink: 0;
+}
+
+.muestra-titulo {
+  color: var(--m-hud-texto);
+  font-size: var(--ayuda-tam);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.muestra-nombre {
+  color: var(--texto-tenue);
+  font-size: var(--ayuda-tam);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

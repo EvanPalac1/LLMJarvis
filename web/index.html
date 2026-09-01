@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Eve · Configuracion</title>
+  <!-- Primero las medidas, que las genera `medidas/tokens.py` leyendo los
+       artboards, y despues la hoja que las usa. -->
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <!-- La estructura fija. Todo lo demas lo dibuja `panel.js` desde el registro:
+       si una pestana o un ajuste estuviera escrito aca, seria la copia que se
+       desfasa, que es exactamente lo que `registro.py` existe para evitar. -->
+
+  <div class="barra">
+    <span class="rotulo-ver">Ver</span>
+    <button class="modo" type="button" data-modo="esencial" aria-pressed="true">Lo esencial</button>
+    <button class="modo" type="button" data-modo="completo" aria-pressed="false">Todo</button>
+    <input class="buscador" type="search" placeholder="Buscar un ajuste..." aria-label="Buscar un ajuste">
+    <span class="version"></span>
+  </div>
+
+  <div class="cuerpo">
+    <nav class="riel" aria-label="Pestanas"></nav>
+    <main class="contenido"></main>
+  </div>
+
+  <div class="pie">
+    <span class="pendientes">Sin cambios sin guardar</span>
+    <span class="aviso"></span>
+    <span class="relleno"></span>
+    <button class="boton primario" type="button" disabled>Guardar</button>
+  </div>
+
+  <script src="panel.js"></script>
+</body>
+</html>

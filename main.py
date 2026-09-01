@@ -6,6 +6,7 @@ bandeja. Desde el codigo cada una sigue siendo un modulo normal.
 
     Eve.exe            asistente (bandeja + atajo global)
     Eve.exe --panel    panel de configuracion
+    Eve.exe --panel-web  el panel nuevo, en HTML (en mudanza)
     Eve.exe --cli ...  conexiones con apps (lo llama el modelo)
     Eve.exe --hook     freno del motor claude-code
     Eve.exe --overlay  el cartel flotante
@@ -256,6 +257,16 @@ def main() -> int:
             from eve.gui import Panel
 
             Panel().mainloop()
+            return 0
+        if flag == "--panel-web":
+            # El panel nuevo, en HTML. Convive con el de tkinter mientras dura
+            # la mudanza: la decision escrita es migrar primero y arreglar la
+            # interfaz en el panel nuevo, y para eso las dos versiones tienen
+            # que poder correr al lado. El de arriba sigue siendo el que abre
+            # la bandeja.
+            from eve import panel_web
+
+            panel_web.abrir()
             return 0
         if flag == "--check":
             import diagnostico

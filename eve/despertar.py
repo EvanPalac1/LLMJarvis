@@ -42,7 +42,9 @@ MUESTREO = 16000
 TRAMA = 512                  # lo que espera silero v6 a 16 kHz: 32 ms
 BLOQUE = TRAMA * 8           # ~0.26 s por vuelta del lazo
 HABLA = 0.5                  # probabilidad a partir de la cual es voz
-CIERRE_S = 0.7               # silencio que da por terminada la frase
+CIERRE_S = 0.7               # silencio que da por terminada la frase.
+                             # Con un juez de fin de turno pasa a ser el
+                             # TOPE: se puede cortar antes, nunca despues.
 MIN_S = 0.4                  # menos VOZ que esto fue un ruido, no una frase
 MAX_S = 8.0                  # tope duro: nadie dicta un parrafo a un asistente
 COLA_S = 0.3                 # audio previo que se guarda, para no comerse la "E"
@@ -87,15 +89,72 @@ def separar(texto: str, palabra: str) -> str | None:
     `Eve --probar-voz "Eve, abri Spotify"`.
     """
     hay = normalizar(texto)
-    # Sin puntuacion: el modelo escribe "Eve," o "¿Eve?" y eso no puede fallar.
-    limpio = "".join(c if c.isalnum() or c.isspace() else " " for c in hay).split()
-    crudo = "".join(c if c.isalnum() or c.isspace() else " " for c in texto).split()
-    for variante in str(palabra).split("|"):
-        partes = normalizar(variante).split()
+    # Sin puntuacion, a los DOS lados. Al texto oido porque el modelo escribe
+    # "Eve," o "¿Eve?"; a la palabra configurada porque el usuario la escribe
+    # como se le ocurre, y una coma de mas cerraba la puerta para siempre y en
+    # silencio. Medido antes del arreglo:
+    #
+    #     separar("Eve, abre Spotify", "eve, computadora") -> None
+    #     separar("Eve, abre Spotify", "Eve!")             -> None
+    #
+    # Se limpiaba un lado y el otro no, que es la unica forma de que una
+    # comparacion de dos cosas normalizadas siga fallando.
+    limpio = _sin_puntuacion(hay)
+    crudo = _sin_puntuacion(texto)
+    for variante in _variantes(palabra):
+        partes = _sin_puntuacion(normalizar(variante))
         if not partes or limpio[: len(partes)] != partes:
             continue
         return " ".join(crudo[len(partes):]).strip()
     return None
+
+
+def _sin_puntuacion(texto: str) -> list:
+    """Las palabras sueltas, sin nada que no sea letra o numero."""
+    return "".join(c if c.isalnum() or c.isspace() else " " for c in texto).split()
+
+
+def _variantes(palabra) -> list:
+    """Las formas de llamarla. Separadas por `|` o por coma, las dos.
+
+    La documentada es `|`, pero escribir "computadora, eve" es lo que hace
+    cualquiera que vea una lista, y hasta ahora eso no daba una lista: daba UNA
+    variante de dos palabras, que solo coincidiria si dijeras las dos seguidas.
+    La puerta quedaba cerrada para siempre y nada lo decia --ni un aviso, ni un
+    renglon en Acciones-- porque desde adentro no hay diferencia entre "la
+    palabra no coincide" y "la palabra es imposible".
+
+    Aceptar las dos no rompe nada: una palabra clave con una coma adentro no
+    existe, y quien use `|` sigue igual.
+    """
+    crudo = str(palabra).replace(",", "|")
+    return [v for v in (x.strip() for x in crudo.split("|")) if v]
+
+
+def palabra_de(cfg: dict) -> str:
+    """La palabra que la despierta. Vacia = como se llama el asistente.
+
+    La seccion del panel se llama "Despertarla diciendo su nombre" y leia OTRO
+    campo, en otra pestana: renombrar la IA a "Viernes" dejaba la puerta
+    abierta en "computadora" y ninguna pantalla lo decia. Eran dos ajustes que
+    de afuera se ven como uno.
+
+    Ahora el vacio significa "usa el nombre", que es lo que la seccion promete,
+    y escribir algo sigue mandando --hay una razon medida para preferir una
+    palabra larga, y es del usuario decidirlo--:
+
+        palabra                modelo   desperto   falsos
+        Computadora            tiny        4 / 4    0 / 6
+        Eve (+ ebe, eva)       tiny        2 / 4    0 / 6
+
+    Tres letras no le dan al reconocedor con que agarrarse. Por eso el valor de
+    fabrica sigue siendo "computadora" y no el vacio: quien quiera el nombre lo
+    borra, y ahi la puerta pasa a llamarse como ella.
+    """
+    palabra = str(cfg.get("wake_palabra", "") or "").strip()
+    if palabra:
+        return palabra
+    return str(cfg.get("assistant_name", "") or "").strip() or "eve"
 
 
 class Recortador:
@@ -106,8 +165,21 @@ class Recortador:
     un dispositivo de audio los volveria imposibles de testear.
     """
 
-    def __init__(self, modelo) -> None:
+    def __init__(self, modelo, juez=None) -> None:
         self.modelo = modelo
+        # Quien decide que terminaste de hablar, si hay alguien.
+        #
+        # Sin juez manda el cronometro: `CIERRE_S` de silencio y la frase se
+        # cierra. Es un numero fijo para dos situaciones que no se parecen
+        # --pensar en medio de una orden larga, y terminar de decirla-- asi que
+        # se equivoca en las dos direcciones. Con juez, el cronometro pasa a ser
+        # el TOPE: se pregunta antes, y si dice que termino se corta antes.
+        #
+        # Se recibe como parametro y no se importa aca: asi el Recortador se
+        # sigue probando sin modelo, con una funcion de tres lineas, que es lo
+        # que lo hace testeable --y es la misma razon por la que `modelo` ya
+        # entraba por parametro--.
+        self.juez = juez
         self._previo: list[np.ndarray] = []
         self._frase: list[np.ndarray] = []
         self._callado = 0.0
@@ -141,13 +213,38 @@ class Recortador:
 
         largo = sum(len(t) for t in self._frase) / MUESTREO
         if self._callado < CIERRE_S and largo < MAX_S:
-            return None
+            if not self._termino_antes():
+                return None
         audio, con_voz = np.concatenate(self._frase), self._con_voz
         self._frase, self._callado, self._previo, self._con_voz = [], 0.0, [], 0.0
         # Se mide la VOZ, no el largo del recorte. Con el aire de antes y el
         # silencio de cierre, un chasquido de 0.26s salia como una frase de
         # 1.5s y el minimo no filtraba nada: lo encontro el test, no el uso.
         return audio if con_voz >= MIN_S else None
+
+    def _termino_antes(self) -> bool:
+        """Le pregunta al juez si la frase ya esta completa.
+
+        Solo despues de `SILENCIO_MIN_S` de silencio: preguntarle en medio de
+        una palabra es pedirle una opinion sobre algo que todavia no paso, y la
+        respuesta seria ruido.
+
+        Y falla hacia el cronometro, siempre. Un juez que se cae, que tarda o
+        que devuelve algo raro NO puede cortar la escucha ni cortar al usuario
+        a mitad de frase: se ignora y manda `CIERRE_S`, que es lo que habia
+        antes de que existiera esto.
+        """
+        if self.juez is None or not self._frase:
+            return False
+        from . import turno
+
+        if self._callado < turno.SILENCIO_MIN_S:
+            return False
+        try:
+            return bool(self.juez(np.concatenate(self._frase)))
+        except Exception:  # noqa: BLE001 - el cronometro sigue estando
+            self.juez = None
+            return False
 
 
 class Escucha:
@@ -162,6 +259,10 @@ class Escucha:
         self._hilo: threading.Thread | None = None
         self.activa = False
         self.error = ""
+        # Cuantas frases fallaron sin tumbar la escucha. Se cuenta para que se
+        # pueda comprobar que sigue viva DESPUES de un error, que es lo unico
+        # que distingue "aguanto" de "no paso nada".
+        self.fallos = 0
 
     def arrancar(self, esperar: float = 0.0) -> bool:
         """Prende la escucha. Con `esperar`, devuelve si el microfono abrio.
@@ -202,7 +303,22 @@ class Escucha:
             self.error = str(exc)
             return
 
-        recorta = Recortador(get_vad_model())
+        # El juez sale de la config del momento y no de una que se leyo al
+        # importar: prender el modelo en el panel y que no pase nada hasta
+        # reiniciar es el bug que ya tuvo la cache de whisper.
+        #
+        # Armar el recortador tambien va adentro de un try. Estaba afuera, y
+        # eso era el mismo agujero que el del lazo: cargar silero o el juez
+        # puede fallar, y sin esto el hilo se moria antes de empezar, con
+        # `error` vacio y `activa` en False --o sea, indistinguible de "el
+        # microfono lo tiene otro programa"--.
+        try:
+            from . import store, turno
+
+            recorta = Recortador(get_vad_model(), turno.juez(store.load_config()))
+        except Exception as exc:  # noqa: BLE001
+            self.error = f"{type(exc).__name__}: {exc}"
+            return
         cola: queue.Queue = queue.Queue()
 
         def cb(indata, _frames, _t, _status):  # noqa: ANN001
@@ -224,9 +340,27 @@ class Escucha:
                     bloque = cola.get(timeout=0.5)
                 except queue.Empty:
                     continue
-                frase = recorta.empujar(bloque)
-                if frase is not None:
-                    self.al_terminar(frase)
+                try:
+                    frase = recorta.empujar(bloque)
+                    if frase is not None:
+                        self.al_terminar(frase)
+                except Exception as exc:  # noqa: BLE001
+                    # Una frase que falla NO puede llevarse la escucha entera.
+                    #
+                    # Este `try` faltaba y el de afuera es un `try/finally` sin
+                    # `except`: cualquier excepcion de `al_terminar` --y ahi
+                    # adentro corre un whisper y un `voice.speak`-- mataba el
+                    # hilo, cerraba el stream y dejaba a Eve sorda hasta el
+                    # proximo cambio de config. En silencio: nada lo anunciaba,
+                    # y desde afuera se ve como "dejo de despertar sola".
+                    self.fallos += 1
+                    self.error = f"{type(exc).__name__}: {exc}"
+                    try:
+                        from . import store
+
+                        store.log_action("listener", "wake", f"ERROR en la escucha: {exc}")
+                    except Exception:  # noqa: BLE001 - anotar no puede fallar feo
+                        pass
         finally:
             stream.stop()
             stream.close()
@@ -245,9 +379,9 @@ def escuchado(audio: np.ndarray, cfg: dict) -> str | None:
     # Determinista: sin esto la misma frase despierta o no segun la corrida.
     chico["stt_temperatura"] = 0.0
     # Y sesgado hacia su propia palabra, no hacia el catalogo de programas.
-    palabra = str(cfg.get("wake_palabra", "eve"))
-    chico["stt_prompt"] = ", ".join(v.strip() for v in palabra.split("|") if v.strip())
+    palabra = palabra_de(cfg)
+    chico["stt_prompt"] = ", ".join(_variantes(palabra))
     texto = voice.transcribe(audio, chico)
     if not texto:
         return None
-    return separar(texto, str(cfg.get("wake_palabra", "eve")))
+    return separar(texto, palabra)

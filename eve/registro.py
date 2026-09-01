@@ -35,6 +35,16 @@ ROLES_ETIQUETA = (
 )
 ROLES = tuple(rol for rol, _ in ROLES_ETIQUETA)
 
+# Las listas cerradas que hasta ahora vivian en `gui.py` como constantes de
+# modulo y llegaban al registro por el NOMBRE de un metodo (`_modelos_api`).
+# Estan aca porque son datos del panel, no interfaz: mientras vivieron en
+# `gui.py` nadie podia leerlas sin importar tkinter, y eso es justo lo que un
+# frontend que no es tkinter --y un test sin pantalla-- necesita hacer.
+MODELOS_API = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+MODELOS_CC = ["opus", "sonnet", "haiku"]
+PERMISOS_CC = ["acceptEdits", "auto", "manual"]
+ESFUERZOS = ["low", "medium", "high", "xhigh", "max"]
+
 
 class Campo(NamedTuple):
     """Una fila: etiqueta, clave de config y opciones si son cerradas.
@@ -61,6 +71,25 @@ class Interruptor(NamedTuple):
     """Una casilla. Se separa de `Campo` porque la dibuja `_check` y no `_row`."""
 
     clave: str
+    etiqueta: str
+
+
+class Clave(NamedTuple):
+    """Una clave de API. Enmascarada, y su valor NO vive en la config.
+
+    Se separa de `Campo` por donde se guarda, no por como se dibuja: el valor
+    va al llavero del sistema --`store.set_key`-- y nunca a `config.json`, que
+    es la regla escrita del proyecto para las claves. Por eso `proveedor` no es
+    una clave de config y `claves()` no la cuenta: contarla haria que el test
+    que compara el registro contra `DEFAULTS` reclamara una clave que no existe
+    ahi, y con razon.
+
+    Y por eso tampoco entra a `catalogo()`: ese alimenta `E ajustar`, o sea Eve
+    cambiando una opcion porque se lo pediste hablando. Una clave de API no se
+    dicta en voz alta.
+    """
+
+    proveedor: str
     etiqueta: str
 
 
@@ -198,7 +227,7 @@ def textos(bloque=None) -> list:
             salida.extend(textos(item.hijos))
         elif isinstance(item, Propio):
             pass  # lo suyo lo dibuja el panel, y ahi los textos van con `tr`
-        elif isinstance(item, (Campo, Interruptor, Boton)):
+        elif isinstance(item, (Campo, Interruptor, Boton, Clave)):
             salida.append(item.etiqueta)
         elif isinstance(item, Ayuda):
             salida.append(item.texto)
@@ -379,11 +408,39 @@ VOZ = (
         AVANZADO,
     ),
     Seccion(
+        "Cuando se da cuenta de que terminaste",
+        (
+            Campo("cierre_modo", "Quien lo decide", ["fijo", "modelo"]),
+            Campo("cierre_umbral", "Umbral del modelo", None, 10),
+            Fila((
+                Boton("Bajar el modelo (8 MB)", "turno_bajar"),
+                Salida("turno_label"),
+            )),
+            Ayuda("fijo    espera 0.7 segundos de silencio y corta. Es un numero\n"
+                  "        para dos situaciones que no se parecen --pensar en medio\n"
+                  "        de una orden larga, y terminar de decirla-- asi que se\n"
+                  "        equivoca en las dos: te corta pensando, y te hace\n"
+                  "        esperar cuando ya terminaste.\n"
+                  "modelo  le pregunta a smart-turn-v3 si la frase esta completa.\n"
+                  "        Son 8 MB, licencia BSD-2, y corre sobre el mismo\n"
+                  "        onnxruntime que ya usa el detector de voz: no agrega\n"
+                  "        ninguna dependencia. Unos 12 ms por consulta.\n"
+                  "\nEl modelo NO se baja solo. El boton de arriba es el momento en\n"
+                  "que decides bajarlo, y hasta entonces manda el cronometro.\n"
+                  "\nLo que TODAVIA no se midio: si reconoce el final de turno en\n"
+                  "espanol rioplatense. Los 23 idiomas son los que el modelo dice\n"
+                  "soportar, no los que se comprobaron aca. Por eso viene en\n"
+                  "'fijo' de fabrica: un numero conocido que a veces molesta es\n"
+                  "mejor que un modelo sin medir que corta a mitad de frase."),
+        ),
+        AVANZADO,
+    ),
+    Seccion(
         "Despertarla diciendo su nombre",
         (
             Interruptor("wake_activo",
                         "Activar diciendo una palabra (deja el microfono abierto)"),
-            Campo("wake_palabra", "Palabra para despertarla", None, 20),
+            Campo("wake_palabra", "Palabra (vacio = su nombre)", None, 20),
             Campo("wake_modelo", "Modelo de la puerta", ["tiny", "base", "small"]),
             Fila((
                 Boton("Probar la palabra", "probar_wake"),
@@ -405,9 +462,17 @@ VOZ = (
                   "  Eve          small  desperto 3/4    falsos 0/6\n"
                   "  Eve          tiny   desperto 2/4    falsos 0/6\n"
                   "Tres letras no alcanzan para ser una puerta. Por eso se aceptan\n"
-                  "variantes separadas por |, y de fabrica vienen las dos."),
+                  "varias formas, separadas por | o por coma, y de fabrica vienen\n"
+                  "las dos.\n"
+                  "\nDejalo VACIO y la despierta su nombre, el de la pestana General.\n"
+                  "Antes eran dos ajustes que de afuera se ven como uno: renombrarla\n"
+                  "no cambiaba la palabra, y nada en pantalla lo decia."),
         ),
-        AVANZADO,
+        # Deja de ser AVANZADO: en modo "esencial" las avanzadas arrancan
+        # CERRADAS, asi que la seccion del despertar estaba plegada adentro de
+        # una pestana que ni se llama como ella. Sigue apagada de fabrica --deja
+        # el microfono abierto todo el dia y eso lo elige el usuario-- pero
+        # apagada y escondida son dos cosas distintas.
     ),
     Seccion(
         "Como te habla",
@@ -866,6 +931,7 @@ COMANDOS = (
 _A_MODELOS = (
     "Quien piensa por ella", "Otros motores", "Ajuste fino del modelo",
     "Como te escucha", "Ajuste fino del reconocimiento",
+    "Cuando se da cuenta de que terminaste",
     "Despertarla diciendo su nombre",
     "Como te habla", "Ajuste fino de la voz",
 )
@@ -880,29 +946,270 @@ def _partir(tabla):
 
 _de_general, GENERAL = _partir(GENERAL)
 _de_voz, VOZ = _partir(VOZ)
+
+# Los dos bloques que `gui.py` componia AL LADO del registro, y que por eso no
+# estaban declarados en ningun lado: la galeria de perfiles arriba de General,
+# y la sesion de Claude Code abajo de Modelos. Se agregan despues de `_partir`
+# porque van en la pestana final, no en la tabla de la que salieron.
+#
+# Que hayan quedado afuera tanto tiempo tiene una explicacion incomoda: cada
+# pestana se arma con `_componer(rotulo, subtitulo, [bloques])`, y un bloque
+# que no sale del registro no se distingue de uno que si. Contar tablas no
+# alcanzaba para saber que faltaba.
+
+
 # Primero quien piensa, despues quien te escucha, despues quien te habla: es el
 # orden en que se configura, no el orden en que estaban escritas.
 MODELOS = _de_general + _de_voz
+
+
 
 # Si un titulo de `_A_MODELOS` deja de existir --un renombre-- esa seccion se
 # quedaria callada donde estaba y nadie se enteraria. Se avisa al importar.
 _perdidos = set(_A_MODELOS) - {s.titulo for s in MODELOS}
 assert not _perdidos, f"secciones que _A_MODELOS nombra y no existen: {_perdidos}"
 
-TABLAS = (SUBTITULOS, VENTANA, VOZ, TEMA, GENERAL, CARTEL, MODELOS, COMANDOS)
+# --- las cuatro que faltaban ----------------------------------------------
+# Cuentas, Contactos, Addons y Actividad eran las unicas escritas a mano de
+# punta a punta. Entran aca por el mismo motivo que las otras siete: mientras
+# vivieron solo en `gui.py`, sus ajustes no aparecian en el buscador del panel
+# ni en `catalogo()`, asi que `E ajustar` --Eve cambiando una opcion porque se
+# lo pediste hablando-- no las podia tocar. No era una decision, era el efecto
+# de no estar declaradas.
+#
+# Cada rotulo es el LITERAL que dibuja `gui.py`, incluidos los saltos de linea
+# y las tildes que faltan. Mejorarlos aca los dejaria sin traducir --la clave
+# del diccionario de `textos.py` es la frase en espanol-- y ademas haria que
+# el buscador te llevara a un rotulo que no vas a ver en pantalla.
+
+CUENTAS = (
+    Seccion(
+        "Conexiones con apps (todas opcionales)",
+        (
+            Ayuda("Sin esto Eve igual abre WhatsApp, Discord, Telegram y el mail con el\n"
+                  "mensaje escrito, para que lo mandes tu. Estas claves solo agregan leer\n"
+                  "y enviar sin pasar por la app."),
+            Clave("discord_webhook", "Discord: URL del webhook"),
+            Boton("Probar el webhook", "probar_webhook"),
+            Salida("webhook_label"),
+            Campo("discord_username", "Discord: nombre a mostrar", ancho=40),
+            Campo("discord_avatar", "Discord: URL del avatar", ancho=40),
+            Ayuda("Con que nombre y foto aparecen los mensajes que manda por webhook.\n"
+                  "Vacio = lo que tenga configurado el webhook en Discord. Andaba\n"
+                  "desde siempre; lo que faltaba era donde escribirlo sin editar el\n"
+                  "config a mano."),
+            # Se autodetecta del disco al abrir, por eso es una excepcion: no
+            # alcanza con mostrar la clave, hay que ir a buscarla si esta vacia.
+            Propio("_steam_id", ("steam_id",)),
+            Clave("steam", "Steam: Web API key"),
+            Interruptor("whatsapp_autosend",
+                        "WhatsApp: enviar solo (simula el Enter; exige numero, no nombre)"),
+            Interruptor("discord_autosend",
+                        "Discord: escribir como tu (maneja tu cliente; verifica el canal por titulo)"),
+            Ayuda("Gmail: si 'Contrasenas de aplicaciones' no te aparece, tu cuenta no tiene 2FA\n"
+                  "o la administra tu organizacion. Alternativa sin claves: agrega el Gmail a\n"
+                  "Outlook (Archivo > Agregar cuenta) y Eve lo lee y escribe por ahi.\n"
+                  "Webhook: Editar canal > Integraciones > Webhooks. Steam key: steamcommunity.com/dev/apikey"),
+        ),
+    ),
+    Seccion(
+        "Outlook",
+        (
+            Ayuda("No necesita ninguna clave: Eve usa la sesion que ya tiene Outlook en esta PC."),
+            Salida("outlook_label"),
+            Fila((
+                Boton("Agregar / gestionar cuentas", "outlook_login"),
+                Boton("Actualizar", "refresh_outlook"),
+            )),
+        ),
+    ),
+    Seccion(
+        "Gmail",
+        (
+            Ayuda("Lo mas simple es agregarlo a Outlook con el boton de arriba: Google hace el\n"
+                  "login y no queda ninguna clave tuya guardada aca.\n\n"
+                  "La otra via es una contrasena de aplicacion (16 letras minusculas). Si Google\n"
+                  "dice que no esta disponible, es que tu cuenta no tiene verificacion en dos\n"
+                  "pasos, o la administra tu organizacion."),
+            Campo("gmail_address", "Tu direccion de Gmail", ancho=38),
+            Clave("gmail", "Contrasena de aplicacion"),
+            Salida("gmail_label"),
+            Fila((
+                Boton("Obtener app password", "gmail_login"),
+                Boton("Probar conexion", "gmail_probar"),
+            )),
+        ),
+    ),
+)
+
+# Contactos no tiene secciones y no se le inventa una: `gui.py` dibuja una
+# ayuda y abajo la tabla. Un titulo puesto aca seria un rotulo que el panel
+# viejo no muestra, y el chequeo de traduccion pediria traducirlo.
+CONTACTOS = (
+    Ayuda("Eve usa esta lista cuando nombras a alguien. En 'alias' pon como le dices\n"
+          "de verdad, separado por comas (lucho, el lucas) — la voz rara vez dice el\n"
+          "nombre completo.\n\n"
+          "discord_user  = su @ (para mencionarlo dentro del mensaje)\n"
+          "discord_dm    = su chat privado. Activa Ajustes > Avanzado > Modo desarrollador,\n"
+          "                boton derecho sobre la conversacion > Copiar ID\n"
+          "discord_canal = un canal de servidor. Boton derecho > Copiar enlace"),
+    # La agenda entera: tabla, formulario de siete campos y cinco botones. No
+    # toca NINGUNA clave de config --vive en su propio archivo-- asi que
+    # declara la tupla vacia y no miente sobre lo que cubre.
+    Propio("_contactos", ()),
+    Ayuda("Exportar genera un archivo .evecontact que puedes mandarle a un amigo por\n"
+          "WhatsApp o Discord; el lo abre con Importar y le queda el contacto cargado."),
+)
+
+ADDONS = (
+    Seccion(
+        "Instalados",
+        (
+            # Los addons se prenden y se apagan por huella, no por una clave de
+            # config con un valor escribible: `addons_activos` la escribe el
+            # propio panel juntando las casillas. Y cada addon DICE que claves
+            # necesita, asi que agregar uno no obliga a tocar esta pantalla.
+            Propio("_addons_lista", ("addons_activos",)),
+            Ayuda("Destildar uno lo saca del prompt: deja de gastar tokens y Eve deja de\n"
+                  "ofrecerlo. Si no hay ninguno tildado, se usan todos los disponibles."),
+        ),
+    ),
+    Seccion(
+        "Agregar los tuyos",
+        (
+            # El texto lleva la ruta de la carpeta adentro, asi que no es un
+            # literal: se arma al abrir, como la ayuda del motor compatible.
+            Propio("_addons_carpeta_ayuda", ()),
+            Boton("Abrir la carpeta de addons", "_addons_carpeta"),
+        ),
+    ),
+    Seccion(
+        "Sin revisar",
+        (
+            Ayuda("Estos archivos no se estan cargando. Un addon es codigo que corre\n"
+                  "con tus permisos y no pasa por el freno, asi que hay que mirarlo\n"
+                  "antes. Si Eve escribio alguno, aca es donde lo revisas."),
+            Propio("_addons_pendientes", ("addons_aprobados",)),
+        ),
+    ),
+    Seccion(
+        "Aprobados",
+        (
+            Ayuda("Estos se cargan. Revocar no borra el archivo: lo devuelve a la\n"
+                  "lista de sin revisar, para que puedas volver a mirarlo antes de\n"
+                  "decidir de nuevo. Editar un addon aprobado lo saca solo, porque\n"
+                  "la aprobacion es de la huella del contenido y no del nombre."),
+            Propio("_addons_aprobados", ()),
+        ),
+    ),
+    Seccion(
+        "Servidores MCP",
+        (
+            Campo("mcp_modo", "Modo", "_modos_mcp", ancho=16),
+            Ayuda("apagado   no viaja nada al modelo y no se conecta a nada.\n"
+                  "prompt    el modelo ve QUE herramientas tienes, y no las puede\n"
+                  "          llamar. Eve no levanta ningun servidor.\n"
+                  "cliente   Eve levanta el servidor, descubre sus herramientas y\n"
+                  "          se las ofrece al modelo. Es correr codigo de terceros\n"
+                  "          en tu maquina, y por eso te pregunta antes de cada una."),
+            Propio("_mcp_lista", ()),
+        ),
+    ),
+)
+
+# Actividad es de solo lectura: lo que se dijo y lo que se ejecuto. Los dos son
+# excepciones porque son vistas --un texto largo y una tabla-- y no ajustes.
+ACTIVIDAD = (
+    Propio("_historial", ()),
+    Propio("_acciones", ()),
+)
+
+# La barra de arriba. No es una pestana: son las opciones que cambian como se
+# ve TODO el resto, y por eso no pueden vivir escondidas adentro de una. Estan
+# declaradas igual para que existan en un solo lugar --hasta ahora el panel las
+# dibujaba a mano y eran las dos unicas claves de `DEFAULTS` que ninguna tabla
+# nombraba--.
+BARRA = (
+    Campo("ui_idioma", "Idioma del panel", "_idiomas", ancho=12),
+    Campo("ui_modo_panel", "Ver", ["esencial", "completo"], ancho=12),
+)
+
+# Los dos bloques que `gui.py` compone AL LADO del registro, en `_componer`.
+#
+# Van como tablas PROPIAS y no metidas dentro de GENERAL y MODELOS, y la razon
+# es concreta: `gui.py` pinta esas dos tablas con `_pintar_registro`, asi que
+# agregarles un `Propio` que solo entiende el panel web lo hace reventar al
+# abrir. Las dos versiones leen el MISMO registro mientras dure la mudanza, y
+# eso obliga a que lo nuevo entre por donde la vieja no mira.
+PERFILES = (
+    Seccion(
+        "Perfiles",
+        (
+            Propio("_perfiles", ()),
+            Ayuda("Un perfil guarda como se ve y como suena Eve: colores, forma, fuente,\n"
+                  "voz, velocidad, tono y el nombre del asistente.\n"
+                  "NO toca el motor, el modelo, la tecla, los permisos ni tus datos: un\n"
+                  "perfil que te pasan no puede cambiarte como trabaja el asistente."),
+        ),
+    ),
+)
+
+SESION_CC = (
+    Seccion(
+        "Sesion de Claude Code (motor 'claude-code')",
+        (
+            Salida("auth_label"),
+            Fila((
+                Boton("Iniciar sesion", "auth_login"),
+                Boton("Cerrar sesion", "auth_logout"),
+                Boton("Actualizar", "refresh_auth"),
+            )),
+            Ayuda("Se guardan en el gestor de credenciales de Windows, nunca en texto plano.\n"
+                  "Anthropic solo hace falta con el motor 'api'; con 'claude-code' se usa tu suscripcion.\n"
+                  "Las otras habilitan proveedores opcionales de voz."),
+        ),
+    ),
+)
+
+# Cada tabla con su nombre, en un solo lugar. `esquema()` tenia el mismo
+# diccionario escrito a mano adentro, y ese es exactamente el tipo de copia que
+# se desfasa: se agregaron cuatro tablas y el esquema siguio sirviendo ocho, sin
+# que nada lo dijera.
+POR_NOMBRE = {
+    "SUBTITULOS": SUBTITULOS, "VENTANA": VENTANA, "VOZ": VOZ, "TEMA": TEMA,
+    "GENERAL": GENERAL, "CARTEL": CARTEL, "MODELOS": MODELOS,
+    "COMANDOS": COMANDOS, "CUENTAS": CUENTAS, "CONTACTOS": CONTACTOS,
+    "ADDONS": ADDONS, "ACTIVIDAD": ACTIVIDAD, "BARRA": BARRA,
+    "PERFILES": PERFILES, "SESION_CC": SESION_CC,
+}
+
+TABLAS = tuple(POR_NOMBRE.values())
 
 
 # Las siete piezas de un bloque de fondo, con el sufijo REAL de su clave. Los
 # nombres salen de `_bloque_fondo`, que es quien las dibuja, y los sufijos de
 # `claves()`, que es quien ya las enumeraba.
+#
+# Estos siete estuvieron DESFASADOS de lo que el panel muestra, y no era
+# cosmetico: esta tabla alimenta `catalogo()`, que es lo que usan el buscador
+# del panel y `E ajustar` --o sea, Eve cambiando una opcion porque se lo
+# pediste hablando--. Buscar un rotulo que estabas viendo en pantalla te
+# llevaba a otro ajuste:
+#
+#   buscar("Opacidad de la imagen") -> "Opacidad (%)" y "Imagen de fondo"
+#   buscar("Degradado: color 1")    -> "Degradado: color de arriba"
+#
+# Lo agarro el test de abajo, que compara contra los `tr(...)` de
+# `_bloque_fondo`. Sin ese test esto se vuelve a desfasar la proxima vez que
+# alguien mejore un rotulo en gui.py, que es como paso.
 _PARTES_FONDO = (
-    ("_fondo", "Imagen de fondo"),
-    ("_fondo_ajuste", "Ajuste de la imagen de fondo"),
-    ("_fondo_opacidad", "Opacidad del fondo"),
-    ("_fondo_tinte", "Tinte del fondo"),
-    ("_grad", "Degradado"),
-    ("_grad_a", "Degradado: color de arriba"),
-    ("_grad_b", "Degradado: color de abajo"),
+    ("_fondo", "Imagen (PNG o GIF)"),
+    ("_fondo_ajuste", "Ajuste"),
+    ("_fondo_opacidad", "Opacidad de la imagen (%)"),
+    ("_fondo_tinte", "Tinte con el acento (%)"),
+    ("_grad", "Degradado (si no hay imagen)"),
+    ("_grad_a", "Degradado: color 1"),
+    ("_grad_b", "Degradado: color 2"),
 )
 
 # Lo que dice una persona contra lo que dice el panel. NO es un tesauro: son las
@@ -1018,6 +1325,48 @@ def catalogo(bloque=None, seccion: str = "") -> list[dict]:
                 ultimo["ayuda"] = item.texto
         else:
             ultimo = None
+    return salida
+
+
+def esquema() -> dict:
+    """Todo TABLAS a un dict serializable, listo para dibujar en cualquier lado.
+
+    `json.dumps` sobre un NamedTuple lo saca como array y pierde el nombre de
+    la clase --un Campo y un Interruptor de dos campos salen indistinguibles--
+    asi que cada nodo lleva `tipo` = type(x).__name__. Es la pieza que le
+    falta al registro para que el panel HTML use la MISMA descripcion en vez
+    de llevar su propia copia de los campos: hoy solo esta `catalogo()`, que
+    es plano y esta pensado para buscar, no para dibujar --no lleva `ancho`,
+    `abierto`, ni la jerarquia de secciones y filas.
+
+    Las claves del dict son los mismos nombres que ya usa `gui.py` para pedir
+    cada pestaña por separado (`registro.VOZ`, `registro.CARTEL`...), asi que
+    no hay que inventar una agrupacion nueva.
+    """
+    return {nombre: [_nodo(item) for item in tabla]
+            for nombre, tabla in POR_NOMBRE.items()}
+
+
+def _nodo(item) -> dict:
+    """Un objeto del registro a dict, recursivo en `hijos`.
+
+    Los `Propio` viajan enteros --`metodo` y `claves_propias`-- y no se
+    expanden ni se omiten: son el hueco declarado que el frontend rellena con
+    un componente propio, igual que hoy lo rellena un metodo de tkinter.
+
+    `Campo.opciones` como texto es el NOMBRE de un metodo del panel que arma
+    la lista al abrir --las voces de Windows, los modelos del proveedor--.
+    `catalogo()` lo pisa con `None` a proposito porque esta pensado para
+    buscar; aca en cambio se envuelve en `{"metodo": ...}` para que el que
+    dibuja sepa que tiene que PEDIRLAS, en vez de leerlo como una opcion mas.
+    """
+    salida = {"tipo": type(item).__name__}
+    for campo, valor in zip(item._fields, item):
+        if campo == "hijos":
+            valor = [_nodo(hijo) for hijo in valor]
+        elif campo == "opciones" and isinstance(valor, str):
+            valor = {"metodo": valor}
+        salida[campo] = valor
     return salida
 
 

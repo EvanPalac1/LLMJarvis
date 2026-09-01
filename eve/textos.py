@@ -67,7 +67,7 @@ def t(texto: str) -> str:
 # `main.py` esta un nivel arriba del paquete: el aviso de donde quedo el icono
 # de bandeja vive ahi, y es el primer texto que ve quien instala Eve.
 ARCHIVOS = ("gui.py", "consola.py", "tray.py", "overlay.py", "textos.py",
-            "lienzo.py", os.path.join("..", "main.py"))
+            "lienzo.py", "panel_api.py", os.path.join("..", "main.py"))
 
 
 def usados_en_el_codigo(carpeta: str = "") -> set:
@@ -108,6 +108,17 @@ def usados_en_el_codigo(carpeta: str = "") -> set:
         encontrados.update(registro.textos())
     except Exception:  # noqa: BLE001 - sin registro, lo demas sigue valiendo
         pass
+    # Lo mismo con el puente del panel web: los rotulos de las pestanas, los
+    # nombres de los proveedores y los dos textos del freno se traducen con
+    # `tr(variable)` porque envolverlos donde se declaran congelaria el idioma
+    # al importar. Sin esto se muestran y nadie verifica que esten traducidos,
+    # que es exactamente el agujero que este modulo existe para tapar.
+    try:
+        from . import panel_api
+
+        encontrados.update(panel_api.textos_de_pantalla())
+    except Exception:  # noqa: BLE001 - idem
+        pass
     return encontrados
 
 
@@ -120,7 +131,8 @@ def sin_traducir(idioma: str = "en", carpeta: str = "") -> list:
 # Funciones donde un `tr(variable)` es correcto: traducen texto que viene de
 # una tabla declarada, y esa tabla ya la cubre `usados_en_el_codigo()`. Fuera de
 # aca, un `tr(variable)` sigue siendo un texto que nadie verifica.
-DESDE_TABLA = ("_pintar_registro",)
+DESDE_TABLA = ("_pintar_registro", "_traducir", "esquema", "proveedores",
+               "_propio_selector_de_permisos", "textos_de_pantalla")
 
 
 def textos_invisibles(carpeta: str = "") -> list:
@@ -594,8 +606,8 @@ EN = {
         'Recognition fine tuning',
     'Ajustes del modulo':
         'Module settings',
-    'Apagado de fabrica: prenderlo deja el microfono abierto todo el\ntiempo. Dile el nombre y la orden de un tiron, en la misma frase:\n  "Eve, abre Spotify"\nEl nombre tiene que ir al principio. Aceptarlo en cualquier lado\nconvertiria en orden cualquier charla que te lo mencione.\n\nNo corre ningun modelo de lenguaje en reposo: primero un detector\nde voz de 1.2 MB que ya viaja en el paquete decide si hay alguien\nhablando --medido, 0.20% de un core-- y recien sobre ese pedazo\ncorre el modelo de la puerta. Ese es chico a proposito: solo tiene\nque reconocer una palabra que ya conoce.\n\nLa palabra pesa mas que el modelo. Medido, 4 ordenes y 6 frases\nde control que NO tienen que despertarla:\n  Computadora  tiny   desperto 4/4    falsos 0/6\n  Eve          small  desperto 3/4    falsos 0/6\n  Eve          tiny   desperto 2/4    falsos 0/6\nTres letras no alcanzan para ser una puerta. Por eso se aceptan\nvariantes separadas por |, y de fabrica vienen las dos.':
-        'Off by default: turning it on leaves the microphone open all the time.\nSay the name and the command in one go, in the same sentence:\n  "Eve, open Spotify"\nThe name has to come first. Accepting it anywhere would turn any\nconversation that mentions it into a command.\n\nNo language model runs while idle: first a 1.2 MB voice detector that\nalready ships in the package decides whether somebody is talking\n--measured, 0.20% of one core-- and only then does the gate model run\non that slice. That one is small on purpose: all it has to do is\nrecognize a word it already knows.\n\nThe word matters more than the model. Measured over 4 commands and 6\ncontrol sentences that must NOT wake it:\n  Computadora  tiny   woke 4/4    false 0/6\n  Eve          small  woke 3/4    false 0/6\n  Eve          tiny   woke 2/4    false 0/6\nThree letters are not enough to be a gate. That is why variants\nseparated by | are accepted, and both ship by default.',
+    'Apagado de fabrica: prenderlo deja el microfono abierto todo el\ntiempo. Dile el nombre y la orden de un tiron, en la misma frase:\n  "Eve, abre Spotify"\nEl nombre tiene que ir al principio. Aceptarlo en cualquier lado\nconvertiria en orden cualquier charla que te lo mencione.\n\nNo corre ningun modelo de lenguaje en reposo: primero un detector\nde voz de 1.2 MB que ya viaja en el paquete decide si hay alguien\nhablando --medido, 0.20% de un core-- y recien sobre ese pedazo\ncorre el modelo de la puerta. Ese es chico a proposito: solo tiene\nque reconocer una palabra que ya conoce.\n\nLa palabra pesa mas que el modelo. Medido, 4 ordenes y 6 frases\nde control que NO tienen que despertarla:\n  Computadora  tiny   desperto 4/4    falsos 0/6\n  Eve          small  desperto 3/4    falsos 0/6\n  Eve          tiny   desperto 2/4    falsos 0/6\nTres letras no alcanzan para ser una puerta. Por eso se aceptan\nvarias formas, separadas por | o por coma, y de fabrica vienen\nlas dos.\n\nDejalo VACIO y la despierta su nombre, el de la pestana General.\nAntes eran dos ajustes que de afuera se ven como uno: renombrarla\nno cambiaba la palabra, y nada en pantalla lo decia.':
+        'Off by default: turning it on leaves the microphone open all the time.\nSay the name and the command in one go, in the same sentence:\n  "Eve, open Spotify"\nThe name has to come first. Accepting it anywhere would turn any\nconversation that mentions it into a command.\n\nNo language model runs while idle: first a 1.2 MB voice detector that\nalready ships in the package decides whether somebody is talking\n--measured, 0.20% of one core-- and only then does the gate model run\non that slice. That one is small on purpose: all it has to do is\nrecognize a word it already knows.\n\nThe word matters more than the model. Measured over 4 commands and 6\ncontrol sentences that must NOT wake it:\n  Computadora  tiny   woke 4/4    false 0/6\n  Eve          small  woke 3/4    false 0/6\n  Eve          tiny   woke 2/4    false 0/6\nThree letters are not enough to be a gate. That is why several\nspellings are accepted, separated by | or by comma, and both ship\nby default.\n\nLeave it EMPTY and its own name wakes it, the one in the General\ntab. They used to be two settings that look like one from the\noutside: renaming it did not change the word, and nothing on\nscreen said so.',
     'Apariencia':
         'Appearance',
     'Aplicar':
@@ -864,7 +876,7 @@ EN = {
         'Installed',
     'La agenda que Eve usa cuando nombras a alguien.':
         'The address book Eve uses when you name someone.',
-    "La clave de cada uno va en la pestaña Cuentas. 'propio' sirve para\ncualquier servidor que hable /chat/completions.":
+    "La clave de cada uno va arriba, al lado del proveedor. 'propio'\nsirve para cualquier servidor que hable /chat/completions.":
         "The key for each one goes in the Accounts tab. 'propio' works for\nany server that speaks /chat/completions.",
     'La configuracion cambio por fuera. Guarda o cierra para recargarla.':
         'The config changed outside. Save or close to reload it.',
@@ -972,8 +984,8 @@ EN = {
         'Other engines',
     'Outlook':
         'Outlook',
-    'Palabra para despertarla':
-        'Wake word',
+    'Palabra (vacio = su nombre)':
+        'Word (empty = its name)',
     'Pantalla':
         'Display',
     'Parakeet: cuantizacion':
@@ -1233,5 +1245,103 @@ EN = {
 }
 
 
+
+# Donde corre cada proveedor y los dos textos del freno. En el panel viejo
+# viajaban crudos, en un `Label(text=donde)` y en los valores de un combo, asi
+# que salian en espanol con el panel en ingles y el chequeo no los veia --no
+# estaban envueltos en `tr`--. Ahora pasan por `tr(variable)` desde una tabla
+# declarada, que es el mismo mecanismo del registro.
+EN.update({
+    "la nube - Messages API": "the cloud - Messages API",
+    "tu suscripcion, sin clave": "your subscription, no key",
+    "tu maquina - localhost:11434": "your machine - localhost:11434",
+    "tu maquina": "your machine",
+    "la nube": "the cloud",
+    "el servidor que le pongas abajo": "whatever server you set below",
+    "Preguntar antes de acciones riesgosas (recomendado)":
+        "Ask before risky actions (recommended)",
+    "Permitir todo sin preguntar": "Allow everything without asking",
+})
+
+# Lo que dice el puente del panel web al contestar una accion. Las piezas
+# sueltas --"agregado(s)", "caracteres"-- son pedazos de frase que se arman con
+# un numero adelante; se traducen igual porque es lo que se lee en pantalla.
+EN.update({
+    "Agregado": "Added",
+    "Borrada": "Deleted",
+    "El cartel esta suelto: arrastralo a donde quieras y sueltalo. Al soltarlo "
+    "se guarda la posicion y vuelve a dejar pasar los clics.":
+        "The overlay is loose: drag it wherever you want and drop it. Dropping "
+        "it saves the position and it goes back to letting clicks through.",
+    "El perfil necesita un nombre.": "The profile needs a name.",
+    "Elige un servidor de la lista.": "Pick a server from the list.",
+    "Elige una forma.": "Pick a shape.",
+    "Ese proveedor no necesita clave.": "That provider needs no key.",
+    "La vista previa la dibuja el mismo pintor que el cartel, y el cartel se "
+    "queda en Canvas.":
+        "The preview is drawn by the same painter as the overlay, and the "
+        "overlay stays on Canvas.",
+    "No elegiste ninguna.": "You picked none.",
+    "No elegiste ninguno.": "You picked none.",
+    "No entro ninguno.": "None got in.",
+    "No hay ningun webhook guardado.": "There is no webhook saved.",
+    "No incluye tus claves de API ni tus datos personales:\n"
+    "las claves viven en el gestor de credenciales de Windows, no en el perfil.":
+        "It does not include your API keys or your personal data:\n"
+        "the keys live in the Windows credential manager, not in the profile.",
+    "actualizado(s)": "updated",
+    "agregado(s)": "added",
+    "caracteres": "characters",
+    "clave borrada": "key deleted",
+    "clave guardada": "key saved",
+    "encontrados": "found",
+    "importadas": "imported",
+    "no encuentro": "cannot find",
+    "no entraron": "did not get in",
+    "no pude guardarla": "could not save it",
+})
+
+# La seccion de fin de turno. El texto largo explica una medicion que NO se
+# hizo, y eso tiene que decirse igual en los dos idiomas: una advertencia que
+# solo existe en espanol es una advertencia que la mitad no lee.
+EN.update({
+    "Cuando se da cuenta de que terminaste": "When it notices you finished",
+    "Quien lo decide": "Who decides",
+    "Umbral del modelo": "Model threshold",
+    "Bajar el modelo (8 MB)": "Download the model (8 MB)",
+    "bajando...": "downloading...",
+    "fijo    espera 0.7 segundos de silencio y corta. Es un numero\n"
+    "        para dos situaciones que no se parecen --pensar en medio\n"
+    "        de una orden larga, y terminar de decirla-- asi que se\n"
+    "        equivoca en las dos: te corta pensando, y te hace\n"
+    "        esperar cuando ya terminaste.\n"
+    "modelo  le pregunta a smart-turn-v3 si la frase esta completa.\n"
+    "        Son 8 MB, licencia BSD-2, y corre sobre el mismo\n"
+    "        onnxruntime que ya usa el detector de voz: no agrega\n"
+    "        ninguna dependencia. Unos 12 ms por consulta.\n"
+    "\nEl modelo NO se baja solo. El boton de arriba es el momento en\n"
+    "que decides bajarlo, y hasta entonces manda el cronometro.\n"
+    "\nLo que TODAVIA no se midio: si reconoce el final de turno en\n"
+    "espanol rioplatense. Los 23 idiomas son los que el modelo dice\n"
+    "soportar, no los que se comprobaron aca. Por eso viene en\n"
+    "'fijo' de fabrica: un numero conocido que a veces molesta es\n"
+    "mejor que un modelo sin medir que corta a mitad de frase.":
+        "fixed   waits 0.7 seconds of silence and cuts. It is one number\n"
+        "        for two situations that are nothing alike --thinking in\n"
+        "        the middle of a long command, and finishing it-- so it\n"
+        "        gets both wrong: it cuts you off while you think, and it\n"
+        "        makes you wait once you are done.\n"
+        "model   asks smart-turn-v3 whether the sentence is complete.\n"
+        "        8 MB, BSD-2 licence, running on the same onnxruntime the\n"
+        "        voice detector already uses: it adds no dependency.\n"
+        "        About 12 ms per query.\n"
+        "\nThe model is NOT downloaded on its own. The button above is the\n"
+        "moment you decide to download it, and until then the timer rules.\n"
+        "\nWhat has NOT been measured yet: whether it recognizes the end of\n"
+        "a turn in Rioplatense Spanish. The 23 languages are the ones the\n"
+        "model claims, not the ones checked here. That is why it ships on\n"
+        "'fixed': a known number that sometimes annoys beats an unmeasured\n"
+        "model that cuts you off mid-sentence.",
+})
 
 TABLA = {"en": EN}

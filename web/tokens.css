@@ -1,0 +1,67 @@
+/* GENERADO POR medidas/tokens.py -- NO SE EDITA A MANO.
+ *
+ * Cada numero de aca sale de los artboards del diseno, medido y no
+ * copiado: se cuenta cuantas veces aparece cada valor y gana el mas
+ * usado. Cambiar el dibujo y volver a correr el script mueve el panel.
+ *
+ * Se genera para no tener el diseno escrito dos veces. Cuando estaba
+ * copiado a mano en panel.css, nada ataba una copia a la otra: se
+ * corregia el dibujo y el panel seguia con el numero viejo, sin que
+ * ninguna prueba lo dijera.
+ *
+ * Medido sobre 9 artboards.
+ */
+
+:root {
+  --anillo-muestra: 22px;  /* 1 usos */
+  --ayuda-tam: 11px;  /* 55 usos */
+  --barra-padding: 8px 12px;  /* 9 usos */
+  --boton-padding: 5px 14px;  /* 47 usos */
+  --boton-radio: 6px;  /* 47 usos */
+  --buscador-padding: 4px 10px;  /* 9 usos */
+  --cabecera-padding: 4px 0 10px 8px;  /* 9 usos */
+  --campo-padding: 6px 10px;  /* 54 usos */
+  --campo-radio: 6px;  /* 44 usos; el dibujo tambien trae 8px */
+  --cuerpo-gap: 10px;  /* 9 usos */
+  --cuerpo-padding: 6px 10px;  /* 9 usos */
+  --cuerpo-tam: 13px;  /* 9 usos */
+  --fila-gap: 12px;  /* 53 usos */
+  --galeria-gap: 14px;  /* 1 usos */
+  --modo-padding: 3px 10px;  /* 18 usos */
+  --modo-radio: 6px;  /* 13 usos */
+  --muestra-ancho: 210px;  /* 2 usos */
+  --muestra-cartel-alto: 59px;  /* 1 usos */
+  --muestra-cartel-padding: 0 10px;  /* 1 usos */
+  --muestra-panel-alto: 26px;  /* 1 usos */
+  --muestra-radio-abajo: 0 0 6px 6px;  /* 1 usos */
+  --muestra-radio-arriba: 6px 6px 0 0;  /* 1 usos */
+  --muestra-riel-ancho: 46px;  /* 1 usos */
+  --pagina-ancho: 980px;  /* 9 usos */
+  --pildora-padding: 2px 9px;  /* 19 usos */
+  --pildora-radio: 999px;  /* 28 usos */
+  --riel-alto: 36px;  /* 9 usos */
+  --riel-ancho: 189px;  /* 9 usos */
+  --riel-pad-derecha: 10px;  /* 9 usos */
+  --riel-padding: 0 12px;  /* 9 usos */
+  --riel-radio: 8px;  /* 9 usos */
+  --rotulo-tam: 12px;  /* 151 usos */
+  --seccion-gap: 8px;  /* 8 usos */
+  --subtitulo-peso: 600;  /* 62 usos */
+  --tabla-td-padding: 5px 9px;  /* 22 usos */
+  --tabla-th-padding: 6px 9px;  /* 22 usos */
+  --tablero-gap: 12px;  /* 9 usos */
+  --tarjeta-padding: 14px 16px;  /* 43 usos */
+  --tarjeta-radio: 10px;  /* 43 usos */
+  --titulo-tam: 17px;  /* 9 usos */
+}
+
+/* --rotulo-ancho: el dibujo NO se pone de acuerdo consigo mismo.
+ * Se sigue pestana por pestana, que es lo unico que da diferencia
+ * cero contra cada uno. El valor de `:root` es el mas usado, y lo
+ * hereda cualquier pestana que no aparezca abajo.
+ */
+:root {
+  --rotulo-ancho: 150px;
+}
+[data-pestana="Cuentas"] { --rotulo-ancho: 220px; }  /* 7 usos */
+[data-pestana="General"] { --rotulo-ancho: 200px; }  /* 10 usos */

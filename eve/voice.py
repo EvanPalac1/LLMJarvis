@@ -21,6 +21,31 @@ SAMPLE_RATE = 16000
 _whisper = None
 _whisper_para = None  # (modelo, device) con el que se construyo el de arriba
 
+# Los modelos ya cargados, por (modelo, device, computo). DOS ranuras y no una.
+#
+# Con una sola, la palabra clave y la transcripcion se pisaban todo el tiempo:
+# la puerta pide `tiny` y transcribir pide `small`, asi que cada despertar
+# descargaba uno y cargaba el otro, y al contestar hacia el viaje de vuelta.
+# En CPU son unos segundos por vuelta; en CUDA, ademas, mueve el modelo a la
+# placa cada vez. Dos es exactamente lo que hace falta: no hay un tercer modelo
+# en juego, y guardar todos los que se hayan pedido seria dejar memoria de video
+# tomada por uno que no se va a volver a usar.
+_CACHE_WHISPER: dict = {}
+CACHE_WHISPER_TOPE = 2
+
+
+def _traer_whisper(clave: tuple):
+    """El modelo pedido, cargandolo solo si todavia no esta."""
+    modelo = _CACHE_WHISPER.get(clave)
+    if modelo is None:
+        modelo = _abrir_whisper(*clave)
+        _CACHE_WHISPER[clave] = modelo
+        # Se va el mas viejo. Los dict de Python conservan el orden de
+        # insercion, asi que el primero es el que hace mas que no se pide.
+        while len(_CACHE_WHISPER) > CACHE_WHISPER_TOPE:
+            del _CACHE_WHISPER[next(iter(_CACHE_WHISPER))]
+    return modelo
+
 
 class MicBusyError(RuntimeError):
     """Otro programa tiene el microfono en modo exclusivo (Discord, OBS, Zoom)."""
@@ -318,9 +343,8 @@ def transcribe(audio: np.ndarray, cfg: dict) -> str:
     # se cargo. Sin esto, cambiar el modelo o el device en el panel no hacia
     # nada: el listener se rearmaba y seguia usando el que ya estaba en memoria.
     quiere = (cfg["stt_model"], cfg["stt_device"], _computo(cfg))
-    if _whisper is None or _whisper_para != quiere:
-        _whisper = _abrir_whisper(*quiere)
-        _whisper_para = quiere
+    _whisper = _traer_whisper(quiere)
+    _whisper_para = quiere
     # Sin initial_prompt, decodificar en espanol destroza los nombres propios en
     # ingles. Pasarle los programas instalados es lo que hace que "abre rainbow
     # six siege" no salga como "Haberé en Vox XC".
@@ -337,8 +361,11 @@ def transcribe(audio: np.ndarray, cfg: dict) -> str:
         if cfg.get("stt_device") == "cpu":
             raise
         print(f"[stt] la GPU fallo transcribiendo ({str(exc)[:80]}); paso a CPU")
-        _whisper = _abrir_whisper(cfg["stt_model"], "cpu", "int8")
+        # Por la cache y no directo: el que fallo en GPU se queda ahi ocupando
+        # una ranura y volveria a elegirse en la proxima frase.
+        _CACHE_WHISPER.pop((cfg["stt_model"], cfg["stt_device"], _computo(cfg)), None)
         _whisper_para = (cfg["stt_model"], "cpu", "int8")
+        _whisper = _traer_whisper(_whisper_para)
         return _decodificar(_whisper, audio, cfg)
 
 
@@ -498,9 +525,10 @@ def precargar_stt(cfg: dict) -> None:
     # dejaba listo un modelo que transcribe descartaba por no coincidir, y se
     # pagaba la carga dos veces justo en la primera orden.
     quiere = (cfg["stt_model"], cfg["stt_device"], _computo(cfg))
-    if _whisper is not None and _whisper_para == quiere:
-        return
-    _whisper = _abrir_whisper(*quiere)
+    # Por la MISMA cache que usa transcribe(): precargar por afuera dejaba un
+    # modelo cargado que la cache no conocia, y la primera orden lo cargaba de
+    # nuevo --justo lo que precargar existe para evitar--.
+    _whisper = _traer_whisper(quiere)
     _whisper_para = quiere
 
 
@@ -546,10 +574,51 @@ def hasta(texto: str, fraccion: float) -> str:
     return " ".join(palabras[:cuantas])
 
 
+# Hasta cuando NO hay que creerle al microfono, en reloj monotono. Lo mueve
+# `speak` mientras habla, y lo lee la escucha continua.
+#
+# Sin esto Eve se oye a si misma: con la palabra clave prendida el microfono
+# queda abierto mientras ella contesta, silero recorta su propia voz como una
+# frase, y si la respuesta empieza con el nombre --"Eve esta lista"-- la puerta
+# se abre sola. Se realimenta: cada respuesta puede disparar la siguiente.
+_callar_hasta = 0.0
+
+# Cuanto seguir desconfiando despues de que se apago el parlante. La frase que
+# la escucha esta armando se cierra recien tras CIERRE_S de silencio (0.7s), y
+# llega DESPUES de que speak volvio: sin esta cola, la ultima frase que dijo
+# ella entra igual.
+COLA_SORDA_S = 1.2
+
+
+def hablando() -> bool:
+    """Si el parlante esta sonando ahora, o acaba de apagarse."""
+    import time as _t
+
+    return _t.monotonic() < _callar_hasta
+
+
+def _marcar_hablando(segundos: float = 0.0) -> None:
+    global _callar_hasta
+    import time as _t
+
+    _callar_hasta = max(_callar_hasta, _t.monotonic() + segundos + COLA_SORDA_S)
+
+
 def speak(text: str, cfg: dict, progreso=None) -> None:
     """Dice `text`. `progreso(nivel, revelado)` sigue el avance para el overlay."""
     if not text or not cfg.get("speak_replies", True):
         return
+    # Antes de abrir la boca: mientras dure esto, lo que entre por el microfono
+    # es ella misma. La marca se renueva al terminar, con la cola.
+    _marcar_hablando(2.0)
+    try:
+        _hablar(text, cfg, progreso)
+    finally:
+        _marcar_hablando()
+
+
+def _hablar(text: str, cfg: dict, progreso=None) -> None:
+    """Lo que speak hacia antes de tener que avisar que esta hablando."""
 
     if cfg["tts_provider"] == "elevenlabs":
         _speak_elevenlabs(text, cfg)
@@ -561,7 +630,7 @@ def speak(text: str, cfg: dict, progreso=None) -> None:
         clave = cfg.get("piper_voice") or (voices.instaladas() or [""])[0]
         if not clave:
             raise RuntimeError(
-                "TTS en Piper pero no hay ninguna voz descargada. Panel > Voces."
+                "TTS en Piper pero no hay ninguna voz descargada. Panel > Voz."
             )
         avance = None
         if progreso:
